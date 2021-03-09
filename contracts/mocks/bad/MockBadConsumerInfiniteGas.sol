@@ -31,7 +31,7 @@ contract MockBadConsumerInfiniteGas is ConsumerBase {
         bytes32 _requestId
     )
     internal override {
-        while(true){}
+        while(true) {}
         // will never get here, but stops compiler warnings
         price = _price;
         requestId = _requestId;
