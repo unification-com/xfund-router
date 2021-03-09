@@ -119,7 +119,7 @@ contract MockConsumerCustomRequest is ConsumerBase {
     internal override {
         price = _price;
         bytes32 data = myCustomRequestStorage[_requestId];
-        emit GotSomeData(msg.sender, _requestId, data, _price);
         delete myCustomRequestStorage[_requestId];
+        emit GotSomeData(msg.sender, _requestId, data, _price);
     }
 }
