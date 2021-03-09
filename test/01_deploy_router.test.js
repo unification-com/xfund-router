@@ -2,8 +2,9 @@ const { constants, expectRevert } = require("@openzeppelin/test-helpers")
 
 const { expect } = require("chai")
 
-const MockToken = artifacts.require("MockToken") // Loads a compiled contract
-const Router = artifacts.require("Router") // Loads a compiled contract
+// Loads a compiled contracts
+const MockToken = artifacts.require("MockToken")
+const Router = artifacts.require("Router")
 
 contract("Router - deploy", (accounts) => {
   const [admin, eoa] = accounts
