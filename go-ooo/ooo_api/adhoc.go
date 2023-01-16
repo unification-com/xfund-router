@@ -77,7 +77,7 @@ func getQlApis() []map[string]string {
 		},
 		{
 			"name":              "quickswap",
-			"url":               "https://api.thegraph.com/subgraphs/name/sameepsi/quickswap05",
+			"url":               "https://api.thegraph.com/subgraphs/name/sameepsi/quickswap06",
 			"pairs_endpoint":    "pairs",
 			"pair_endpoint":     "pair",
 			"tokens_endpoint":   "tokens",
