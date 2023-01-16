@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // MinLiquidity ToDo - make configurable in config.toml
@@ -246,7 +247,19 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		}
 	}
 
-	base, target, _, _, _, _, _, err := ParseEndpoint(endpoint)
+	base, target, _, mins, _, _, _, err := ParseEndpoint(endpoint)
+
+	minutes, _ := strconv.ParseInt(mins, 10, 64)
+
+	// default to 10 minutes' of data
+	if minutes == 0 {
+		minutes = 10
+	}
+
+	// no more than 1 hour's data
+	if minutes > 60 {
+		minutes = 60
+	}
 
 	if err != nil {
 		return "", err
@@ -260,6 +273,7 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		"endpoint":  endpoint,
 		"base":      base,
 		"target":    target,
+		"minutes":   minutes,
 	}).Debug("AdHoc endpoint parsed")
 
 	var rawPrices []float64
@@ -268,12 +282,23 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 	total := big.NewInt(0)
 
 	for _, a := range qlApiUrls {
-		dexPrices := o.getPairPricesFromDex(base, target, a, currentBlocks[a["chain"]])
+		dexPrices := o.getPairPricesFromDex(base, target, a, currentBlocks[a["chain"]], uint64(minutes))
 		for _, price := range dexPrices {
 			if price != 0 {
 				rawPrices = append(rawPrices, price)
 			}
 		}
+	}
+
+	if len(rawPrices) == 0 {
+		o.logger.WithFields(logrus.Fields{
+			"package":  "ooo_api",
+			"function": "QueryAdhoc",
+			"base":     base,
+			"target":   target,
+		}).Error("no prices found on DEXs for pair")
+
+		return "0", errors.New("no prices found on DEXs for pair")
 	}
 
 	mean, err := stats.Mean(rawPrices)
@@ -339,19 +364,19 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 	return meanPrice.String(), nil
 }
 
-func (o *OOOApi) processPriceData(base string, target string, dexName string, pair GraphQlPairContent) float64 {
+func (o *OOOApi) processPriceData(base string, target string, dexName string, pair map[string]any) float64 {
 	price := float64(0)
 
 	// check reserve USD and reject if < MIN_LIQUIDITY
-	dexRes := pair.ReserveUSD
+	dexRes := pair["reserveUSD"]
 	// todo - betterize
 	if dexName == "uniswapv3" {
-		dexRes = pair.TotalValueLockedUSD
+		dexRes = pair["totalValueLockedUSD"]
 	}
 
 	limit := big.NewFloat(MinLiquidity)
 
-	reserve, err := utils.ParseBigFloat(dexRes)
+	reserve, err := utils.ParseBigFloat(dexRes.(string))
 
 	if err != nil {
 		o.logger.WithFields(logrus.Fields{
@@ -380,10 +405,13 @@ func (o *OOOApi) processPriceData(base string, target string, dexName string, pa
 
 	priceBf := big.NewFloat(MinLiquidity)
 
-	if base == pair.Token0.Symbol && target == pair.Token1.Symbol {
-		priceBf, err = utils.ParseBigFloat(pair.Token1Price)
+	t0 := pair["token0"].(map[string]any)
+	t1 := pair["token1"].(map[string]any)
+
+	if base == t0["symbol"] && target == t1["symbol"] {
+		priceBf, err = utils.ParseBigFloat(pair["token1Price"].(string))
 	} else {
-		priceBf, err = utils.ParseBigFloat(pair.Token0Price)
+		priceBf, err = utils.ParseBigFloat(pair["token0Price"].(string))
 	}
 
 	if err != nil {
@@ -404,34 +432,31 @@ func (o *OOOApi) processPriceData(base string, target string, dexName string, pa
 	return price
 }
 
-func (o *OOOApi) getPairPricesFromDex(base string, target string, api map[string]string, currentBlock uint64) []float64 {
+func (o *OOOApi) getPairPricesFromDex(base string, target string, api map[string]string, currentBlock, minutes uint64) []float64 {
 
 	var prices []float64
 	// check DB for pair contract address
 	dbPairRes, _ := o.db.FindByDexPairName(base, target, api["name"])
 
 	if dbPairRes.ID != 0 {
-		pairPricesRes := o.getRecentPairPrices(dbPairRes.ContractAddress, api, currentBlock)
-		price0 := o.processPriceData(base, target, api["name"], pairPricesRes.P0)
-		prices = append(prices, price0)
-		price1 := o.processPriceData(base, target, api["name"], pairPricesRes.P1)
-		prices = append(prices, price1)
-		price2 := o.processPriceData(base, target, api["name"], pairPricesRes.P2)
-		prices = append(prices, price2)
-		price3 := o.processPriceData(base, target, api["name"], pairPricesRes.P3)
-		prices = append(prices, price3)
-		price4 := o.processPriceData(base, target, api["name"], pairPricesRes.P4)
-		prices = append(prices, price4)
-		price5 := o.processPriceData(base, target, api["name"], pairPricesRes.P5)
-		prices = append(prices, price5)
-		price6 := o.processPriceData(base, target, api["name"], pairPricesRes.P6)
-		prices = append(prices, price6)
-		price7 := o.processPriceData(base, target, api["name"], pairPricesRes.P7)
-		prices = append(prices, price7)
-		price8 := o.processPriceData(base, target, api["name"], pairPricesRes.P8)
-		prices = append(prices, price8)
-		price9 := o.processPriceData(base, target, api["name"], pairPricesRes.P9)
-		prices = append(prices, price9)
+		pairPricesRes, err := o.getRecentPairPrices(dbPairRes.ContractAddress, api, currentBlock, minutes)
+
+		if err != nil {
+			o.logger.WithFields(logrus.Fields{
+				"package":  "ooo_api",
+				"function": "getRecentPairPrices",
+				"dex":      api["name"],
+				"base":     base,
+				"target":   target,
+			}).Error(err)
+		}
+
+		if pairPricesRes != nil {
+			for i := 0; i < int(minutes); i++ {
+				p := o.processPriceData(base, target, api["name"], pairPricesRes[fmt.Sprintf(`p%d`, i)].(map[string]any))
+				prices = append(prices, p)
+			}
+		}
 	} else {
 		o.logger.WithFields(logrus.Fields{
 			"package":  "ooo_api",
@@ -445,7 +470,7 @@ func (o *OOOApi) getPairPricesFromDex(base string, target string, api map[string
 	return prices
 }
 
-func (o *OOOApi) getRecentPairPrices(pairAddress string, api map[string]string, currentBlock uint64) GraphQlAliasedPairPrices {
+func (o *OOOApi) getRecentPairPrices(pairAddress string, api map[string]string, currentBlock, minutes uint64) (map[string]any, error) {
 	o.logger.WithFields(logrus.Fields{
 		"package":       "ooo_api",
 		"function":      "getKnownPairPrice",
@@ -460,13 +485,19 @@ func (o *OOOApi) getRecentPairPrices(pairAddress string, api map[string]string, 
 		blocksPerMin = 10
 	}
 
-	query := generatePairPricesQuery(pairAddress, api["pair_endpoint"], api["pairs_order_by"], uint64(blocksPerMin), currentBlock)
+	query := generatePairPricesQuery(pairAddress, api["pair_endpoint"], api["pairs_order_by"], uint64(blocksPerMin), currentBlock, minutes)
 
-	var decodedResponse GraphQlPairPricesResponse
+	var decodedResponse map[string]any
 
 	o.runQuery(query, api["url"], &decodedResponse)
 
-	return decodedResponse.Data
+	if decodedResponse["errors"] != nil {
+		retErrors := decodedResponse["errors"].([]interface{})
+		retErr := retErrors[0].(map[string]any)
+		return nil, errors.New(retErr["message"].(string))
+	}
+
+	return decodedResponse["data"].(map[string]any), nil
 
 }
 
@@ -671,10 +702,10 @@ func generateKnownPairQuery(pairAddress string, pairEndpoint string, pairOrderBy
 	return jsonData
 }
 
-func generatePairPricesQuery(pairAddress string, pairEndpoint string, pairOrderBy string, blocksPerMin, currentBlock uint64) map[string]string {
+func generatePairPricesQuery(pairAddress string, pairEndpoint string, pairOrderBy string, blocksPerMin, currentBlock, minutes uint64) map[string]string {
 
 	baseQuery := fmt.Sprintf(`
-id
+                    id
 	                token0 {
                          id
                          name
@@ -689,61 +720,26 @@ id
                     token1Price
                     %s`, pairOrderBy)
 
-	p0Q := fmt.Sprintf(`%s(id: "%s") {
-                     %s
-                }`, pairEndpoint, pairAddress, baseQuery)
+	var queries = make(map[string]string)
 
-	p1Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-blocksPerMin, baseQuery)
+	// Subgraphs are sometimes 2 or 3 blocks behind with indexing
+	qBlock := currentBlock - 3
 
-	p2Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
+	for i := 0; i < int(minutes); i++ {
+		q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
                      %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*2), baseQuery)
+                }`, pairEndpoint, pairAddress, qBlock-(blocksPerMin*uint64(i)), baseQuery)
+		queries[fmt.Sprintf(`p%d`, i)] = q
+	}
 
-	p3Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*3), baseQuery)
-
-	p4Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*4), baseQuery)
-
-	p5Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*5), baseQuery)
-
-	p6Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*6), baseQuery)
-
-	p7Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*7), baseQuery)
-
-	p8Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*8), baseQuery)
-
-	p9Q := fmt.Sprintf(`%s(id: "%s", block: { number: %d }) {
-                     %s
-                }`, pairEndpoint, pairAddress, currentBlock-(blocksPerMin*9), baseQuery)
+	qs := []string{}
+	for i, s := range queries {
+		q := fmt.Sprintf("%s: %s", i, s)
+		qs = append(qs, q)
+	}
 
 	jsonData := map[string]string{
-		"query": fmt.Sprintf(`
-            {
-	            p0: %s,
-                p1: %s,
-                p2: %s,
-                p3: %s,
-                p4: %s,
-                p5: %s,
-                p6: %s,
-                p7: %s,
-                p8: %s,
-                p9: %s
-	        }
-        `, p0Q, p1Q, p2Q, p3Q, p4Q, p5Q, p6Q, p7Q, p8Q, p9Q),
+		"query": fmt.Sprintf(`{%s}`, strings.Join(qs, ",")),
 	}
 
 	return jsonData
