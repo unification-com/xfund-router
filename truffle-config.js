@@ -2,6 +2,15 @@ require("dotenv").config()
 const HDWalletProvider = require("@truffle/hdwallet-provider")
 const TestRPC = require("ganache-cli")
 
+const fs = require("fs")
+
+let customNetworks = {}
+
+if (fs.existsSync("./custom_networks.js")) {
+  // eslint-disable-next-line global-require
+  customNetworks = require("./custom_networks").customNetworks
+}
+
 const {
   ETH_PKEY_RINKEBY,
   INFURA_PROJECT_ID_RINKEBY,
@@ -26,17 +35,6 @@ module.exports = {
       port: 8545,
       network_id: "*",
       defaultEtherBalance: 500,
-    },
-    rinkeby: {
-      provider: () =>
-        new HDWalletProvider({
-          privateKeys: [ETH_PKEY_RINKEBY],
-          providerOrUrl: `https://rinkeby.infura.io/v3/${INFURA_PROJECT_ID_RINKEBY}`,
-        }),
-      network_id: "4",
-      gas: 10000000,
-      gasPrice: 100000000000,
-      skipDryRun: true,
     },
     goerli: {
       provider: () =>
@@ -69,6 +67,7 @@ module.exports = {
       gasPrice: 40000000000, // 40 gwei
       skipDryRun: true,
     },
+    ...customNetworks,
   },
 
   plugins: ["truffle-plugin-verify", "solidity-coverage", "@chainsafe/truffle-plugin-abigen"],

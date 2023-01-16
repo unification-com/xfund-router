@@ -125,3 +125,4 @@ provider-oracle/db/database.sqlite
 
 # local scripts
 scripts/tmp.js
+custom_networks.js
