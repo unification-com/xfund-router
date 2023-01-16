@@ -22,6 +22,9 @@ abigen:
 build:
 	cd go-ooo && rm -f build/go-ooo && go build -mod=readonly $(BUILD_FLAGS) -o ./build/go-ooo ./
 
+build-testapp:
+	cd go-ooo && rm -f build/testapp && go build -mod=readonly $(BUILD_FLAGS) -o ./build/testapp ./testapp
+
 install:
 	cd go-ooo && go install -mod=readonly $(BUILD_FLAGS) ./
 
