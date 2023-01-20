@@ -85,7 +85,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		go getPrices(module, base, target, minutes, dexInfo, resCh, errCh)
 	}
 
-	for modName, _ := range validMods {
+	for modName := range validMods {
 		p := <-resCh // receive result from channel resCh
 		err := <-errCh
 
