@@ -2,22 +2,23 @@ package app
 
 import (
 	"context"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	"go-ooo/config"
-	"go-ooo/database"
-	"go-ooo/keystore"
-	"go-ooo/service"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"go-ooo/config"
+	"go-ooo/database"
+	"go-ooo/keystore"
+	"go-ooo/logger"
+	"go-ooo/service"
 	"go-ooo/version"
+
+	"github.com/spf13/viper"
 )
 
 type Server struct {
 	srv         *service.Service
-	logger      *logrus.Logger
+	logger      *logger.Logger
 	ctx         context.Context
 	Vers        version.Info
 	keystore    *keystore.Keystorage
@@ -27,7 +28,7 @@ type Server struct {
 
 func NewServer(decryptPass string) (*Server, error) {
 	ctx := context.Background()
-	log := logrus.New()
+	log := logger.NewAppLogger()
 
 	return &Server{
 		logger:      log,
@@ -38,10 +39,7 @@ func NewServer(decryptPass string) (*Server, error) {
 }
 
 func (s *Server) InitServer() {
-	s.logger.WithFields(logrus.Fields{
-		"package":  "main",
-		"function": "main",
-	}).Info(s.Vers.StringLine())
+	s.logger.Info("main", "InitServer", "", s.Vers.StringLine())
 	s.initServer()
 }
 
@@ -58,28 +56,7 @@ func (s *Server) initServer() {
 }
 
 func (s *Server) initLogger() {
-	s.logger.SetFormatter(&logrus.TextFormatter{
-		//DisableColors: true,
-		FullTimestamp: true,
-	})
-
-	logLevel := viper.GetString(config.LogLevel)
-	logrusLevel := logrus.InfoLevel
-
-	switch logLevel {
-	case "info":
-		logrusLevel = logrus.InfoLevel
-		break
-	case "debug":
-		logrusLevel = logrus.DebugLevel
-		break
-	default:
-		logrusLevel = logrus.InfoLevel
-		break
-	}
-
-	s.logger.SetLevel(logrusLevel)
-	s.logger.SetOutput(os.Stdout)
+	s.logger.InitLogger()
 }
 
 func (s *Server) initSignal() {
@@ -89,10 +66,7 @@ func (s *Server) initSignal() {
 		<-c
 		s.srv.Stop()
 
-		s.logger.WithFields(logrus.Fields{
-			"package":  "main",
-			"function": "initSignal",
-		}).Info("exiting oracle daemon...")
+		s.logger.Info("main", "initSignal", "", "exiting oracle daemon...")
 
 		os.Exit(0)
 	}()
@@ -100,18 +74,12 @@ func (s *Server) initSignal() {
 
 func (s *Server) initKeystore() {
 
-	s.logger.WithFields(logrus.Fields{
-		"package":  "main",
-		"function": "initKeystore",
-	}).Info("initialise keystore")
+	s.logger.Info("main", "initKeystore", "", "initialise keystore")
 
 	ks, err := keystore.NewKeyStorage(s.logger, viper.GetString(config.KeystorageFile))
 	if err != nil {
-		s.logger.WithFields(logrus.Fields{
-			"package":  "main",
-			"function": "start",
-			"action":   "open keystorage",
-		}).Warning("can't read keystorage, creating a new one...")
+		s.logger.Warn("main", "initKeystore", "open keystorage",
+			"can't read keystorage, creating a new one...")
 	}
 
 	s.keystore = ks
@@ -136,10 +104,7 @@ func (s *Server) initKeystore() {
 
 func (s *Server) initDatabase() {
 
-	s.logger.WithFields(logrus.Fields{
-		"package":  "main",
-		"function": "initDatabase",
-	}).Info("initialise database")
+	s.logger.Info("main", "initDatabase", "", "initialise database")
 
 	dbConn, err := database.NewDb()
 	if err != nil {
@@ -153,10 +118,7 @@ func (s *Server) initDatabase() {
 }
 
 func (s *Server) initService() {
-	s.logger.WithFields(logrus.Fields{
-		"package":  "main",
-		"function": "initService",
-	}).Info("initialise service")
+	s.logger.Info("main", "initService", "", "initialise service")
 
 	srv, err := service.NewService(s.ctx, s.logger, []byte(s.keystore.GetSelectedPrivateKey()),
 		s.db, s.keystore.KeyStore.GetToken())

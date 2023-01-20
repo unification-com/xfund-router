@@ -15,15 +15,15 @@ import (
 	"sync"
 	"time"
 
+	"go-ooo/logger"
 	"go-ooo/utils"
 	"go-ooo/utils/walletworker"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Keystorage struct {
-	log      *logrus.Logger
+	log      *logger.Logger
 	File     *os.File
 	KeyStore *KeyStorageModel
 	mu       sync.Mutex
@@ -65,7 +65,7 @@ func NewKeyStorageNoLogger(filePath string) (*Keystorage, error) {
 	}, nil
 }
 
-func NewKeyStorage(log *logrus.Logger, filePath string) (*Keystorage, error) {
+func NewKeyStorage(log *logger.Logger, filePath string) (*Keystorage, error) {
 	var err error
 	var keystoreFile *os.File
 	var keyStore = KeyStorageModel{}
@@ -73,42 +73,26 @@ func NewKeyStorage(log *logrus.Logger, filePath string) (*Keystorage, error) {
 	if _, err = os.Stat(filePath); err == nil {
 		keystoreFile, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0755)
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"package":  "keystorage",
-				"function": "NewKeyStorage",
-				"action":   "reading file",
-			}).Error(err.Error())
+			log.Error("keystorage", "NewKeyStorage", "read file", err.Error())
 			return nil, err
 		}
 
 		data, err := ioutil.ReadAll(keystoreFile)
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"package":  "keystorage",
-				"function": "NewKeyStorage",
-				"action":   "init KeyStore object",
-			}).Error(err.Error())
+			log.Error("keystorage", "NewKeyStorage", "init KeyStore object", err.Error())
 			return nil, err
 		}
 
 		err = json.Unmarshal(data, &keyStore)
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"package":  "keystorage",
-				"function": "NewKeyStorage",
-				"action":   "unmarshal json from file",
-			}).Error(err.Error())
+			log.Error("keystorage", "NewKeyStorage", "unmarshal json from file", err.Error())
 		}
 	} else if os.IsNotExist(err) {
 		keystoreFile, err = os.Create(filePath)
 		_, err := keystoreFile.Write([]byte(`{"keys":[]}`))
 		keyStore.Key = []*KeyStorageKeyModel{}
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"package":  "keystorage",
-				"function": "NewKeyStorage",
-				"action":   "creating file",
-			}).Error(err.Error())
+			log.Error("keystorage", "NewKeyStorage", "creating file", err.Error())
 			return nil, err
 		}
 

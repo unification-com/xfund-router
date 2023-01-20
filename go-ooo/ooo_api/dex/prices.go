@@ -3,7 +3,8 @@ package dex
 import (
 	"errors"
 	"fmt"
-	"github.com/sirupsen/logrus"
+
+	"go-ooo/logger"
 )
 
 type DexInfo struct {
@@ -18,31 +19,29 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 	resCh := make(chan []float64)
 	errCh := make(chan error)
 	validMods := make(map[string]DexInfo)
+	dexSuccess := 0
+	dexFail := 0
+	dexNoData := 0
 
 	// get a list of valid modules to send query to
 	for _, module := range dm.modules {
 
-		dm.logger.WithFields(logrus.Fields{
-			"package":  "dex",
-			"function": "GetPricesFromDexModules",
-			"action":   "check valid",
-			"dex":      module.Name(),
-			"base":     base,
-			"target":   target,
-			"minutes":  minutes,
-		}).Info("get prices")
+		dm.logger.InfoWithFields("dex", "GetPricesFromDexModules", "check valid", "get prices", logger.Fields{
+			"dex":     module.Name(),
+			"chain":   module.Chain(),
+			"base":    base,
+			"target":  target,
+			"minutes": minutes,
+		})
 
 		currentBlock, err := dm.chains[module.Chain()].EthClient.BlockNumber(dm.ctx)
 		blocksPerMin := uint64(dm.chains[module.Chain()].BlocksPerMin)
 
 		if err != nil {
-			dm.logger.WithFields(logrus.Fields{
-				"package":  "dex",
-				"function": "GetPricesFromDexModules",
-				"action":   "get current block",
-				"dex":      module.Name(),
-				"chain":    module.Chain(),
-			}).Error(err.Error())
+			dm.logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
+				"dex":   module.Name(),
+				"chain": module.Chain(),
+			})
 
 			continue
 		}
@@ -50,28 +49,28 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		dbPairRes, _ := dm.db.FindByDexPairName(base, target, module.Name())
 
 		if dbPairRes.ID == 0 {
-			dm.logger.WithFields(logrus.Fields{
-				"package":  "dex",
-				"function": "GetPricesFromDexModules",
-				"action":   "check pair exists in db",
-				"dex":      module.Name(),
-				"base":     base,
-				"target":   target,
-			}).Warn("pair not found in database for this dex")
+			dm.logger.WarnWithFields("dex", "GetPricesFromDexModules", "check pair exists in db",
+				"pair not found in database for this dex",
+				logger.Fields{
+					"dex":    module.Name(),
+					"base":   base,
+					"target": target,
+				})
+
 			continue
 		}
 
 		if dbPairRes.ReserveUsd < float64(module.MinLiquidity()) {
-			dm.logger.WithFields(logrus.Fields{
-				"package":       "dex",
-				"function":      "GetPricesFromDexModules",
-				"action":        "check liquidity",
-				"dex":           module.Name(),
-				"base":          base,
-				"target":        target,
-				"reserve_usd":   dbPairRes.ReserveUsd,
-				"min_liquidity": module.MinLiquidity(),
-			}).Warn("liquidity too low. Skipping")
+			dm.logger.WarnWithFields("dex", "GetPricesFromDexModules", "check liquidity",
+				"liquidity too low. Skipping",
+				logger.Fields{
+					"dex":           module.Name(),
+					"base":          base,
+					"target":        target,
+					"reserve_usd":   dbPairRes.ReserveUsd,
+					"min_liquidity": module.MinLiquidity(),
+				})
+
 			continue
 		}
 
@@ -91,29 +90,43 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		err := <-errCh
 
 		if err != nil {
-			dm.logger.WithFields(logrus.Fields{
-				"package":    "dex",
-				"function":   "getPrices",
-				"dex":        modName,
-				"base":       base,
-				"target":     target,
-				"num_prices": len(p),
-			}).Error(err.Error())
+			dm.logger.ErrorWithFields("dex", "GetPricesFromDexModules", "getPrices",
+				err.Error(),
+				logger.Fields{
+					"dex":        modName,
+					"base":       base,
+					"target":     target,
+					"num_prices": len(p),
+				})
+			dexFail++
 		} else {
-			dm.logger.WithFields(logrus.Fields{
-				"package":    "dex",
-				"function":   "getPrices",
-				"dex":        modName,
-				"base":       base,
-				"target":     target,
-				"num_prices": len(p),
-			}).Debug("prices result")
+			dm.logger.Debug("dex", "GetPricesFromDexModules", "getPrices", "prices result",
+				logger.Fields{
+					"dex":        modName,
+					"base":       base,
+					"target":     target,
+					"num_prices": len(p),
+				})
 
 			if len(p) > 0 {
 				prices = append(prices, p...)
+				dexSuccess++
+			} else {
+				dexNoData++
 			}
 		}
 	}
+
+	dm.logger.Debug("dex", "GetPricesFromDexModules", "", "",
+		logger.Fields{
+			"base":        base,
+			"target":      target,
+			"dex_success": dexSuccess,
+			"dex_fail":    dexFail,
+			"dex_no_data": dexNoData,
+			"num_dexes":   len(validMods),
+			"num_prices":  len(prices),
+		})
 
 	return prices
 }

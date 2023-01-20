@@ -4,6 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"go-ooo/config"
+	"go-ooo/database"
+	"go-ooo/logger"
 	"go-ooo/ooo_api/dex"
 	"go-ooo/ooo_api/dex/modules/bsc_pancakeswapv2"
 	"go-ooo/ooo_api/dex/modules/eth_shibaswap"
@@ -12,14 +19,7 @@ import (
 	"go-ooo/ooo_api/dex/modules/eth_uniswapv3"
 	"go-ooo/ooo_api/dex/modules/polygon_quickswap"
 	"go-ooo/ooo_api/dex/modules/xdai_honeyswap"
-	"net/http"
-	"strings"
-	"time"
 
-	"go-ooo/config"
-	"go-ooo/database"
-
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -27,12 +27,12 @@ type OOOApi struct {
 	baseURL          string
 	client           *http.Client
 	db               *database.DB
-	logger           *logrus.Logger
+	logger           *logger.Logger
 	ctx              context.Context
 	dexModuleManager *dex.Manager
 }
 
-func NewApi(ctx context.Context, db *database.DB, logger *logrus.Logger) (*OOOApi, error) {
+func NewApi(ctx context.Context, db *database.DB, logger *logger.Logger) (*OOOApi, error) {
 
 	dexModuleManager := dex.NewDexManager(
 		ctx, logger, db,
@@ -68,13 +68,10 @@ func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
 		return "", err
 	}
 
-	o.logger.WithFields(logrus.Fields{
-		"package":    "ooo_api",
-		"function":   "RouteQuery",
-		"action":     "route",
+	o.logger.Debug("ooo_api", "RouteQuery", "route", "", logger.Fields{
 		"request_id": requestId,
 		"is_adhoc":   isAdHoc,
-	}).Debug()
+	})
 
 	if isAdHoc {
 		return o.QueryAdhoc(endpoint, requestId)

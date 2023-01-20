@@ -3,7 +3,7 @@ package ooo_api
 import (
 	"errors"
 	"github.com/montanaflynn/stats"
-	"github.com/sirupsen/logrus"
+	"go-ooo/logger"
 	"go-ooo/utils"
 	"math"
 	"math/big"
@@ -29,16 +29,13 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		return "", err
 	}
 
-	o.logger.WithFields(logrus.Fields{
-		"package":   "ooo_api",
-		"function":  "QueryAdhoc",
-		"action":    "ParseEndpoint",
+	o.logger.Debug("ooo_api", "QueryAdhoc", "ParseEndpoint", "AdHoc endpoint parsed", logger.Fields{
 		"requestId": requestId,
 		"endpoint":  endpoint,
 		"base":      base,
 		"target":    target,
 		"minutes":   minutes,
-	}).Debug("AdHoc endpoint parsed")
+	})
 
 	var outliersRemoved []float64
 	priceCount := 0
@@ -47,12 +44,10 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 	rawPrices := o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes))
 
 	if len(rawPrices) == 0 {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "ooo_api",
-			"function": "QueryAdhoc",
-			"base":     base,
-			"target":   target,
-		}).Warn("no prices found on DEXs for pair")
+		o.logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "no prices found on DEXs for pair", logger.Fields{
+			"base":   base,
+			"target": target,
+		})
 
 		return "0", errors.New("no prices found on DEXs for pair")
 	}
@@ -103,9 +98,7 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 
 	meanPrice := new(big.Int).Div(total, big.NewInt(int64(priceCount)))
 
-	o.logger.WithFields(logrus.Fields{
-		"package":            "ooo_api",
-		"function":           "QueryAdhoc",
+	o.logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
 		"base":               base,
 		"target":             target,
 		"num_prices_raw":     len(rawPrices),
@@ -115,7 +108,7 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		"raw_std_dev":        stdDev,
 		"final_wei_mean":     meanPrice.String(),
 		"chauvenet_used":     chauvenetUsed,
-	}).Debug("price stats")
+	})
 
 	return meanPrice.String(), nil
 }

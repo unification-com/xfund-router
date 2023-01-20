@@ -2,6 +2,7 @@ package chains
 
 import (
 	"errors"
+
 	"go-ooo/config"
 
 	"github.com/ethereum/go-ethereum/ethclient"

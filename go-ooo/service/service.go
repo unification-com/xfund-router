@@ -4,25 +4,25 @@ import (
 	"context"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
+	"time"
+
 	"go-ooo/chain"
 	"go-ooo/config"
 	"go-ooo/database"
+	"go-ooo/logger"
 	"go-ooo/ooo_api"
+	"go-ooo/ooo_router"
 	go_ooo_types "go-ooo/types"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/sirupsen/logrus"
-
-	"go-ooo/ooo_router"
 )
 
 type Service struct {
 	contractAddress   common.Address
 	client            *ethclient.Client
 	contractInstance  *ooo_router.OooRouter
-	logger            *logrus.Logger
+	logger            *logger.Logger
 	db                *database.DB
 	ctx               context.Context
 	jobTicker         *time.Ticker // periodic jobTicker
@@ -42,7 +42,7 @@ type Service struct {
 	authToken string
 }
 
-func NewService(ctx context.Context, logger *logrus.Logger, oraclePrivateKey []byte,
+func NewService(ctx context.Context, logger *logger.Logger, oraclePrivateKey []byte,
 	db *database.DB, authToken string) (*Service, error) {
 	contractAddress := common.HexToAddress(viper.GetString(config.ChainContractAddress))
 	client, err := ethclient.Dial(viper.GetString(config.ChainEthWsHost))
@@ -146,47 +146,25 @@ func (s *Service) Run() {
 
 func (s *Service) Stop() {
 	// clean up and shut down
-	s.logger.WithFields(logrus.Fields{
-		"package":  "service",
-		"function": "Stop",
-	}).Info("shutting down jobTicker")
-
+	s.logger.Info("service", "Stop", "", "shutting down jobTicker")
 	s.jobTicker.Stop()
 
-	s.logger.WithFields(logrus.Fields{
-		"package":  "service",
-		"function": "Stop",
-	}).Info("shutting down updatePairsTicker")
-
+	s.logger.Info("service", "Stop", "", "shutting down updatePairsTicker")
 	s.updatePairsTicker.Stop()
 
-	s.logger.WithFields(logrus.Fields{
-		"package":  "service",
-		"function": "Stop",
-	}).Info("shutting down oooRouterService")
-
+	s.logger.Info("service", "Stop", "", "shutting down oooRouterService")
 	s.oooRouterService.Shutdown()
 
-	s.logger.WithFields(logrus.Fields{
-		"package":  "service",
-		"function": "Stop",
-	}).Info("shutting down echo")
-
+	s.logger.Info("service", "Stop", "", "shutting down echo")
 	err := s.echoService.Shutdown(s.ctx)
 
 	if err != nil {
-		s.logger.WithFields(logrus.Fields{
-			"package":  "service",
-			"function": "Stop",
-		}).Error(err.Error())
+		s.logger.Error("service", "Stop", "shutting down echo", err.Error())
 	}
 
 	err = s.echoService.Close()
 
 	if err != nil {
-		s.logger.WithFields(logrus.Fields{
-			"package":  "service",
-			"function": "Stop",
-		}).Error(err.Error())
+		s.logger.Error("service", "Stop", "closing echo", err.Error())
 	}
 }

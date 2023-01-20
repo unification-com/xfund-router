@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-ooo/logger"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 
-	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -21,14 +21,11 @@ func (o *OOOApi) QueryFinchainsEndpoint(endpoint string, requestId string) (stri
 		return "", err
 	}
 
-	o.logger.WithFields(logrus.Fields{
-		"package":   "ooo_api",
-		"function":  "QueryFinchainsEndpoint",
-		"action":    "buildQuery",
+	o.logger.Debug("ooo_api", "QueryFinchainsEndpoint", "buildQuery", "OoO API query built", logger.Fields{
 		"requestId": requestId,
 		"endpoint":  endpoint,
 		"uri":       uri,
-	}).Debug("OoO API query built")
+	})
 
 	req, err := http.NewRequest("GET", fmt.Sprint(o.baseURL, "/", uri), nil)
 
@@ -62,33 +59,19 @@ func (o *OOOApi) QueryFinchainsEndpoint(endpoint string, requestId string) (stri
 
 func (o *OOOApi) UpdateSupportedPairs() {
 
-	o.logger.WithFields(logrus.Fields{
-		"package":  "ooo_api",
-		"function": "UpdateSupportedPairs",
-	}).Info("begin update supported pairs")
+	o.logger.Info("ooo_api", "UpdateSupportedPairs", "", "begin update supported pairs")
 
 	req, err := http.NewRequest("GET", fmt.Sprint(o.baseURL, "/pairs"), nil)
 
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "ooo_api",
-			"function": "UpdateSupportedPairs",
-			"action":   "generate http request",
-		}).Error(err.Error())
-
+		o.logger.Error("ooo_api", "UpdateSupportedPairs", "generate http request", err.Error())
 		return
 	}
 
 	resp, err := o.client.Do(req)
 
 	if err != nil {
-
-		o.logger.WithFields(logrus.Fields{
-			"package":  "ooo_api",
-			"function": "UpdateSupportedPairs",
-			"action":   "run http request",
-		}).Error(err.Error())
-
+		o.logger.Error("ooo_api", "UpdateSupportedPairs", "run http request", err.Error())
 		return
 	}
 
@@ -99,11 +82,7 @@ func (o *OOOApi) UpdateSupportedPairs() {
 
 	err = json.Unmarshal(body, &result)
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "ooo_api",
-			"function": "UpdateSupportedPairs",
-			"action":   "unmarshel json response",
-		}).Error(err.Error())
+		o.logger.Error("ooo_api", "UpdateSupportedPairs", "unmarshal json response", err.Error())
 		return
 	}
 
@@ -120,23 +99,16 @@ func (o *OOOApi) UpdateSupportedPairs() {
 	noLongerSupported, err := o.db.PairsNoLongerSupported(currentPairs)
 
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "ooo_api",
-			"function": "UpdateSupportedPairs",
-			"action":   "get pairs not supported from DB",
-		}).Error(err.Error())
+		o.logger.Error("ooo_api", "UpdateSupportedPairs", "get pairs not supported from db", err.Error())
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return
 		}
 	}
 
 	for _, p := range noLongerSupported {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "ooo_api",
-			"function": "UpdateSupportedPairs",
-			"action":   "delete pair",
-			"pair":     p.Name,
-		}).Info("pair no longer supported")
+		o.logger.InfoWithFields("ooo_api", "UpdateSupportedPairs", "delete pair", "pair no longer supported", logger.Fields{
+			"pair": p.Name,
+		})
 
 		// delete permanently
 		o.db.Unscoped().Delete(&p)
@@ -170,9 +142,7 @@ func (o *OOOApi) buildQuery(endpoint string) (string, error) {
 		return "", err
 	}
 
-	o.logger.WithFields(logrus.Fields{
-		"package":  "ooo_api",
-		"function": "buildQuery",
+	o.logger.Debug("ooo_api", "buildQuery", "", "build finchains api query", logger.Fields{
 		"endpoint": endpoint,
 		"base":     base,
 		"target":   target,
@@ -181,7 +151,7 @@ func (o *OOOApi) buildQuery(endpoint string) (string, error) {
 		"supp1":    supp1,
 		"supp2":    supp2,
 		"supp3":    supp3,
-	}).Debug("build finchains api query")
+	})
 
 	// check supported
 	supported, _ := o.db.PairIsSupportedByBaseAndTarget(base, target)

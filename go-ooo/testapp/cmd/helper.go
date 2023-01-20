@@ -2,34 +2,42 @@ package cmd
 
 import (
 	"context"
+	"github.com/spf13/viper"
+	"go-ooo/config"
 	"gorm.io/driver/sqlite"
 	"log"
 	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"go-ooo/database"
+	"go-ooo/logger"
 	"go-ooo/ooo_api"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+
+	gorm_logger "gorm.io/gorm/logger"
 )
 
 func createApi() *ooo_api.OOOApi {
 	ctx := context.Background()
 
-	logr := logrus.New()
-	logr.SetLevel(5)
-	logr.SetOutput(os.Stdout)
+	viper.Set(config.SubChainEthHttpRpc, "https://eth.althea.net")
+	viper.Set(config.SubChainPolygonHttpRpc, "https://polygon-rpc.com")
+	viper.Set(config.SubChainBcsHttpRpc, "https://bsc-dataseed.binance.org")
+	viper.Set(config.SubChainXdaiHttpRpc, "https://rpc.gnosischain.com")
+	viper.Set(config.SubChainFantomHttpRpc, "https://rpc.ankr.com/fantom")
+	viper.Set(config.JobsOooApiUrl, "https://finchains.io/api")
+	viper.Set(config.LogLevel, "debug")
 
-	gormLogger := logger.New(
+	logr := logger.NewAppLogger()
+	logr.InitLogger()
+
+	gormLogger := gorm_logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
-		logger.Config{
-			SlowThreshold:             time.Second, // Slow SQL threshold
-			LogLevel:                  logger.Warn, // Log level
-			IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
-			Colorful:                  false,       // Disable color
+		gorm_logger.Config{
+			SlowThreshold:             time.Second,      // Slow SQL threshold
+			LogLevel:                  gorm_logger.Warn, // Log level
+			IgnoreRecordNotFoundError: true,             // Ignore ErrRecordNotFound error for logger
+			Colorful:                  false,            // Disable color
 		},
 	)
 
@@ -48,13 +56,6 @@ func createApi() *ooo_api.OOOApi {
 	if err != nil {
 		panic(err)
 	}
-
-	viper.Set(config.SubChainEthHttpRpc, "https://eth.althea.net")
-	viper.Set(config.SubChainPolygonHttpRpc, "https://polygon-rpc.com")
-	viper.Set(config.SubChainBcsHttpRpc, "https://bsc-dataseed.binance.org")
-	viper.Set(config.SubChainXdaiHttpRpc, "https://rpc.gnosischain.com")
-	viper.Set(config.SubChainFantomHttpRpc, "https://rpc.ankr.com/fantom")
-	viper.Set(config.JobsOooApiUrl, "https://finchains.io/api")
 
 	oooApi, err := ooo_api.NewApi(ctx, dbConn, logr)
 
