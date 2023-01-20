@@ -7,7 +7,7 @@ import (
 func (dm *Manager) UpdateAllPairsAndTokens() {
 	for _, module := range dm.modules {
 
-		dm.logger.InfoWithFields("dex", "UpdateAllPairsAndTokens", "", "start update pairs", logger.Fields{
+		logger.InfoWithFields("dex", "UpdateAllPairsAndTokens", "", "start update pairs", logger.Fields{
 			"dex": module.Name(),
 		})
 
@@ -17,7 +17,7 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 		for hasMore {
 			query, err := module.GeneratePairsQuery(skip)
 			if err != nil {
-				dm.logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "generate pairs query", err.Error(), logger.Fields{
+				logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "generate pairs query", err.Error(), logger.Fields{
 					"dex": module.Name(),
 				})
 
@@ -27,7 +27,7 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 
 			res, err := runQuery(query, module.SubgraphUrl())
 			if err != nil {
-				dm.logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "run pairs query", err.Error(), logger.Fields{
+				logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "run pairs query", err.Error(), logger.Fields{
 					"dex": module.Name(),
 				})
 				hasMore = false
@@ -35,7 +35,7 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 			}
 
 			if res == nil {
-				dm.logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "run pairs query", "empty response", logger.Fields{
+				logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "run pairs query", "empty response", logger.Fields{
 					"dex": module.Name(),
 				})
 				hasMore = false
@@ -45,7 +45,7 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 			pairs, more, err := module.ProcessPairsQueryResult(res)
 
 			if err != nil {
-				dm.logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "process pairs query", err.Error(), logger.Fields{
+				logger.ErrorWithFields("dex", "UpdateAllPairsAndTokens", "process pairs query", err.Error(), logger.Fields{
 					"dex": module.Name(),
 				})
 				hasMore = false
@@ -55,7 +55,7 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 			hasMore = more
 			skip += 1000
 
-			dm.logger.InfoWithFields("dex", "UpdateAllPairsAndTokens", "", "found pairs", logger.Fields{
+			logger.InfoWithFields("dex", "UpdateAllPairsAndTokens", "", "found pairs", logger.Fields{
 				"dex":       module.Name(),
 				"num_pairs": len(pairs),
 			})
@@ -63,7 +63,7 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 			dm.updatePairsInDb(pairs, module.Name(), module.Chain())
 		}
 
-		dm.logger.InfoWithFields("dex", "UpdateAllPairsAndTokens", "", "no more pairs", logger.Fields{
+		logger.InfoWithFields("dex", "UpdateAllPairsAndTokens", "", "no more pairs", logger.Fields{
 			"dex": module.Name(),
 		})
 	}

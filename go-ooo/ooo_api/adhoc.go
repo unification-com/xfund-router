@@ -29,7 +29,7 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		return "", err
 	}
 
-	o.logger.Debug("ooo_api", "QueryAdhoc", "ParseEndpoint", "AdHoc endpoint parsed", logger.Fields{
+	logger.Debug("ooo_api", "QueryAdhoc", "ParseEndpoint", "AdHoc endpoint parsed", logger.Fields{
 		"requestId": requestId,
 		"endpoint":  endpoint,
 		"base":      base,
@@ -44,7 +44,7 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 	rawPrices := o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes))
 
 	if len(rawPrices) == 0 {
-		o.logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "no prices found on DEXs for pair", logger.Fields{
+		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "no prices found on DEXs for pair", logger.Fields{
 			"base":   base,
 			"target": target,
 		})
@@ -98,7 +98,7 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 
 	meanPrice := new(big.Int).Div(total, big.NewInt(int64(priceCount)))
 
-	o.logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
+	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
 		"base":               base,
 		"target":             target,
 		"num_prices_raw":     len(rawPrices),

@@ -23,7 +23,6 @@ import (
 )
 
 type Keystorage struct {
-	log      *logger.Logger
 	File     *os.File
 	KeyStore *KeyStorageModel
 	mu       sync.Mutex
@@ -65,7 +64,7 @@ func NewKeyStorageNoLogger(filePath string) (*Keystorage, error) {
 	}, nil
 }
 
-func NewKeyStorage(log *logger.Logger, filePath string) (*Keystorage, error) {
+func NewKeyStorage(filePath string) (*Keystorage, error) {
 	var err error
 	var keystoreFile *os.File
 	var keyStore = KeyStorageModel{}
@@ -73,33 +72,32 @@ func NewKeyStorage(log *logger.Logger, filePath string) (*Keystorage, error) {
 	if _, err = os.Stat(filePath); err == nil {
 		keystoreFile, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0755)
 		if err != nil {
-			log.Error("keystorage", "NewKeyStorage", "read file", err.Error())
+			logger.Error("keystorage", "NewKeyStorage", "read file", err.Error())
 			return nil, err
 		}
 
 		data, err := ioutil.ReadAll(keystoreFile)
 		if err != nil {
-			log.Error("keystorage", "NewKeyStorage", "init KeyStore object", err.Error())
+			logger.Error("keystorage", "NewKeyStorage", "init KeyStore object", err.Error())
 			return nil, err
 		}
 
 		err = json.Unmarshal(data, &keyStore)
 		if err != nil {
-			log.Error("keystorage", "NewKeyStorage", "unmarshal json from file", err.Error())
+			logger.Error("keystorage", "NewKeyStorage", "unmarshal json from file", err.Error())
 		}
 	} else if os.IsNotExist(err) {
 		keystoreFile, err = os.Create(filePath)
 		_, err := keystoreFile.Write([]byte(`{"keys":[]}`))
 		keyStore.Key = []*KeyStorageKeyModel{}
 		if err != nil {
-			log.Error("keystorage", "NewKeyStorage", "creating file", err.Error())
+			logger.Error("keystorage", "NewKeyStorage", "creating file", err.Error())
 			return nil, err
 		}
 
 	}
 
 	return &Keystorage{
-		log:      log,
 		File:     keystoreFile,
 		KeyStore: &keyStore,
 	}, nil

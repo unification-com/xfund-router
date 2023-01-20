@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Service) initEcho() {
-	s.logger.Info("service", "initEcho", "", "initialise echo")
+	logger.Info("service", "initEcho", "", "initialise echo")
 
 	s.echoService.Use(middleware.Recover())
 	s.echoService.Use(middleware.KeyAuth(func(key string, c echo.Context) (bool, error) {
@@ -31,7 +31,7 @@ func (s *Service) AddAdminTask(c echo.Context) error {
 
 	json.NewDecoder(c.Request().Body).Decode(&request)
 
-	s.logger.InfoWithFields("service", "AddAdminTask", "", "admin task received", logger.Fields{
+	logger.InfoWithFields("service", "AddAdminTask", "", "admin task received", logger.Fields{
 		"task":           request.Task,
 		"fee_or_amount":  request.FeeOrAmount,
 		"to_or_consumer": request.ToOrConsumer,
@@ -57,7 +57,7 @@ func (s *Service) AddAnalyticsTask(c echo.Context) error {
 	var request go_ooo_types.AnalyticsTask
 	json.NewDecoder(c.Request().Body).Decode(&request)
 
-	s.logger.Info("service", "AddAnalyticsTask", "", "analytics task received")
+	logger.Info("service", "AddAnalyticsTask", "", "analytics task received")
 
 	// send received task to chanel for processing
 	s.analyticsTasks <- request

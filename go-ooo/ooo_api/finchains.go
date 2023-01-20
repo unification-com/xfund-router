@@ -21,7 +21,7 @@ func (o *OOOApi) QueryFinchainsEndpoint(endpoint string, requestId string) (stri
 		return "", err
 	}
 
-	o.logger.Debug("ooo_api", "QueryFinchainsEndpoint", "buildQuery", "OoO API query built", logger.Fields{
+	logger.Debug("ooo_api", "QueryFinchainsEndpoint", "buildQuery", "OoO API query built", logger.Fields{
 		"requestId": requestId,
 		"endpoint":  endpoint,
 		"uri":       uri,
@@ -59,19 +59,19 @@ func (o *OOOApi) QueryFinchainsEndpoint(endpoint string, requestId string) (stri
 
 func (o *OOOApi) UpdateSupportedPairs() {
 
-	o.logger.Info("ooo_api", "UpdateSupportedPairs", "", "begin update supported pairs")
+	logger.Info("ooo_api", "UpdateSupportedPairs", "", "begin update supported pairs")
 
 	req, err := http.NewRequest("GET", fmt.Sprint(o.baseURL, "/pairs"), nil)
 
 	if err != nil {
-		o.logger.Error("ooo_api", "UpdateSupportedPairs", "generate http request", err.Error())
+		logger.Error("ooo_api", "UpdateSupportedPairs", "generate http request", err.Error())
 		return
 	}
 
 	resp, err := o.client.Do(req)
 
 	if err != nil {
-		o.logger.Error("ooo_api", "UpdateSupportedPairs", "run http request", err.Error())
+		logger.Error("ooo_api", "UpdateSupportedPairs", "run http request", err.Error())
 		return
 	}
 
@@ -82,7 +82,7 @@ func (o *OOOApi) UpdateSupportedPairs() {
 
 	err = json.Unmarshal(body, &result)
 	if err != nil {
-		o.logger.Error("ooo_api", "UpdateSupportedPairs", "unmarshal json response", err.Error())
+		logger.Error("ooo_api", "UpdateSupportedPairs", "unmarshal json response", err.Error())
 		return
 	}
 
@@ -99,14 +99,14 @@ func (o *OOOApi) UpdateSupportedPairs() {
 	noLongerSupported, err := o.db.PairsNoLongerSupported(currentPairs)
 
 	if err != nil {
-		o.logger.Error("ooo_api", "UpdateSupportedPairs", "get pairs not supported from db", err.Error())
+		logger.Error("ooo_api", "UpdateSupportedPairs", "get pairs not supported from db", err.Error())
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return
 		}
 	}
 
 	for _, p := range noLongerSupported {
-		o.logger.InfoWithFields("ooo_api", "UpdateSupportedPairs", "delete pair", "pair no longer supported", logger.Fields{
+		logger.InfoWithFields("ooo_api", "UpdateSupportedPairs", "delete pair", "pair no longer supported", logger.Fields{
 			"pair": p.Name,
 		})
 
@@ -142,7 +142,7 @@ func (o *OOOApi) buildQuery(endpoint string) (string, error) {
 		return "", err
 	}
 
-	o.logger.Debug("ooo_api", "buildQuery", "", "build finchains api query", logger.Fields{
+	logger.Debug("ooo_api", "buildQuery", "", "build finchains api query", logger.Fields{
 		"endpoint": endpoint,
 		"base":     base,
 		"target":   target,
