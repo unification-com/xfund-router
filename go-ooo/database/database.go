@@ -88,5 +88,7 @@ func (d *DB) Migrate() (err error) {
 	// post-model data migration
 	d.MigrateV0ToV1()
 
+	d.MigrateV1ToV2()
+
 	return
 }
