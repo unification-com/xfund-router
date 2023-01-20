@@ -45,7 +45,7 @@ func NewService(ctx context.Context, oraclePrivateKey []byte,
 	db *database.DB, authToken string) (*Service, error) {
 
 	contractAddress := common.HexToAddress(viper.GetString(config.ChainContractAddress))
-	logger.InfoWithFields("service", "NewService", "init eth client", "", logger.Fields{
+	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
 		"address": viper.GetString(config.ChainEthWsHost),
 	})
 	client, err := ethclient.Dial(viper.GetString(config.ChainEthWsHost))
@@ -64,7 +64,7 @@ func NewService(ctx context.Context, oraclePrivateKey []byte,
 		return nil, err
 	}
 
-	logger.InfoWithFields("service", "NewService", "init ooo router instance", "", logger.Fields{
+	logger.InfoWithFields("service", "NewService", "", "create ooo router instance", logger.Fields{
 		"contract": contractAddress,
 	})
 	oooRouterInstance, err := ooo_router.NewOooRouter(contractAddress, client)
@@ -78,7 +78,7 @@ func NewService(ctx context.Context, oraclePrivateKey []byte,
 		return nil, err
 	}
 
-	logger.Info("service", "NewService", "init ooo router service", "")
+	logger.Info("service", "NewService", "", "init ooo router service")
 	oooRouterService, err := chain.NewOoORouter(ctx, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
 
 	if err != nil {

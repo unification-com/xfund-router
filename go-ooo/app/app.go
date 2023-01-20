@@ -36,7 +36,7 @@ func NewServer(decryptPass string) (*Server, error) {
 }
 
 func (s *Server) InitServer() {
-	logger.Info("main", "InitServer", "", s.Vers.StringLine())
+	logger.Info("app", "InitServer", "", s.Vers.StringLine())
 	s.initServer()
 }
 
@@ -58,7 +58,7 @@ func (s *Server) initSignal() {
 		<-c
 		s.srv.Stop()
 
-		logger.Info("main", "initSignal", "", "exiting oracle daemon...")
+		logger.Info("app", "initSignal", "", "exiting oracle daemon...")
 
 		os.Exit(0)
 	}()
@@ -66,11 +66,11 @@ func (s *Server) initSignal() {
 
 func (s *Server) initKeystore() {
 
-	logger.Info("main", "initKeystore", "", "initialise keystore")
+	logger.Info("app", "initKeystore", "", "initialise keystore")
 
 	ks, err := keystore.NewKeyStorage(viper.GetString(config.KeystorageFile))
 	if err != nil {
-		logger.Warn("main", "initKeystore", "open keystorage",
+		logger.Warn("app", "initKeystore", "open keystorage",
 			"can't read keystorage, creating a new one...")
 	}
 
@@ -96,7 +96,7 @@ func (s *Server) initKeystore() {
 
 func (s *Server) initDatabase() {
 
-	logger.Info("main", "initDatabase", "", "initialise database")
+	logger.Info("app", "initDatabase", "", "initialise database")
 
 	dbConn, err := database.NewDb()
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *Server) initDatabase() {
 }
 
 func (s *Server) initService() {
-	logger.Info("main", "initService", "", "initialise service")
+	logger.Info("app", "initService", "", "initialise service")
 
 	srv, err := service.NewService(s.ctx, []byte(s.keystore.GetSelectedPrivateKey()),
 		s.db, s.keystore.KeyStore.GetToken())
