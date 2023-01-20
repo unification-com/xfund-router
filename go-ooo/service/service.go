@@ -45,7 +45,7 @@ func NewService(ctx context.Context, oraclePrivateKey []byte,
 	db *database.DB, authToken string) (*Service, error) {
 
 	contractAddress := common.HexToAddress(viper.GetString(config.ChainContractAddress))
-	logger.Debug("service", "NewService", "init eth client", "", logger.Fields{
+	logger.InfoWithFields("service", "NewService", "init eth client", "", logger.Fields{
 		"address": viper.GetString(config.ChainEthWsHost),
 	})
 	client, err := ethclient.Dial(viper.GetString(config.ChainEthWsHost))
