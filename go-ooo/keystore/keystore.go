@@ -8,17 +8,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 	"io"
 	"io/ioutil"
 	"math/rand"
-	//"go-ooo/models/keystorage"
-	"go-ooo/utils"
-	"go-ooo/utils/walletworker"
 	"os"
 	"sync"
 	"time"
+
+	"go-ooo/utils"
+	"go-ooo/utils/walletworker"
+
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Keystorage struct {
@@ -34,26 +35,26 @@ func NewKeyStorageNoLogger(filePath string) (*Keystorage, error) {
 	var keyStore = KeyStorageModel{}
 
 	if _, err = os.Stat(filePath); err == nil {
-		keystoreFile, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0755)
-		if err != nil {
-			return nil, err
+		keystoreFile, err2 := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0755)
+		if err2 != nil {
+			return nil, err2
 		}
 
-		data, err := ioutil.ReadAll(keystoreFile)
-		if err != nil {
-			return nil, err
+		data, err2 := ioutil.ReadAll(keystoreFile)
+		if err2 != nil {
+			return nil, err2
 		}
 
-		err = json.Unmarshal(data, &keyStore)
-		if err != nil {
-			return nil, err
+		err2 = json.Unmarshal(data, &keyStore)
+		if err2 != nil {
+			return nil, err2
 		}
 	} else if os.IsNotExist(err) {
 		keystoreFile, err = os.Create(filePath)
-		_, err := keystoreFile.Write([]byte(`{"keys":[]}`))
+		_, err2 := keystoreFile.Write([]byte(`{"keys":[]}`))
 		keyStore.Key = []*KeyStorageKeyModel{}
-		if err != nil {
-			return nil, err
+		if err2 != nil {
+			return nil, err2
 		}
 
 	}
@@ -61,7 +62,7 @@ func NewKeyStorageNoLogger(filePath string) (*Keystorage, error) {
 	return &Keystorage{
 		File:     keystoreFile,
 		KeyStore: &keyStore,
-	}, err
+	}, nil
 }
 
 func NewKeyStorage(log *logrus.Logger, filePath string) (*Keystorage, error) {
@@ -117,7 +118,7 @@ func NewKeyStorage(log *logrus.Logger, filePath string) (*Keystorage, error) {
 		log:      log,
 		File:     keystoreFile,
 		KeyStore: &keyStore,
-	}, err
+	}, nil
 }
 
 func (d *Keystorage) GetFirst() *KeyStorageKeyModel {

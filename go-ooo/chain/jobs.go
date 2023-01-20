@@ -184,15 +184,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 	endpoint := job.GetEndpointDecoded()
 
-	isAdHoc := job.GetIsAdHoc()
-
-	var price string
-
-	if isAdHoc {
-		price, err = o.oooApi.QueryAdhoc(endpoint, requestId)
-	} else {
-		price, err = o.oooApi.QueryFinchainsEndpoint(endpoint, requestId)
-	}
+	price, err := o.oooApi.RouteQuery(endpoint, requestId)
 
 	if err != nil {
 		o.logger.WithFields(logrus.Fields{

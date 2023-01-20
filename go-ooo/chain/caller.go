@@ -31,6 +31,10 @@ func (o *OoORouterService) setNextTxNonce(nonce uint64, isFromPending bool) {
 	}
 }
 
+func (o *OoORouterService) GetOnChainPendingNonce() (uint64, error) {
+	return o.client.PendingNonceAt(o.context, o.oracleAddress)
+}
+
 func (o *OoORouterService) RenewTransactOpts() error {
 
 	nonce, err := o.client.PendingNonceAt(o.context, o.oracleAddress)

@@ -166,6 +166,18 @@ func NewOoORouter(ctx context.Context, logger *logrus.Logger, client *ethclient.
 	}, nil
 }
 
+func (o *OoORouterService) GetPrevTxNonce() uint64 {
+	return o.prevTxNonce
+}
+
+func (o *OoORouterService) GetNonceFromTransactOpts() uint64 {
+	return o.transactOpts.Nonce.Uint64()
+}
+
+func (o *OoORouterService) GetProviderAddress() common.Address {
+	return o.oracleAddress
+}
+
 func (o *OoORouterService) setLastBlockNumber(blockNumber uint64) {
 
 	if blockNumber > o.lastBlockNumber {

@@ -112,7 +112,7 @@ func (s *Service) Run() {
 	// update supported pairs from the Finchains API
 	go func(s *Service) {
 		s.oooApi.UpdateSupportedPairs()
-		s.oooApi.UpdateDexTokensAndPairs()
+		s.oooApi.UpdateDexPairs()
 	}(s)
 
 	// pick up from the last block we know about to process
@@ -132,7 +132,7 @@ func (s *Service) Run() {
 		case <-s.updatePairsTicker.C:
 			go func(s *Service) {
 				s.oooApi.UpdateSupportedPairs()
-				s.oooApi.UpdateDexTokensAndPairs()
+				s.oooApi.UpdateDexPairs()
 			}(s)
 		case t := <-s.analyticsTasks:
 			s.analyticsTasksResp <- s.ProcessAnalyticsTask(t)
