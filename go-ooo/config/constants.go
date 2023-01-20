@@ -39,4 +39,11 @@ const SubChainPolygonHttpRpc = "subchain.polygon_http_rpc"
 // SubChainBcsHttpRpc only used to get the latest block number
 const SubChainBcsHttpRpc = "subchain.bsc_http_rpc"
 
+// SubChainXdaiHttpRpc only used to get the latest block number
 const SubChainXdaiHttpRpc = "subchain.xdai_http_rpc"
+
+// SubChainFantomHttpRpc only used to get the latest block number
+const SubChainFantomHttpRpc = "subchain.fantom_http_rpc"
+
+// ApiKeysNodereal for Nodereal API key
+const ApiKeysNodereal = "api_keys.nodereal_key"

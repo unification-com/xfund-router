@@ -12,7 +12,7 @@ var apiUpdateAdhocCmd = &cobra.Command{
 
 		oooApi := createApi()
 
-		oooApi.UpdateDexTokensAndPairs()
+		oooApi.UpdateDexPairs()
 	},
 }
 

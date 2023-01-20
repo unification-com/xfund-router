@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sirupsen/logrus"
+	"go-ooo/logger"
 	go_ooo_types "go-ooo/types"
 	"math/big"
 )
@@ -13,11 +13,8 @@ func (o *OoORouterService) ProcessAdminTask(task go_ooo_types.AdminTask) go_ooo_
 
 	err := o.RenewTransactOpts()
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "ProcessAdminTask",
-			"action":   "RenewTransactOpts",
-		}).Error(err.Error())
+		o.log.Error("chain", "ProcessAdminTask", "RenewTransactOpts", err.Error())
+
 		return go_ooo_types.AdminTaskResponse{
 			AdminTask: task,
 			Success:   false,
@@ -54,28 +51,21 @@ func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask) go_oo
 	resp.AdminTask = task
 
 	fee := task.FeeOrAmount
-	o.logger.WithFields(logrus.Fields{
-		"package":  "chain",
-		"function": "registerAsProvider",
-		"address":  o.oracleAddress.Hex(),
-		"fee":      fee,
-	}).Debug("begin register as provider")
+	o.log.Debug("chain", "registerAsProvider", "", "begin", logger.Fields{
+		"address": o.oracleAddress.Hex(),
+		"fee":     fee,
+	})
 
 	tx, err := o.contractInstance.RegisterAsProvider(o.transactOpts, big.NewInt(int64(fee)))
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "registerAsProvider",
-		}).Error(err.Error())
+		o.log.Error("chain", "registerAsProvider", "register", err.Error())
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "registerAsProvider",
-			"address":  o.oracleAddress.Hex(),
-			"tx":       tx.Hash(),
-		}).Info("register as provider tx sent")
+		o.log.InfoWithFields("chain", "registerAsProvider", "", "tx sent", logger.Fields{
+			"address": o.oracleAddress.Hex(),
+			"tx":      tx.Hash(),
+		})
 
 		o.setNextTxNonce(tx.Nonce(), false)
 
@@ -92,31 +82,27 @@ func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask) go_ooo_type
 	resp.AdminTask = task
 
 	fee := task.FeeOrAmount
-	o.logger.WithFields(logrus.Fields{
-		"package":  "chain",
-		"function": "setGlobalFee",
-		"address":  o.oracleAddress.Hex(),
-		"fee":      fee,
-	}).Debug("begin set global fee")
+
+	o.log.Debug("chain", "setGlobalFee", "", "begin", logger.Fields{
+		"address": o.oracleAddress.Hex(),
+		"fee":     fee,
+	})
 
 	tx, err := o.contractInstance.SetProviderMinFee(o.transactOpts, big.NewInt(int64(fee)))
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "setGlobalFee",
-			"address":  o.oracleAddress.Hex(),
-			"fee":      fee,
-		}).Error(err.Error())
+		o.log.ErrorWithFields("chain", "setGlobalFee", "register", err.Error(), logger.Fields{
+			"address": o.oracleAddress.Hex(),
+			"fee":     fee,
+		})
+
 		resp.Success = false
 		resp.Error = err.Error()
 	} else {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "setGlobalFee",
-			"address":  o.oracleAddress.Hex(),
-			"fee":      fee,
-			"tx":       tx.Hash(),
-		}).Info("set global fee tx sent")
+		o.log.InfoWithFields("chain", "setGlobalFee", "", "tx sent", logger.Fields{
+			"address": o.oracleAddress.Hex(),
+			"fee":     fee,
+			"tx":      tx.Hash(),
+		})
 
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
@@ -133,34 +119,28 @@ func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask) go_ooo_ty
 
 	fee := task.FeeOrAmount
 	consumer := task.ToOrConsumer
-	o.logger.WithFields(logrus.Fields{
-		"package":  "chain",
-		"function": "setGranularFee",
+	o.log.Debug("chain", "setGranularFee", "", "begin", logger.Fields{
 		"address":  o.oracleAddress.Hex(),
 		"fee":      fee,
 		"consumer": consumer,
-	}).Debug("begin set granular fee")
+	})
 
 	tx, err := o.contractInstance.SetProviderGranularFee(o.transactOpts, common.HexToAddress(consumer), big.NewInt(int64(fee)))
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "setGranularFee",
+		o.log.ErrorWithFields("chain", "setGranularFee", "set in contract", err.Error(), logger.Fields{
 			"address":  o.oracleAddress.Hex(),
 			"fee":      fee,
 			"consumer": consumer,
-		}).Error(err.Error())
+		})
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "setGranularFee",
+		o.log.InfoWithFields("chain", "setGranularFee", "", "tx sent", logger.Fields{
 			"address":  o.oracleAddress.Hex(),
 			"fee":      fee,
 			"consumer": consumer,
 			"tx":       tx.Hash(),
-		}).Info("set granular fee tx sent")
+		})
 
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
@@ -178,22 +158,18 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask) go_ooo_types.Ad
 	amountBig = amountBig.SetUint64(task.FeeOrAmount)
 	recipient := task.ToOrConsumer
 
-	o.logger.WithFields(logrus.Fields{
-		"package":   "chain",
-		"function":  "withdraw",
+	o.log.Debug("chain", "withdraw", "", "begin", logger.Fields{
 		"recipient": recipient,
 		"amount":    task.FeeOrAmount,
-	}).Debug("begin withdraw fees")
+	})
 
 	available, err := o.contractInstance.GetWithdrawableTokens(o.callOpts, o.oracleAddress)
 
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":   "chain",
-			"function":  "setGranularFee",
-			"recipient": recipient,
-			"amount":    task.FeeOrAmount,
-		}).Error(err.Error())
+		o.log.ErrorWithFields("chain", "withdraw", "get withdrawable tokens", err.Error(), logger.Fields{
+			"oracle_Wallet": o.oracleAddress,
+		})
+
 		resp.Error = err.Error()
 		resp.Success = false
 		return resp
@@ -207,22 +183,20 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask) go_ooo_types.Ad
 
 	tx, err := o.contractInstance.Withdraw(o.transactOpts, common.HexToAddress(recipient), amountBig)
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":   "chain",
-			"function":  "withdraw",
+		o.log.ErrorWithFields("chain", "withdraw", "send tx to contract", err.Error(), logger.Fields{
 			"recipient": recipient,
 			"amount":    task.FeeOrAmount,
-		}).Error(err.Error())
+		})
+
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		o.logger.WithFields(logrus.Fields{
-			"package":   "chain",
-			"function":  "withdraw",
+		o.log.InfoWithFields("chain", "withdraw", "", "tx sent", logger.Fields{
+			"address":   o.oracleAddress.Hex(),
 			"recipient": recipient,
 			"amount":    task.FeeOrAmount,
 			"tx":        tx.Hash(),
-		}).Info("withdraw tx sent")
+		})
 
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
@@ -239,10 +213,8 @@ func (o *OoORouterService) queryWithdrawable(task go_ooo_types.AdminTask) go_ooo
 	available, err := o.contractInstance.GetWithdrawableTokens(o.callOpts, o.oracleAddress)
 
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "queryWithdrawable",
-		}).Error(err.Error())
+		o.log.Error("chain", "queryWithdrawable", "send query", err.Error())
+
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
@@ -260,10 +232,8 @@ func (o *OoORouterService) queryFees(task go_ooo_types.AdminTask) go_ooo_types.A
 	fee, err := o.contractInstance.GetProviderMinFee(o.callOpts, o.oracleAddress)
 
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "queryFees",
-		}).Error(err.Error())
+		o.log.Error("chain", "queryFees", "send query", err.Error())
+
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
@@ -283,10 +253,7 @@ func (o *OoORouterService) queryGranularFees(task go_ooo_types.AdminTask) go_ooo
 	fee, err := o.contractInstance.GetProviderGranularFee(o.callOpts, o.oracleAddress, common.HexToAddress(task.ToOrConsumer))
 
 	if err != nil {
-		o.logger.WithFields(logrus.Fields{
-			"package":  "chain",
-			"function": "queryGranularFees",
-		}).Error(err.Error())
+		o.log.Error("chain", "queryGranularFees", "send query", err.Error())
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {

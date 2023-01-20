@@ -13,9 +13,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go-ooo/config"
+	"go-ooo/logger"
 	"net/http"
 )
 
@@ -34,11 +34,9 @@ func (s *Service) initPrometheus() {
 
 	promListen := fmt.Sprintf(":%s", viper.GetString(config.PrometheusPort))
 
-	s.logger.WithFields(logrus.Fields{
-		"package":  "service",
-		"function": "initPrometheus",
-		"listen":   promListen,
-	}).Info("initialise prometheus")
+	s.logger.InfoWithFields("service", "initPrometheus", "", "initialise prometheus", logger.Fields{
+		"listen": promListen,
+	})
 
 	http.ListenAndServe(promListen, nil)
 }

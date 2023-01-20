@@ -1,0 +1,43 @@
+
+[chain]
+  contract_address = "0x5b1869D9A4C187F2EAa108f3062412ecf0526b24"
+  eth_http_host = "http://127.0.0.1:8545"
+  eth_ws_host = "ws://127.0.0.1:8545"
+  first_block = 1
+  gas_limit = 500000
+  max_gas_price = 150
+  network_id = 696969
+
+[database]
+  database = ""
+  dialect = "sqlite"
+  host = "localhost"
+  password = ""
+  port = 5432
+  storage = "./tests_data/.go-ooo/ooo.db"
+  user = ""
+
+[jobs]
+  check_duration = 5
+  ooo_api_url = "https://crypto.finchains.io/api"
+  wait_confirmations = 1
+
+[keystorage]
+  account = "test"
+  file = "./tests_data/.go-ooo/keystore.json"
+
+[log]
+  level = "info"
+
+[prometheus]
+  port = "9000"
+
+[serve]
+  host = "127.0.0.1"
+  port = "8445"
+
+[subchain]
+  bsc_http_rpc = "https://eth.althea.net"
+  eth_http_rpc = "https://polygon-rpc.com"
+  polygon_http_rpc = "https://bsc-dataseed.binance.org"
+  xdai_http_rpc = "https://rpc.gnosischain.com"

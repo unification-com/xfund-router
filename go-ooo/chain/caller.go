@@ -2,9 +2,9 @@ package chain
 
 import (
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go-ooo/config"
+	"go-ooo/logger"
 	"math/big"
 )
 
@@ -17,18 +17,20 @@ func (o *OoORouterService) setNextTxNonce(nonce uint64, isFromPending bool) {
 	// only set if it's + 1
 	if nextNonce-o.prevTxNonce == 1 {
 
-		o.logger.WithFields(logrus.Fields{
-			"package":    "chain",
-			"function":   "setNextTxNonce",
+		o.log.Debug("chain", "setNextTxNonce", "", "", logger.Fields{
 			"prev_nonce": o.prevTxNonce,
 			"nonce_in":   nonce,
 			"next_nonce": nextNonce,
 			"is_pending": isFromPending,
-		}).Debug()
+		})
 
 		o.prevTxNonce = nextNonce
 		o.transactOpts.Nonce = big.NewInt(int64(nextNonce))
 	}
+}
+
+func (o *OoORouterService) GetOnChainPendingNonce() (uint64, error) {
+	return o.client.PendingNonceAt(o.context, o.oracleAddress)
 }
 
 func (o *OoORouterService) RenewTransactOpts() error {

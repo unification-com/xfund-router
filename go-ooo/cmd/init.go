@@ -33,12 +33,13 @@ database configuration, Eth RPC URLs etc.
 Current network options are:
 
   dev
-  rinkeby
+  goerli
   mainnet
+  polygon
 
 Examples:
 
-  go-ooo init rinkeby
+  go-ooo init goerli
   go-ooo init dev --home=/path/to/go-ooo-home
 
 `,
@@ -60,8 +61,8 @@ Examples:
 			}
 
 			switch network {
-			case "rinkeby":
-				initForRinkeby()
+			case "goerli":
+				initForGoerli()
 				break
 			case "mainnet":
 				initForMainnet()
@@ -106,10 +107,13 @@ Examples:
 
 			viper.SetDefault(config.LogLevel, "info")
 
-			viper.SetDefault(config.SubChainEthHttpRpc, "")
-			viper.SetDefault(config.SubChainPolygonHttpRpc, "")
-			viper.SetDefault(config.SubChainBcsHttpRpc, "")
-			viper.SetDefault(config.SubChainXdaiHttpRpc, "")
+			viper.SetDefault(config.SubChainEthHttpRpc, "https://eth.althea.net")
+			viper.SetDefault(config.SubChainPolygonHttpRpc, "https://polygon-rpc.com")
+			viper.SetDefault(config.SubChainBcsHttpRpc, "https://bsc-dataseed.binance.org")
+			viper.SetDefault(config.SubChainXdaiHttpRpc, "https://rpc.gnosischain.com")
+			viper.SetDefault(config.SubChainFantomHttpRpc, "https://rpc.ankr.com/fantom")
+
+			viper.SetDefault(config.ApiKeysNodereal, "")
 
 			err = viper.SafeWriteConfigAs(viper.ConfigFileUsed())
 			if err != nil {
@@ -126,12 +130,12 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 }
 
-func initForRinkeby() {
-	viper.SetDefault(config.ChainContractAddress, "0x05AB63BeC9CfC3897a20dE62f5f812de10301FDf")
+func initForGoerli() {
+	viper.SetDefault(config.ChainContractAddress, "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31")
 	viper.SetDefault(config.ChainEthHttpHost, "")
 	viper.SetDefault(config.ChainEthWsHost, "")
-	viper.SetDefault(config.ChainNetworkId, 4)
-	viper.SetDefault(config.ChainFirstBlock, 8456980)
+	viper.SetDefault(config.ChainNetworkId, 5)
+	viper.SetDefault(config.ChainFirstBlock, 7345730)
 }
 
 func initForMainnet() {

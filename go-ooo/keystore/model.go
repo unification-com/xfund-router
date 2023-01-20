@@ -19,15 +19,15 @@ func (d KeyStorageKeyModel) GetPrivate() string {
 	return d.Private
 }
 
-func (d KeyStorageKeyModel) SetAccount(account string) {
+func (d *KeyStorageKeyModel) SetAccount(account string) {
 	d.Account = account
 }
 
-func (d KeyStorageKeyModel) SetCipherPrivate(cipherPrivate string) {
+func (d *KeyStorageKeyModel) SetCipherPrivate(cipherPrivate string) {
 	d.CipherPrivate = cipherPrivate
 }
 
-func (d KeyStorageKeyModel) SetPrivate(private string) {
+func (d *KeyStorageKeyModel) SetPrivate(private string) {
 	d.Private = private
 }
 
