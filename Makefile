@@ -39,10 +39,16 @@ build-release: build
 	cd dist && sha256sum "go-ooo_linux_v${VERSION}.tar.gz" > "checksum_v${VERSION}.txt"
 	cd dist && sha256sum --check "checksum_v${VERSION}.txt"
 
+test:
+	@cd go-ooo && go test -mod=readonly ./...
+
+test-verbose:
+	@cd go-ooo && go test -mod=readonly -v ./...
+
 lint:
 	@cd go-ooo && find . -name '*.go' -type f -not -path "./vendor*" -not -path "*.git*" | xargs gofmt -w -s
 
-.PHONY: abigen build install build-release lint
+.PHONY: abigen build install build-release lint test test-verbose
 
 # Dev environment
 dev-env:
