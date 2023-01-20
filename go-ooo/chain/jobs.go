@@ -16,13 +16,13 @@ import (
 
 func (o *OoORouterService) ProcessPendingJobQueue() {
 
-	o.log.Info("chain", "ProcessPendingJobQueue", "check job queue", "")
+	logger.Info("chain", "ProcessPendingJobQueue", "check job queue", "")
 
 	// get pending requests from data_requests table
 	requests, err := o.db.GetPendingJobs()
 
 	if err != nil {
-		o.log.Error("chain", "ProcessPendingJobQueue", "get job queue", err.Error())
+		logger.Error("chain", "ProcessPendingJobQueue", "get job queue", err.Error())
 		return
 	}
 
@@ -31,7 +31,7 @@ func (o *OoORouterService) ProcessPendingJobQueue() {
 		currentBlockNum, err := o.client.BlockNumber(o.context)
 
 		if err != nil {
-			o.log.Error("chain", "ProcessPendingJobQueue", "get block num", err.Error())
+			logger.Error("chain", "ProcessPendingJobQueue", "get block num", err.Error())
 
 			return
 		}
@@ -45,7 +45,7 @@ func (o *OoORouterService) ProcessPendingJobQueue() {
 
 func (o *OoORouterService) preProcessPendingJob(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
-	o.log.InfoWithFields("chain", "preProcessPendingJob", "preprocess job", "", logger.Fields{
+	logger.InfoWithFields("chain", "preProcessPendingJob", "preprocess job", "", logger.Fields{
 		"request_id": requestId,
 		"status":     job.GetRequestStatusString(),
 	})
@@ -54,7 +54,7 @@ func (o *OoORouterService) preProcessPendingJob(job models.DataRequests, current
 	requestTxReceipt, err := o.client.TransactionReceipt(o.context, common.HexToHash(job.GetRequestTxHash()))
 	if err != nil {
 		// possibly not in Tx pool yet
-		o.log.ErrorWithFields("chain", "preProcessPendingJob", "get tx receipt from chain",
+		logger.ErrorWithFields("chain", "preProcessPendingJob", "get tx receipt from chain",
 			err.Error(), logger.Fields{
 				"request_id": requestId,
 				"status":     job.GetRequestStatusString(),
@@ -73,7 +73,7 @@ func (o *OoORouterService) preProcessPendingJob(job models.DataRequests, current
 			}(o, job)
 		} else {
 			// log it
-			o.log.WarnWithFields("chain", "preProcessPendingJob", "check confirmations for initialised job",
+			logger.WarnWithFields("chain", "preProcessPendingJob", "check confirmations for initialised job",
 				"not enough block confirmations to fulfill request",
 				logger.Fields{
 					"request_id":    requestId,
@@ -109,14 +109,14 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 	requestId := job.GetRequestId()
 
-	o.log.Debug("chain", "processFulfillmentFetchData", "", "begin fetching data",
+	logger.Debug("chain", "processFulfillmentFetchData", "", "begin fetching data",
 		logger.Fields{
 			"request_id": requestId,
 		})
 
 	err := o.RenewTransactOpts()
 	if err != nil {
-		o.log.ErrorWithFields("chain", "processFulfillmentFetchData", "RenewTransactOpts",
+		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "RenewTransactOpts",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -129,7 +129,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 	if err != nil {
 		// possibly not in Tx pool yet
-		o.log.ErrorWithFields("chain", "processFulfillmentFetchData", "update processing status in db",
+		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "update processing status in db",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -142,7 +142,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 	if err != nil {
 		// possibly not in Tx pool yet
-		o.log.ErrorWithFields("chain", "processFulfillmentFetchData", "update fulfilment attempts in db",
+		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "update fulfilment attempts in db",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -154,7 +154,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 	if err != nil {
 		// possibly not in Tx pool yet
-		o.log.ErrorWithFields("chain", "processFulfillmentFetchData", "update last fetch blocknum in db",
+		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "update last fetch blocknum in db",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -168,7 +168,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 	price, err := o.oooApi.RouteQuery(endpoint, requestId)
 
 	if err != nil {
-		o.log.ErrorWithFields("chain", "processFulfillmentFetchData", "run api query",
+		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "run api query",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -180,7 +180,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 	if price == "" {
 		// no price returned
-		o.log.ErrorWithFields("chain", "processFulfillmentFetchData", "api query result",
+		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "api query result",
 			"empty price returned",
 			logger.Fields{
 				"request_id": requestId,
@@ -190,7 +190,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 		return
 	}
 
-	o.log.Debug("chain", "processFulfillmentFetchData", "",
+	logger.Debug("chain", "processFulfillmentFetchData", "",
 		"price fetched",
 		logger.Fields{
 			"request_id": requestId,
@@ -207,7 +207,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	requestId := job.GetRequestId()
 	price := job.GetPriceResult()
 
-	o.log.Debug("chain", "sendFulfillmentTx", "",
+	logger.Debug("chain", "sendFulfillmentTx", "",
 		"begin send fulfillment transaction",
 		logger.Fields{
 			"request_id": requestId,
@@ -235,7 +235,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	signatureBytes, err := crypto.Sign(msgHash.Bytes(), o.oraclePrivateKey)
 
 	if err != nil {
-		o.log.ErrorWithFields("chain", "sendFulfillmentTx", "sign message",
+		logger.ErrorWithFields("chain", "sendFulfillmentTx", "sign message",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -251,7 +251,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	tx, err := o.contractInstance.FulfillRequest(o.transactOpts, reqIdBytes32, priceBigInt, signatureBytes)
 
 	if err != nil {
-		o.log.ErrorWithFields("chain", "sendFulfillmentTx", "send tx",
+		logger.ErrorWithFields("chain", "sendFulfillmentTx", "send tx",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -261,7 +261,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 		return
 	}
 
-	o.log.InfoWithFields("chain", "sendFulfillmentTx", "send tx",
+	logger.InfoWithFields("chain", "sendFulfillmentTx", "send tx",
 		"fulfill tx sent",
 		logger.Fields{
 			"request_id": requestId,
@@ -279,7 +279,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
 
-	o.log.InfoWithFields("chain", "processPossiblyStuckDataFetch", "start",
+	logger.InfoWithFields("chain", "processPossiblyStuckDataFetch", "start",
 		"begin processing possibly stuck data fetch",
 		logger.Fields{
 			"request_id": requestId,
@@ -288,7 +288,7 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 	// at some point, we just have to stop trying...
 	if job.GetFulfillmentAttempts() >= 3 {
 		// too many fails
-		o.log.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check num attempts",
+		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check num attempts",
 			"too many fails",
 			logger.Fields{
 				"request_id":   requestId,
@@ -303,7 +303,7 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 
 	// still relatively new - ignore
 	if lastFetchBlockDiff < 5 {
-		o.log.InfoWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
+		logger.InfoWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
 			"request < 5 blocks. Wait for data fetch timeout",
 			logger.Fields{
 				"request_id": requestId,
@@ -316,7 +316,7 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 
 	// is the request > 1 hour old?
 	if requestBlockDiff > 250 {
-		o.log.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
+		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
 			"request too old",
 			logger.Fields{
 				"request_id": requestId,
@@ -335,7 +335,7 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 func (o *OoORouterService) processSendFailedJob(job models.DataRequests, currentBlockNum uint64) {
 
 	requestId := job.GetRequestId()
-	o.log.Debug("chain", "processSendFailedJob", "start",
+	logger.Debug("chain", "processSendFailedJob", "start",
 		"begin processing send failed job",
 		logger.Fields{
 			"request_id": requestId,
@@ -347,7 +347,7 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 	// at some point, we just have to stop trying...
 	if job.GetFulfillmentAttempts() >= 3 {
 		// too many fails
-		o.log.WarnWithFields("chain", "processSendFailedJob", "check num attempts",
+		logger.WarnWithFields("chain", "processSendFailedJob", "check num attempts",
 			"too many failed attempts",
 			logger.Fields{
 				"request_id":   requestId,
@@ -362,7 +362,7 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 
 	// is the request > 1 hour old?
 	if requestBlockDiff > 250 {
-		o.log.WarnWithFields("chain", "processSendFailedJob", "check request age",
+		logger.WarnWithFields("chain", "processSendFailedJob", "check request age",
 			"request too old",
 			logger.Fields{
 				"request_id": requestId,
@@ -380,7 +380,7 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 
 func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
-	o.log.Debug("chain", "processPossiblyStuckSentTx", "start",
+	logger.Debug("chain", "processPossiblyStuckSentTx", "start",
 		"begin processing possibly stuck sent tx",
 		logger.Fields{
 			"request_id": requestId,
@@ -389,7 +389,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	lastFulfillSentBlockDiff := currentBlockNum - job.GetLastFulfillSentBlockNumber()
 	if lastFulfillSentBlockDiff < 3 {
 		// too soon - may take a while for Tx to be broadcast/picked up
-		o.log.InfoWithFields("chain", "processPossiblyStuckSentTx", "check block diff since fulfill tx sent",
+		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check block diff since fulfill tx sent",
 			"not enough blocks since last sent. Wait.",
 			logger.Fields{
 				"request_id": requestId,
@@ -405,7 +405,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 
 	if err != nil {
 		// possibly not in Tx pool yet
-		o.log.ErrorWithFields("chain", "processPossiblyStuckSentTx", "get fulfill tx",
+		logger.ErrorWithFields("chain", "processPossiblyStuckSentTx", "get fulfill tx",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -417,7 +417,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 
 	// no point continuing if it's still pending. Log it and move on.
 	if isPending {
-		o.log.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx pending",
+		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx pending",
 			"tx still pending - ignore",
 			logger.Fields{
 				"request_id": requestId,
@@ -429,7 +429,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	// try and get the receipt
 	fulfillReceipt, err := o.client.TransactionReceipt(o.context, fulfilTxHash)
 	if err != nil {
-		o.log.ErrorWithFields("chain", "processPossiblyStuckSentTx", "get fulfil tx receipt",
+		logger.ErrorWithFields("chain", "processPossiblyStuckSentTx", "get fulfil tx receipt",
 			err.Error(),
 			logger.Fields{
 				"request_id": job.GetRequestId(),
@@ -441,7 +441,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	if fulfillReceipt.Status == 1 {
 		// Tx was successful. double check for RandomnessRequestFulfilled event
 		// in case it was missed
-		o.log.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx status",
+		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx status",
 			"tx was successful. check for RequestFulfilled event",
 			logger.Fields{
 				"request_id": job.GetRequestId(),
@@ -456,7 +456,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 		opts.Start = job.RequestBlockNumber
 		itrFr, err := o.contractInstance.FilterRequestFulfilled(opts, nil, nil, reqArr)
 		if err != nil {
-			o.log.Error("chain", "processPossiblyStuckSentTx", "get FilterRequestFulfilled events",
+			logger.Error("chain", "processPossiblyStuckSentTx", "get FilterRequestFulfilled events",
 				err.Error())
 			return
 		}
@@ -480,7 +480,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	// at some point, we just have to stop trying...
 	if job.GetFulfillmentAttempts() >= 3 {
 		// too many fails
-		o.log.WarnWithFields("chain", "processPossiblyStuckSentTx", "check num attempts",
+		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "check num attempts",
 			"too many failed attempts",
 			logger.Fields{
 				"request_id":   requestId,
@@ -495,7 +495,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 
 	// is the request > 1 hour?
 	if requestBlockDiff > 250 {
-		o.log.WarnWithFields("chain", "processPossiblyStuckSentTx", "check request age",
+		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "check request age",
 			"request too old",
 			logger.Fields{
 				"request_id": requestId,

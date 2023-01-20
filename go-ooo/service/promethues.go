@@ -34,7 +34,7 @@ func (s *Service) initPrometheus() {
 
 	promListen := fmt.Sprintf(":%s", viper.GetString(config.PrometheusPort))
 
-	s.logger.InfoWithFields("service", "initPrometheus", "", "initialise prometheus", logger.Fields{
+	logger.InfoWithFields("service", "initPrometheus", "", "initialise prometheus", logger.Fields{
 		"listen": promListen,
 	})
 

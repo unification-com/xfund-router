@@ -18,7 +18,6 @@ import (
 
 type Server struct {
 	srv         *service.Service
-	logger      *logger.Logger
 	ctx         context.Context
 	Vers        version.Info
 	keystore    *keystore.Keystorage
@@ -28,10 +27,8 @@ type Server struct {
 
 func NewServer(decryptPass string) (*Server, error) {
 	ctx := context.Background()
-	log := logger.NewAppLogger()
 
 	return &Server{
-		logger:      log,
 		ctx:         ctx,
 		Vers:        version.NewInfo(),
 		decryptPass: decryptPass,
@@ -39,7 +36,7 @@ func NewServer(decryptPass string) (*Server, error) {
 }
 
 func (s *Server) InitServer() {
-	s.logger.Info("main", "InitServer", "", s.Vers.StringLine())
+	logger.Info("app", "InitServer", "", s.Vers.StringLine())
 	s.initServer()
 }
 
@@ -48,15 +45,10 @@ func (s *Server) Run() {
 }
 
 func (s *Server) initServer() {
-	s.initLogger()
 	s.initDatabase()
 	s.initKeystore()
 	s.initService()
 	s.initSignal()
-}
-
-func (s *Server) initLogger() {
-	s.logger.InitLogger()
 }
 
 func (s *Server) initSignal() {
@@ -66,7 +58,7 @@ func (s *Server) initSignal() {
 		<-c
 		s.srv.Stop()
 
-		s.logger.Info("main", "initSignal", "", "exiting oracle daemon...")
+		logger.Info("app", "initSignal", "", "exiting oracle daemon...")
 
 		os.Exit(0)
 	}()
@@ -74,11 +66,11 @@ func (s *Server) initSignal() {
 
 func (s *Server) initKeystore() {
 
-	s.logger.Info("main", "initKeystore", "", "initialise keystore")
+	logger.Info("app", "initKeystore", "", "initialise keystore")
 
-	ks, err := keystore.NewKeyStorage(s.logger, viper.GetString(config.KeystorageFile))
+	ks, err := keystore.NewKeyStorage(viper.GetString(config.KeystorageFile))
 	if err != nil {
-		s.logger.Warn("main", "initKeystore", "open keystorage",
+		logger.Warn("app", "initKeystore", "open keystorage",
 			"can't read keystorage, creating a new one...")
 	}
 
@@ -104,7 +96,7 @@ func (s *Server) initKeystore() {
 
 func (s *Server) initDatabase() {
 
-	s.logger.Info("main", "initDatabase", "", "initialise database")
+	logger.Info("app", "initDatabase", "", "initialise database")
 
 	dbConn, err := database.NewDb()
 	if err != nil {
@@ -118,9 +110,9 @@ func (s *Server) initDatabase() {
 }
 
 func (s *Server) initService() {
-	s.logger.Info("main", "initService", "", "initialise service")
+	logger.Info("app", "initService", "", "initialise service")
 
-	srv, err := service.NewService(s.ctx, s.logger, []byte(s.keystore.GetSelectedPrivateKey()),
+	srv, err := service.NewService(s.ctx, []byte(s.keystore.GetSelectedPrivateKey()),
 		s.db, s.keystore.KeyStore.GetToken())
 	if err != nil {
 		panic(err)

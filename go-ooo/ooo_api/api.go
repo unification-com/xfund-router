@@ -27,15 +27,14 @@ type OOOApi struct {
 	baseURL          string
 	client           *http.Client
 	db               *database.DB
-	logger           *logger.Logger
 	ctx              context.Context
 	dexModuleManager *dex.Manager
 }
 
-func NewApi(ctx context.Context, db *database.DB, logger *logger.Logger) (*OOOApi, error) {
+func NewApi(ctx context.Context, db *database.DB) (*OOOApi, error) {
 
 	dexModuleManager := dex.NewDexManager(
-		ctx, logger, db,
+		ctx, db,
 		eth_shibaswap.NewDexModule(ctx),
 		eth_sushiswap.NewDexModule(ctx),
 		eth_uniswapv2.NewDexModule(ctx),
@@ -51,7 +50,6 @@ func NewApi(ctx context.Context, db *database.DB, logger *logger.Logger) (*OOOAp
 			Timeout: 15 * time.Second,
 		},
 		db:               db,
-		logger:           logger,
 		ctx:              ctx,
 		dexModuleManager: dexModuleManager,
 	}, nil
@@ -68,7 +66,7 @@ func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
 		return "", err
 	}
 
-	o.logger.Debug("ooo_api", "RouteQuery", "route", "", logger.Fields{
+	logger.Debug("ooo_api", "RouteQuery", "route", "", logger.Fields{
 		"request_id": requestId,
 		"is_adhoc":   isAdHoc,
 	})

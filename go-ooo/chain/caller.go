@@ -17,7 +17,7 @@ func (o *OoORouterService) setNextTxNonce(nonce uint64, isFromPending bool) {
 	// only set if it's + 1
 	if nextNonce-o.prevTxNonce == 1 {
 
-		o.log.Debug("chain", "setNextTxNonce", "", "", logger.Fields{
+		logger.Debug("chain", "setNextTxNonce", "", "", logger.Fields{
 			"prev_nonce": o.prevTxNonce,
 			"nonce_in":   nonce,
 			"next_nonce": nextNonce,

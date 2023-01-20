@@ -22,7 +22,6 @@ type Service struct {
 	contractAddress   common.Address
 	client            *ethclient.Client
 	contractInstance  *ooo_router.OooRouter
-	logger            *logger.Logger
 	db                *database.DB
 	ctx               context.Context
 	jobTicker         *time.Ticker // periodic jobTicker
@@ -42,9 +41,13 @@ type Service struct {
 	authToken string
 }
 
-func NewService(ctx context.Context, logger *logger.Logger, oraclePrivateKey []byte,
+func NewService(ctx context.Context, oraclePrivateKey []byte,
 	db *database.DB, authToken string) (*Service, error) {
+
 	contractAddress := common.HexToAddress(viper.GetString(config.ChainContractAddress))
+	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
+		"address": viper.GetString(config.ChainEthWsHost),
+	})
 	client, err := ethclient.Dial(viper.GetString(config.ChainEthWsHost))
 
 	if err != nil {
@@ -61,18 +64,22 @@ func NewService(ctx context.Context, logger *logger.Logger, oraclePrivateKey []b
 		return nil, err
 	}
 
+	logger.InfoWithFields("service", "NewService", "", "create ooo router instance", logger.Fields{
+		"contract": contractAddress,
+	})
 	oooRouterInstance, err := ooo_router.NewOooRouter(contractAddress, client)
 	if err != nil {
 		return nil, err
 	}
 
-	oooApi, err := ooo_api.NewApi(ctx, db, logger)
+	oooApi, err := ooo_api.NewApi(ctx, db)
 
 	if err != nil {
 		return nil, err
 	}
 
-	oooRouterService, err := chain.NewOoORouter(ctx, logger, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
+	logger.Info("service", "NewService", "", "init ooo router service")
+	oooRouterService, err := chain.NewOoORouter(ctx, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
 
 	if err != nil {
 		return nil, err
@@ -83,7 +90,6 @@ func NewService(ctx context.Context, logger *logger.Logger, oraclePrivateKey []b
 		client:           client,
 		contractAddress:  contractAddress,
 		contractInstance: oooRouterInstance,
-		logger:           logger,
 		db:               db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
 		jobTicker:          time.NewTicker(time.Second * pollInterval),
@@ -146,25 +152,25 @@ func (s *Service) Run() {
 
 func (s *Service) Stop() {
 	// clean up and shut down
-	s.logger.Info("service", "Stop", "", "shutting down jobTicker")
+	logger.Info("service", "Stop", "", "shutting down jobTicker")
 	s.jobTicker.Stop()
 
-	s.logger.Info("service", "Stop", "", "shutting down updatePairsTicker")
+	logger.Info("service", "Stop", "", "shutting down updatePairsTicker")
 	s.updatePairsTicker.Stop()
 
-	s.logger.Info("service", "Stop", "", "shutting down oooRouterService")
+	logger.Info("service", "Stop", "", "shutting down oooRouterService")
 	s.oooRouterService.Shutdown()
 
-	s.logger.Info("service", "Stop", "", "shutting down echo")
+	logger.Info("service", "Stop", "", "shutting down echo")
 	err := s.echoService.Shutdown(s.ctx)
 
 	if err != nil {
-		s.logger.Error("service", "Stop", "shutting down echo", err.Error())
+		logger.Error("service", "Stop", "shutting down echo", err.Error())
 	}
 
 	err = s.echoService.Close()
 
 	if err != nil {
-		s.logger.Error("service", "Stop", "closing echo", err.Error())
+		logger.Error("service", "Stop", "closing echo", err.Error())
 	}
 }

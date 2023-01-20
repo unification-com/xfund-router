@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"go-ooo/database"
-	"go-ooo/logger"
 	"go-ooo/ooo_api/dex/chains"
 	"go-ooo/ooo_api/dex/types"
 )
@@ -25,7 +24,6 @@ type Module interface {
 
 type Manager struct {
 	ctx        context.Context
-	logger     *logger.Logger
 	db         *database.DB
 	httpClient *http.Client
 
@@ -33,7 +31,7 @@ type Manager struct {
 	modules map[string]Module
 }
 
-func NewDexManager(ctx context.Context, logger *logger.Logger, db *database.DB, modules ...Module) *Manager {
+func NewDexManager(ctx context.Context, db *database.DB, modules ...Module) *Manager {
 	moduleMap := make(map[string]Module)
 	chainMap := make(map[string]*chains.ChainDef)
 
@@ -52,9 +50,8 @@ func NewDexManager(ctx context.Context, logger *logger.Logger, db *database.DB, 
 	}
 
 	return &Manager{
-		ctx:    ctx,
-		logger: logger,
-		db:     db,
+		ctx: ctx,
+		db:  db,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},

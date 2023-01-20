@@ -1,24 +1,40 @@
 package logger
 
 import (
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go-ooo/config"
 	"os"
 )
 
-type Logger struct {
-	logger *logrus.Logger
+func init() {
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp: true,
+	})
+
+	logLevel := viper.GetString(config.LogLevel)
+	logrusLevel := log.InfoLevel
+
+	switch logLevel {
+	case "info":
+		logrusLevel = log.InfoLevel
+		break
+	case "debug":
+		logrusLevel = log.DebugLevel
+		break
+	default:
+		logrusLevel = log.InfoLevel
+		break
+	}
+
+	log.SetLevel(logrusLevel)
+	log.SetOutput(os.Stdout)
 }
 
 type Fields map[string]interface{}
 
-func NewAppLogger() *Logger {
-	return &Logger{logger: logrus.New()}
-}
-
-func packFields(pkg, function, action string, fields Fields) logrus.Fields {
-	packedFields := logrus.Fields{
+func packFields(pkg, function, action string, fields Fields) log.Fields {
+	packedFields := log.Fields{
 		"pkg":  pkg,
 		"func": function,
 	}
@@ -36,103 +52,79 @@ func packFields(pkg, function, action string, fields Fields) logrus.Fields {
 	return packedFields
 }
 
-func (l *Logger) InitLogger() {
-	l.logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-
-	logLevel := viper.GetString(config.LogLevel)
-	logrusLevel := logrus.InfoLevel
-
-	switch logLevel {
-	case "info":
-		logrusLevel = logrus.InfoLevel
-		break
-	case "debug":
-		logrusLevel = logrus.DebugLevel
-		break
-	default:
-		logrusLevel = logrus.InfoLevel
-		break
-	}
-
-	l.logger.SetLevel(logrusLevel)
-	l.logger.SetOutput(os.Stdout)
-}
-
-func (l *Logger) Info(pkg, function, action, msg string) {
+func Info(pkg, function, action, msg string) {
 
 	packedFields := packFields(pkg, function, action, nil)
 
-	l.logger.WithFields(packedFields).Info(msg)
+	log.WithFields(packedFields).Info(msg)
 }
 
-func (l *Logger) InfoWithFields(pkg, function, action, msg string, fields Fields) {
+func InfoWithFields(pkg, function, action, msg string, fields Fields) {
 
 	packedFields := packFields(pkg, function, action, fields)
 
-	l.logger.WithFields(packedFields).Info(msg)
+	log.WithFields(packedFields).Info(msg)
 }
 
-func (l *Logger) Debug(pkg, function, action, msg string, fields Fields) {
+func Debug(pkg, function, action, msg string, fields Fields) {
 
 	packedFields := packFields(pkg, function, action, fields)
 
-	l.logger.WithFields(packedFields).Debug(msg)
+	log.WithFields(packedFields).Debug(msg)
 }
 
-func (l *Logger) Warn(pkg, function, action, msg string) {
+func Warn(pkg, function, action, msg string) {
 
 	packedFields := packFields(pkg, function, action, nil)
 
-	l.logger.WithFields(packedFields).Warn(msg)
+	log.WithFields(packedFields).Warn(msg)
 }
 
-func (l *Logger) WarnWithFields(pkg, function, action, msg string, fields Fields) {
+func WarnWithFields(pkg, function, action, msg string, fields Fields) {
 
 	packedFields := packFields(pkg, function, action, fields)
 
-	l.logger.WithFields(packedFields).Warn(msg)
+	log.WithFields(packedFields).Warn(msg)
 }
 
-func (l *Logger) Error(pkg, function, action, msg string) {
+func Error(pkg, function, action, msg string) {
 
 	packedFields := packFields(pkg, function, action, nil)
 
-	l.logger.WithFields(packedFields).Error(msg)
+	log.WithFields(packedFields).Error(msg)
 }
 
-func (l *Logger) ErrorWithFields(pkg, function, action, msg string, fields Fields) {
+func ErrorWithFields(pkg, function, action, msg string, fields Fields) {
 
 	packedFields := packFields(pkg, function, action, fields)
 
-	l.logger.WithFields(packedFields).Error(msg)
+	log.WithFields(packedFields).Error(msg)
 }
 
-func (l *Logger) Panic(pkg, function, action, msg string) {
+func Panic(pkg, function, action, msg string) {
 
 	packedFields := packFields(pkg, function, action, nil)
 
-	l.logger.WithFields(packedFields).Panic(msg)
+	log.WithFields(packedFields).Panic(msg)
 }
 
-func (l *Logger) PanicWithFields(pkg, function, action, msg string, fields Fields) {
+func PanicWithFields(pkg, function, action, msg string, fields Fields) {
 
 	packedFields := packFields(pkg, function, action, fields)
 
-	l.logger.WithFields(packedFields).Panic(msg)
+	log.WithFields(packedFields).Panic(msg)
 }
 
-func (l *Logger) Fatal(pkg, function, action, msg string) {
+func Fatal(pkg, function, action, msg string) {
 
 	packedFields := packFields(pkg, function, action, nil)
 
-	l.logger.WithFields(packedFields).Fatal(msg)
+	log.WithFields(packedFields).Fatal(msg)
 }
 
-func (l *Logger) FatalWithFields(pkg, function, action, msg string, fields Fields) {
+func FatalWithFields(pkg, function, action, msg string, fields Fields) {
 
 	packedFields := packFields(pkg, function, action, fields)
 
-	l.logger.WithFields(packedFields).Fatal(msg)
+	log.WithFields(packedFields).Fatal(msg)
 }

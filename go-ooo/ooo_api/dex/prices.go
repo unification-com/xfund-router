@@ -26,7 +26,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 	// get a list of valid modules to send query to
 	for _, module := range dm.modules {
 
-		dm.logger.InfoWithFields("dex", "GetPricesFromDexModules", "check valid", "get prices", logger.Fields{
+		logger.InfoWithFields("dex", "GetPricesFromDexModules", "check valid", "get prices", logger.Fields{
 			"dex":     module.Name(),
 			"chain":   module.Chain(),
 			"base":    base,
@@ -38,7 +38,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		blocksPerMin := uint64(dm.chains[module.Chain()].BlocksPerMin)
 
 		if err != nil {
-			dm.logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
+			logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
 				"dex":   module.Name(),
 				"chain": module.Chain(),
 			})
@@ -49,7 +49,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		dbPairRes, _ := dm.db.FindByDexPairName(base, target, module.Name())
 
 		if dbPairRes.ID == 0 {
-			dm.logger.WarnWithFields("dex", "GetPricesFromDexModules", "check pair exists in db",
+			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check pair exists in db",
 				"pair not found in database for this dex",
 				logger.Fields{
 					"dex":    module.Name(),
@@ -61,7 +61,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 
 		if dbPairRes.ReserveUsd < float64(module.MinLiquidity()) {
-			dm.logger.WarnWithFields("dex", "GetPricesFromDexModules", "check liquidity",
+			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check liquidity",
 				"liquidity too low. Skipping",
 				logger.Fields{
 					"dex":           module.Name(),
@@ -90,7 +90,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		err := <-errCh
 
 		if err != nil {
-			dm.logger.ErrorWithFields("dex", "GetPricesFromDexModules", "getPrices",
+			logger.ErrorWithFields("dex", "GetPricesFromDexModules", "getPrices",
 				err.Error(),
 				logger.Fields{
 					"dex":        modName,
@@ -100,7 +100,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 				})
 			dexFail++
 		} else {
-			dm.logger.Debug("dex", "GetPricesFromDexModules", "getPrices", "prices result",
+			logger.Debug("dex", "GetPricesFromDexModules", "getPrices", "prices result",
 				logger.Fields{
 					"dex":        modName,
 					"base":       base,
@@ -117,7 +117,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 	}
 
-	dm.logger.Debug("dex", "GetPricesFromDexModules", "", "",
+	logger.Debug("dex", "GetPricesFromDexModules", "", "",
 		logger.Fields{
 			"base":        base,
 			"target":      target,
