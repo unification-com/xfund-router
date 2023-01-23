@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -16,13 +17,18 @@ var apiAdhocCmd = &cobra.Command{
 
 		oooApi := createApi()
 
+		start := time.Now()
+
 		res, err := oooApi.QueryAdhoc(endpoint, "1234")
+
+		elapsed := time.Since(start)
 
 		if err != nil {
 			fmt.Println(err.Error())
 		}
 
 		fmt.Printf("\n\nEndpoint: %s, Res: %s\n\n", endpoint, res)
+		fmt.Println("Query took:", elapsed)
 	},
 }
 
