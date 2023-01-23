@@ -9,11 +9,6 @@
     "coverage": "truffle run coverage",
     "flatten": "node scripts/flatten_contracts.js",
     "prepublishOnly": "truffle compile",
-    "docs:api:clean": "rimraf ../docs/api",
-    "docs:api:postclean": "rimraf docs/api/Migrations.md && rimraf docs/api/interfaces && rimraf docs/api/vendor",
-    "docs:api:build": "yarn run docs:api:clean && solidity-docgen --solc-module solc-0.8 -t ../docs/templates -o ./docs/api -e contracts/mocks && yarn run docs:api:postclean",
-    "docs:compile": "rimraf ../docs/.vuepress/dist && yarn run docs:api:build && vuepress build docs",
-    "docs:dev": "vuepress dev ../docs",
     "info:abi:dev": "node scripts/export_abi.js",
     "info:abi:tn": "node scripts/export_abi.js -n rinkeby",
     "info:abi:mn": "node scripts/export_abi.js -n mainnet",
@@ -78,17 +73,15 @@
     "solidity-docgen": "^0.5.11",
     "truffle": "^5.1.57",
     "truffle-flattener": "^1.5.0",
-    "truffle-plugin-verify": "^0.5.2",
-    "vuepress": "^1.7.1"
+    "truffle-plugin-verify": "^0.5.2"
   },
   "resolutions": {
     "**/**/elliptic": "^6.5.3",
     "**/**/lodash": "^4.17.19"
   },
   "files": [
-    "/smart-contracts/contracts/**/*.sol",
+    "/contracts/**/*.sol",
     "/build/contracts/*.json",
-    "/docs/**/*.md",
     "!/contracts/mocks/**/*.sol",
     "!/contracts/examples/**/*.sol",
     "!/contracts/Migrations.sol",
