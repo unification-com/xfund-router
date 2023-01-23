@@ -3,7 +3,7 @@
 [![npm version](http://img.shields.io/npm/v/@unification-com/xfund-router.svg?style=flat)](https://npmjs.org/package/@unification-com/xfund-router "View this project on npm")
 ![sc unit tests](https://github.com/unification-com/xfund-router/actions/workflows/test-contracts.yml/badge.svg)
 
-A suite of smart contracts to enable data from external sources (such as Finchains.io)
+A suite of smart contracts to enable price data from external sources (such as Finchains.io, or supported DEXs)
 to be included in your smart contracts. The suite comprises of:
 
 1) A deployed Router smart contract. This facilitates receiving and forwarding data requests,
@@ -11,10 +11,21 @@ to be included in your smart contracts. The suite comprises of:
 2) A ConsumerBase smart contract, which is integrated into your own smart contract in 
    order for data requests to be initialised (via the Router), and data to be received (from
    a designated Provider)
-   
+3) The Provider Oracle software, run by data providers
+
 The remainder of this `README` is aimed at developers who wish to develop and test the suite itself.
 For an integration guide, and how to use the suite in your own smart contracts, please
 see the [Documentation](docs/index.md)
+
+## Repo Overview
+
+This repo consists of a few different packages and applications:
+
+| Directory         | Description                                          |
+|-------------------|------------------------------------------------------|
+| `docker`          | Docker files for running a development environment   |
+| `go-ooo`          | Go implementation of the OoO Provider Oracle         |
+| `smart-contracts` | OoO Router smart contracts and end-user contract SDK |
 
 ## Development and Testing
 
@@ -22,7 +33,7 @@ see the [Documentation](docs/index.md)
 
 #### NodeJS
 The `openzeppelin/test-environment` packages and dependencies require
-NodeJS >= `v8.9.4` and <= `v12.18.3` (excluding `v11`) in order to correctly install. 
+NodeJS <= `v12.18.3` in order to correctly install. 
 We recommend using [nvm](https://github.com/nvm-sh/nvm) to manage NodeJS 
 installations.
 
@@ -32,9 +43,15 @@ installations.
 
 #### Go
 
-Go v1.16+ is required to compile the `go-ooo` application.
+Go v1.18+ is required to compile the `go-ooo` application.
 
 ### Compile Contracts
+
+All smart contract code is in the `smart-contracts` directory.
+
+```bash
+cd smart-contracts
+```
 
 Run:
 
@@ -66,7 +83,7 @@ yarn run coverage
 ```
 
 Running unit test coverage will take a long time. Results are saved to 
-`converage.json` and `./coverage`
+`smart-contracts/converage.json` and `smart-contracts/coverage`
 
 ### Development Environment - Testing & Interaction
 
@@ -77,7 +94,7 @@ to test contracts, developing and testing Consumer contracts and testing the `go
 
 #### Docker Dev Environment
 
-To run the development environment, run
+To run the development environment, from the repo root directory, run
 
 ```bash
 make dev-env
@@ -89,6 +106,12 @@ accessed via the `truffle-config`'s `develop` network.
 
 #### Running `go-ooo`
 
+The OoO app code is in the `go-ooo` directory
+
+```bash
+cd go-ooo
+```
+
 First, build the Go application:
 
 ```bash
@@ -98,7 +121,7 @@ make build
 `go-ooo` will need initialising before it can run:
 
 ```bash
-./go-ooo/build/go-ooo init <network>
+./build/go-ooo init <network>
 ```
 
 Where `<network>` is one of `dev`, `rinkeby`, `mainnet` or `polygon`. Using `dev` will configure `go-ooo` for the Docker 
@@ -108,7 +131,7 @@ This will save the default configuration to `$HOME/.go-ooo`, with the initial va
 This config location can be changed using the `--home` flag to specify a custom location, e.g.
 
 ```bash
-./go-ooo/build/go-ooo init dev --home $HOME/.go-ooo_dev
+./build/go-ooo init dev --home $HOME/.go-ooo_dev
 ```
 
 This initialisation script will ask whether you want to import an exisitng private key, or generate a new one. 
@@ -130,7 +153,7 @@ then registration as an Oracle Provider is required. First, ensure the wallet be
 chain, then run the registration admin command:
 
 ```bash
-go-ooo admin register [FEE] --home /path/to/.go-ooo --pass /path/to/pass.txt
+./build/go-ooo admin register [FEE] --home /path/to/.go-ooo --pass /path/to/pass.txt
 ```
 
 Where `[FEE]` is your fee, for example `1000000` for 0.001 xFUND.
@@ -140,14 +163,14 @@ Where `[FEE]` is your fee, for example `1000000` for 0.001 xFUND.
 Now, you can start the Provider Oracle:
 
 ```bash
-./go-ooo/build/go-ooo start
+./build/go-ooo start
 ```
 
 This will prompt you for the decryption password, and start the application. If you saved the password, you can pass the
 path to the file using the `--pass` flag, e.g.
 
 ```bash
-./go-ooo/build/go-ooo start --home $HOME/.go-ooo_dev --pass $HOME/.go-ooo_dev/pass.txt
+./build/go-ooo start --home $HOME/.go-ooo_dev --pass $HOME/.go-ooo_dev/pass.txt
 ```
 
 
@@ -180,7 +203,7 @@ See the [OoO API Guide](docs/guide/ooo_api.md) for more information on endpoint 
 
 #### Dev Notes
 
-Verify contracts on Etherscan after deployment - set `ETHERSCAN_API` in `.env`, then run:
+Verify contracts on Etherscan after deployment - from the `smart-contracts` dir set `ETHERSCAN_API` in `.env`, then run:
 
 ```bash 
 npx truffle run verify [ContractName] --network=[network]

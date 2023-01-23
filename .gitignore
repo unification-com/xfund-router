@@ -120,9 +120,6 @@ flattened_contracts
 .coverage_artifacts
 .coverage_contracts
 
-# DB file
-provider-oracle/db/database.sqlite
-
 # local scripts
-scripts/tmp.js
-custom_networks.js
+smart-contracts/scripts/tmp.js
+smart-contracts/custom_networks.js
