@@ -19,9 +19,9 @@ RUN mkdir -p /root/xfund-router
 WORKDIR /root/xfund-router
 
 # first, copy only essential files required for compiling contracts
-COPY ./contracts ./contracts/
-COPY ./migrations ./migrations/
-COPY ./package.json ./yarn.lock ./truffle-config.js ./
+COPY ./smart-contracts/contracts ./contracts/
+COPY ./smart-contracts/migrations ./migrations/
+COPY ./smart-contracts/package.json ./smart-contracts/yarn.lock ./smart-contracts/truffle-config.js ./
 
 # install node dependencies & compile contracts
 RUN yarn install --frozen-lockfile && \
