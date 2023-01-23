@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go-ooo/database"
-	"go-ooo/logger"
 	"go-ooo/ooo_api"
 	"gorm.io/gorm"
 
@@ -27,9 +26,6 @@ func createApi() *ooo_api.OOOApi {
 	viper.Set(config.SubChainFantomHttpRpc, "https://rpc.ankr.com/fantom")
 	viper.Set(config.JobsOooApiUrl, "https://finchains.io/api")
 	viper.Set(config.LogLevel, "debug")
-
-	logr := logger.NewAppLogger()
-	logr.InitLogger()
 
 	gormLogger := gorm_logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
@@ -57,7 +53,7 @@ func createApi() *ooo_api.OOOApi {
 		panic(err)
 	}
 
-	oooApi, err := ooo_api.NewApi(ctx, dbConn, logr)
+	oooApi, err := ooo_api.NewApi(ctx, dbConn)
 
 	if err != nil {
 		panic(err)
