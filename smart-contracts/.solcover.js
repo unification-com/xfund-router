@@ -1,11 +1,14 @@
 module.exports = {
-  skipFiles: [ "mocks/bad/MockBadConsumer.sol",
+  skipFiles: [
+    "examples/DemoConsumer.sol",
+    "examples/DemoConsumer2.sol",
+    "mocks/bad/MockBadConsumer.sol",
     "mocks/bad/MockBadConsumerBigReceive.sol",
     "mocks/bad/MockBadConsumerInfiniteGas.sol",
     "mocks/MockConsumer.sol",
     "mocks/MockConsumerCustomRequest.sol",
     "mocks/MockToken.sol",
-    "vendor/OOOSafeMath.sol" ],
+    "vendor/OOOSafeMath.sol"],
   providerOptions: {
     mnemonic: "myth like bonus scare over problem client lizard pioneer submit female collect",
     gasPrice: "0x4A817C800",
