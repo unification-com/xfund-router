@@ -3,13 +3,10 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/spf13/viper"
 	"go-ooo/config"
 	"go-ooo/keystore"
-	"go-ooo/utils"
-	"go-ooo/utils/walletworker"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -44,14 +41,20 @@ Examples:
 
 `,
 	Args: cobra.ExactArgs(1),
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		// prevent getting error due to missing config.toml
+		return nil
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		network := args[0]
 		fmt.Println("init called")
 		fmt.Println("appHomePath", appHomePath)
-		fmt.Println("cfg", viper.ConfigFileUsed())
 
-		if _, err := os.Stat(viper.ConfigFileUsed()); errors.Is(err, os.ErrNotExist) {
-			fmt.Println(viper.ConfigFileUsed(), "does not exist. Creating with defaults")
+		cfgFile := filepath.Join(appHomePath, "config.toml")
+		dbFile := filepath.Join(appHomePath, "ooo.sqlite")
+		ksFile := filepath.Join(appHomePath, "keystore.json")
+		if _, err := os.Stat(cfgFile); errors.Is(err, os.ErrNotExist) {
+			fmt.Println(cfgFile, "does not exist. Creating with defaults")
 
 			if _, err := os.Stat(appHomePath); errors.Is(err, os.ErrNotExist) {
 				err := os.MkdirAll(appHomePath, os.ModePerm)
@@ -60,188 +63,33 @@ Examples:
 				}
 			}
 
-			switch network {
-			case "goerli":
-				initForGoerli()
-				break
-			case "mainnet":
-				initForMainnet()
-				break
-			case "polygon":
-				initForPolygon()
-				break
-			case "dev":
-				initForDevnet()
-				break
-			default:
-				initForDevnet()
-				break
-			}
+			conf := config.DefaultConfig()
+			conf.InitForNet(network)
 
-			ks, _ := keystore.NewKeyStorageNoLogger(keyStorePath)
+			ks, _ := keystore.NewKeyStorageNoLogger(ksFile)
 
-			err, ksUser := initNewKeystore(ks)
+			err, ksUser := ks.InitNewKeystore(ksFile)
 			if err != nil {
 				panic(err)
 			}
 
-			viper.SetDefault(config.JobsOooApiUrl, "https://crypto.finchains.io/api")
-			viper.SetDefault(config.ServeHost, "127.0.0.1")
-			viper.SetDefault(config.ServePort, "8445")
-			viper.SetDefault(config.KeystorageFile, keyStorePath)
-			viper.SetDefault(config.KeystorageAccount, ksUser)
-			viper.SetDefault(config.ChainGasLimit, 500000)
-			viper.SetDefault(config.ChainMaxGasPrice, 150)
-			viper.SetDefault(config.JobsCheckDuration, 5)
-			viper.SetDefault(config.JobsWaitConfirmations, 2)
+			conf.SetKeystore(ksFile, ksUser)
 
-			viper.SetDefault(config.DatabaseDialect, "sqlite")
-			viper.SetDefault(config.DatabaseStorage, dbPath)
-			viper.SetDefault(config.DatabaseHost, "localhost")
-			viper.SetDefault(config.DatabasePort, 5432)
-			viper.SetDefault(config.DatabaseUser, "")
-			viper.SetDefault(config.DatabasePassword, "")
-			viper.SetDefault(config.DatabaseDatabase, "")
+			conf.SetSqliteDb(dbFile)
 
-			viper.SetDefault(config.PrometheusPort, "9000")
+			config.WriteConfigFile(cfgFile, conf)
 
-			viper.SetDefault(config.LogLevel, "info")
+			fmt.Println("config saved to:")
+			fmt.Println(cfgFile)
 
-			viper.SetDefault(config.SubChainEthHttpRpc, "https://eth.althea.net")
-			viper.SetDefault(config.SubChainPolygonHttpRpc, "https://polygon-rpc.com")
-			viper.SetDefault(config.SubChainBcsHttpRpc, "https://bsc-dataseed.binance.org")
-			viper.SetDefault(config.SubChainXdaiHttpRpc, "https://rpc.gnosischain.com")
-			viper.SetDefault(config.SubChainFantomHttpRpc, "https://rpc.ankr.com/fantom")
-
-			viper.SetDefault(config.ApiKeysNodereal, "")
-
-			err = viper.SafeWriteConfigAs(viper.ConfigFileUsed())
-			if err != nil {
-				panic(err)
-			}
 		} else {
-			fmt.Println(viper.ConfigFileUsed(), "already exists. Exiting")
+			fmt.Println(cfgFile, "already exists. Exiting")
 			return
 		}
+
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(initCmd)
-}
-
-func initForGoerli() {
-	viper.SetDefault(config.ChainContractAddress, "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31")
-	viper.SetDefault(config.ChainEthHttpHost, "")
-	viper.SetDefault(config.ChainEthWsHost, "")
-	viper.SetDefault(config.ChainNetworkId, 5)
-	viper.SetDefault(config.ChainFirstBlock, 7345730)
-}
-
-func initForMainnet() {
-	viper.SetDefault(config.ChainContractAddress, "0x9ac9AE20a17779c17b069b48A8788e3455fC6121")
-	viper.SetDefault(config.ChainEthHttpHost, "")
-	viper.SetDefault(config.ChainEthWsHost, "")
-	viper.SetDefault(config.ChainNetworkId, 1)
-	viper.SetDefault(config.ChainFirstBlock, 12728316)
-}
-
-func initForPolygon() {
-	viper.SetDefault(config.ChainContractAddress, "0x5E9405888255C142207Ab692C72A8cd6fc85C3A2")
-	viper.SetDefault(config.ChainEthHttpHost, "")
-	viper.SetDefault(config.ChainEthWsHost, "")
-	viper.SetDefault(config.ChainNetworkId, 137)
-	viper.SetDefault(config.ChainFirstBlock, 24460663)
-}
-
-func initForDevnet() {
-	viper.SetDefault(config.ChainContractAddress, "0x5b1869D9A4C187F2EAa108f3062412ecf0526b24")
-	viper.SetDefault(config.ChainEthHttpHost, "http://127.0.0.1:8545")
-	viper.SetDefault(config.ChainEthWsHost, "ws://127.0.0.1:8545")
-	viper.SetDefault(config.ChainNetworkId, 696969)
-	viper.SetDefault(config.ChainFirstBlock, 1)
-}
-
-func initNewKeystore(ks *keystore.Keystorage) (err error, addusername string) {
-	var walletAddress common.Address
-	var addgenerate string
-	var privateKey string
-
-	token, err := ks.GenerateToken()
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
-	fmt.Println("")
-	fmt.Println("Import a private key or create a new account")
-	fmt.Print("Username: ")
-
-	fmt.Scanf("%s\n", &addusername)
-
-	if ks.ExistsByUsername(addusername) {
-		fmt.Println("This account name is already used")
-		initNewKeystore(ks)
-	} else if addusername == "" {
-		fmt.Println("Please enter account username.")
-		initNewKeystore(ks)
-	}
-	fmt.Println("")
-	fmt.Println("Do you want to add an existing private key or generate a new one?")
-	fmt.Print("[ 1-import private key; 2-generate new key ]:	")
-
-	fmt.Scanf("%s\n", &addgenerate)
-
-	switch addgenerate {
-	case "1":
-		fmt.Println("")
-		fmt.Print("Input your private key: ")
-
-		fmt.Scanf("%s\n", &privateKey)
-
-		if !utils.HasHexPrefix(privateKey) {
-			privateKey = utils.AddHexPrefix(privateKey)
-		}
-
-		err = ks.AddExisting(addusername, privateKey)
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
-		fmt.Println("\nSuccessfully imported private key!")
-	case "2":
-		privateKey, err = ks.GeneratePrivate(addusername)
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
-		fmt.Println("\nSuccessfully generated a new private key:")
-
-		if !utils.HasHexPrefix(privateKey) {
-			privateKey = utils.AddHexPrefix(privateKey)
-		}
-
-		fmt.Println(privateKey)
-	default:
-		fmt.Println("eh?")
-		err, _ = initNewKeystore(ks)
-	}
-
-	fmt.Print("Your keystore decryption & admin password:")
-	fmt.Println("")
-	fmt.Println(token)
-	fmt.Println("")
-	fmt.Println("KEEP THIS KEY SAFE! You will need it to run the application and admin tasks!")
-	fmt.Println("")
-	fmt.Println("Your oracle wallet address:")
-	walletAddress, err = walletworker.AddressFromPrivateKeyString(privateKey)
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	fmt.Println(walletAddress.Hex())
-	fmt.Println("Keystore saved to:")
-	fmt.Println(keyStorePath)
-
-	return
 }

@@ -1,9 +1,6 @@
 package bsc_pancakeswapv2
 
 import (
-	"fmt"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"go-ooo/ooo_api/dex/types"
 )
 
@@ -16,13 +13,6 @@ const (
 
 	// MinTxCount - min tx count a pair should have for the DEX pair search
 	MinTxCount = types.MinTxCount
-)
-
-var (
-
-	// SubGraphUrl see https://docs.nodereal.io/reference/pancakeswap-graphql-api
-	// SubGraphUrl requires Nodereal API key
-	SubGraphUrl = fmt.Sprintf(`https://data-platform.nodereal.io/graph/v1/%s/projects/pancakeswap`, viper.GetString(config.ApiKeysNodereal))
 )
 
 type GraphQlToken struct {

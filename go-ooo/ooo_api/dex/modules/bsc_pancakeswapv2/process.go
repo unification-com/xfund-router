@@ -3,8 +3,6 @@ package bsc_pancakeswapv2
 import (
 	"encoding/json"
 	"errors"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"go-ooo/ooo_api/dex/types"
 	"go-ooo/utils"
 	"math/big"
@@ -16,10 +14,7 @@ func (d DexModule) processPairs(result []byte) ([]types.DexPair, bool, error) {
 	var pairs []types.DexPair
 	hasMore := false
 
-	// first check API key set
-	apiKey := viper.GetString(config.ApiKeysNodereal)
-
-	if apiKey == "" {
+	if d.nodeRealApiKey == "" {
 		return pairs, false, errors.New("nodreal API key not set in config")
 	}
 
@@ -79,9 +74,7 @@ func (d DexModule) processPrices(base, target string, minutes uint64, result []b
 	var prices []float64
 
 	// first check API key set
-	apiKey := viper.GetString(config.ApiKeysNodereal)
-
-	if apiKey == "" {
+	if d.nodeRealApiKey == "" {
 		return prices, errors.New("nodreal API key not set in config")
 	}
 

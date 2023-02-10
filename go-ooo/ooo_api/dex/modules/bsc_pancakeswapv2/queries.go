@@ -4,16 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 )
 
 func (d DexModule) generatePairsListQuery(skip uint64) ([]byte, error) {
 
 	// first check API key set
-	apiKey := viper.GetString(config.ApiKeysNodereal)
-
-	if apiKey == "" {
+	if d.nodeRealApiKey == "" {
 		return nil, errors.New("nodreal API key not set in config")
 	}
 
@@ -64,9 +60,7 @@ func (d DexModule) generatePairsListQuery(skip uint64) ([]byte, error) {
 func (d DexModule) generatePricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, error) {
 
 	// first check API key set
-	apiKey := viper.GetString(config.ApiKeysNodereal)
-
-	if apiKey == "" {
+	if d.nodeRealApiKey == "" {
 		return nil, errors.New("nodreal API key not set in config")
 	}
 

@@ -3,7 +3,6 @@ package database
 import (
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
 	"go-ooo/config"
 	"go-ooo/database/models"
 	"gorm.io/driver/postgres"
@@ -19,7 +18,7 @@ type DB struct {
 	*gorm.DB
 }
 
-func NewDb() (*DB, error) {
+func NewDb(cfg *config.Config) (*DB, error) {
 	gormLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
@@ -29,18 +28,18 @@ func NewDb() (*DB, error) {
 			Colorful:                  false,       // Disable color
 		},
 	)
-	switch viper.GetString(config.DatabaseDialect) {
+	switch cfg.Database.Dialect {
 	case "sqlite":
-		return NewSqliteDb(gormLogger)
+		return NewSqliteDb(cfg, gormLogger)
 	case "postgres":
-		return NewPostgresDb(gormLogger)
+		return NewPostgresDb(cfg, gormLogger)
 	default:
 		return nil, errors.New("no db dialect in config")
 	}
 }
 
-func NewSqliteDb(logger logger.Interface) (*DB, error) {
-	db, err := gorm.Open(sqlite.Open(viper.GetString(config.DatabaseStorage)), &gorm.Config{
+func NewSqliteDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
+	db, err := gorm.Open(sqlite.Open(cfg.Database.Storage), &gorm.Config{
 		Logger: logger,
 	})
 	return &DB{
@@ -48,12 +47,12 @@ func NewSqliteDb(logger logger.Interface) (*DB, error) {
 	}, err
 }
 
-func NewPostgresDb(logger logger.Interface) (*DB, error) {
-	host := viper.GetString(config.DatabaseHost)
-	port := viper.GetInt(config.DatabasePort)
-	user := viper.GetString(config.DatabaseUser)
-	dbName := viper.GetString(config.DatabaseDatabase)
-	password := viper.GetString(config.DatabasePassword)
+func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
+	host := cfg.Database.Host
+	port := cfg.Database.Port
+	user := cfg.Database.User
+	dbName := cfg.Database.Database
+	password := cfg.Database.Password
 	if host == "" || port == 0 {
 		return nil, nil
 	}

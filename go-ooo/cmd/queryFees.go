@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
 )
 
@@ -14,7 +15,9 @@ var queryFeesCmd = &cobra.Command{
 
 		adminTask.Task = "query_fees"
 
-		processAdminTask(adminTask)
+		srvCtx := server.GetServerContextFromCmd(cmd)
+
+		processAdminTask(adminTask, srvCtx.Config)
 	},
 }
 

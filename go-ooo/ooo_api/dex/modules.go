@@ -2,6 +2,7 @@ package dex
 
 import (
 	"context"
+	"go-ooo/config"
 	"net/http"
 	"time"
 
@@ -24,6 +25,7 @@ type Module interface {
 
 type Manager struct {
 	ctx        context.Context
+	cfg        *config.Config
 	db         *database.DB
 	httpClient *http.Client
 
@@ -31,7 +33,7 @@ type Manager struct {
 	modules map[string]Module
 }
 
-func NewDexManager(ctx context.Context, db *database.DB, modules ...Module) *Manager {
+func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB, modules ...Module) *Manager {
 	moduleMap := make(map[string]Module)
 	chainMap := make(map[string]*chains.ChainDef)
 
@@ -42,7 +44,7 @@ func NewDexManager(ctx context.Context, db *database.DB, modules ...Module) *Man
 	}
 
 	for _, c := range supportedChains {
-		ch, err := chains.GetChain(c)
+		ch, err := chains.GetChain(c, cfg.Subchain)
 		if err != nil {
 			panic(err)
 		}
@@ -51,6 +53,7 @@ func NewDexManager(ctx context.Context, db *database.DB, modules ...Module) *Man
 
 	return &Manager{
 		ctx: ctx,
+		cfg: cfg,
 		db:  db,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,

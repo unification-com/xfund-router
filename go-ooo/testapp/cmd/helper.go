@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"github.com/spf13/viper"
 	"go-ooo/config"
 	"gorm.io/driver/sqlite"
 	"log"
@@ -19,13 +18,8 @@ import (
 func createApi() *ooo_api.OOOApi {
 	ctx := context.Background()
 
-	viper.Set(config.SubChainEthHttpRpc, "https://eth.althea.net")
-	viper.Set(config.SubChainPolygonHttpRpc, "https://polygon-rpc.com")
-	viper.Set(config.SubChainBcsHttpRpc, "https://bsc-dataseed.binance.org")
-	viper.Set(config.SubChainXdaiHttpRpc, "https://rpc.gnosischain.com")
-	viper.Set(config.SubChainFantomHttpRpc, "https://rpc.ankr.com/fantom")
-	viper.Set(config.JobsOooApiUrl, "https://finchains.io/api")
-	viper.Set(config.LogLevel, "debug")
+	cfg := config.DefaultConfig()
+	cfg.Log.Level = "debug"
 
 	gormLogger := gorm_logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
@@ -53,7 +47,7 @@ func createApi() *ooo_api.OOOApi {
 		panic(err)
 	}
 
-	oooApi, err := ooo_api.NewApi(ctx, dbConn)
+	oooApi, err := ooo_api.NewApi(ctx, cfg, dbConn)
 
 	if err != nil {
 		panic(err)

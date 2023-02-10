@@ -19,8 +19,6 @@ import (
 	"go-ooo/ooo_api/dex/modules/eth_uniswapv3"
 	"go-ooo/ooo_api/dex/modules/polygon_quickswap"
 	"go-ooo/ooo_api/dex/modules/xdai_honeyswap"
-
-	"github.com/spf13/viper"
 )
 
 type OOOApi struct {
@@ -31,21 +29,21 @@ type OOOApi struct {
 	dexModuleManager *dex.Manager
 }
 
-func NewApi(ctx context.Context, db *database.DB) (*OOOApi, error) {
+func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, error) {
 
 	dexModuleManager := dex.NewDexManager(
-		ctx, db,
+		ctx, cfg, db,
 		eth_shibaswap.NewDexModule(ctx),
 		eth_sushiswap.NewDexModule(ctx),
 		eth_uniswapv2.NewDexModule(ctx),
 		eth_uniswapv3.NewDexModule(ctx),
 		polygon_quickswap.NewDexModule(ctx),
-		bsc_pancakeswapv2.NewDexModule(ctx),
+		bsc_pancakeswapv2.NewDexModule(ctx, cfg),
 		xdai_honeyswap.NewDexModule(ctx),
 	)
 
 	return &OOOApi{
-		baseURL: viper.GetString(config.JobsOooApiUrl),
+		baseURL: cfg.Jobs.OooApiUrl,
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},

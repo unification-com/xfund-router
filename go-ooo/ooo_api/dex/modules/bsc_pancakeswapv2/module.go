@@ -2,6 +2,8 @@ package bsc_pancakeswapv2
 
 import (
 	"context"
+	"fmt"
+	"go-ooo/config"
 	"go-ooo/ooo_api/dex"
 	"go-ooo/ooo_api/dex/types"
 )
@@ -11,12 +13,14 @@ var (
 )
 
 type DexModule struct {
-	ctx context.Context
+	ctx            context.Context
+	nodeRealApiKey string
 }
 
-func NewDexModule(ctx context.Context) DexModule {
+func NewDexModule(ctx context.Context, cfg *config.Config) DexModule {
 	return DexModule{
-		ctx: ctx,
+		ctx:            ctx,
+		nodeRealApiKey: cfg.ApiKeys.Nodereal,
 	}
 }
 
@@ -25,7 +29,7 @@ func (d DexModule) Name() string {
 }
 
 func (d DexModule) SubgraphUrl() string {
-	return SubGraphUrl
+	return fmt.Sprintf(`https://data-platform.nodereal.io/graph/v1/%s/projects/pancakeswap`, d.nodeRealApiKey)
 }
 
 func (d DexModule) Chain() string {

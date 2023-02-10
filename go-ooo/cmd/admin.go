@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/viper"
 	"go-ooo/config"
 	go_ooo_types "go-ooo/types"
 	"io/ioutil"
@@ -29,7 +28,7 @@ func init() {
 	rootCmd.AddCommand(adminCmd)
 }
 
-func processAdminTask(adminTask go_ooo_types.AdminTask) {
+func processAdminTask(adminTask go_ooo_types.AdminTask, cfg *config.Config) {
 
 	fmt.Print("Enter your password:	")
 
@@ -51,7 +50,7 @@ func processAdminTask(adminTask go_ooo_types.AdminTask) {
 		return
 	}
 	request := bytes.NewBuffer(requestJSON)
-	url := fmt.Sprintf("http://%s:%d", viper.GetString(config.ServeHost), viper.GetInt(config.ServePort))
+	url := fmt.Sprintf("http://%s:%s", cfg.Serve.Host, cfg.Serve.Port)
 
 	req, err := http.NewRequest("POST", fmt.Sprint(url, "/admin"), request)
 

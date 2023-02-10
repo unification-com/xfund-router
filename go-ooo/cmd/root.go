@@ -1,17 +1,13 @@
 package cmd
 
 import (
-	"fmt"
+	"context"
 	"github.com/spf13/cobra"
-	"os"
-	"path/filepath"
-
-	"github.com/spf13/viper"
+	"go-ooo/flags"
+	"go-ooo/server"
 )
 
 var appHomePath string
-var keyStorePath string
-var dbPath string
 var keystorePass string
 
 // rootCmd represents the base command when called without any subcommands
@@ -24,50 +20,18 @@ examples and usage of using your application. For example:
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		return server.InterceptConfigsPreRunHandler(cmd)
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	cobra.CheckErr(rootCmd.Execute())
-}
+func Execute(defaultHome string) {
+	srvCtx := server.NewDefaultContext()
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, server.ServerContextKey, srvCtx)
 
-func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&appHomePath, "home", "", "app home file (default is $HOME/.go-ooo)")
-}
-
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if appHomePath != "" {
-		// Use config file from the flag.
-		appCfg := filepath.Join(appHomePath, "config.toml")
-		keyStorePath = filepath.Join(appHomePath, "keystore.json")
-		dbPath = filepath.Join(appHomePath, "ooo.db")
-		viper.SetConfigFile(appCfg)
-	} else {
-		// Find home directory.
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-		appHomePath = filepath.Join(home, ".go-ooo")
-		appCfg := filepath.Join(appHomePath, "config.toml")
-		keyStorePath = filepath.Join(appHomePath, "keystore.json")
-		dbPath = filepath.Join(appHomePath, "ooo.db")
-		viper.SetConfigFile(appCfg)
-	}
-
-	viper.AutomaticEnv() // read in environment variables that match
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-	}
+	rootCmd.PersistentFlags().StringVar(&appHomePath, flags.FlagHome, defaultHome, "app home file (default is $HOME/.go-ooo)")
+	cobra.CheckErr(rootCmd.ExecuteContext(ctx))
 }
