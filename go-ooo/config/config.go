@@ -92,8 +92,8 @@ func DefaultConfig() *Config {
 			Account: "",
 		},
 		Chain: ChainConfig{
-			GasLimit:        0,
-			MaxGasPrice:     0,
+			GasLimit:        500000,
+			MaxGasPrice:     150,
 			ContractAddress: "",
 			EthHttpHost:     "",
 			EthWsHost:       "",
@@ -224,9 +224,6 @@ func (c Config) ValidateBasic() error {
 	if c.Database.Dialect == "sqlite" {
 		if c.Database.Storage == "" {
 			return errors.New("sqlite selected as dialect but database.storage not set in config.toml")
-		}
-		if _, err := os.Stat(c.Database.Storage); errors.Is(err, os.ErrNotExist) {
-			return errors.New(fmt.Sprintf(`sqlite selected as dialect but cannot find %s - check database.storage in config.toml`, c.Database.Storage))
 		}
 	}
 
