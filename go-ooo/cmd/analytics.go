@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"go-ooo/config"
+	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
 	"golang.org/x/term"
 	"io/ioutil"
@@ -64,8 +64,9 @@ var analyticsCmd = &cobra.Command{
 				XfundFee: simXfundFee,
 			},
 		}
+		srvCtx := server.GetServerContextFromCmd(cmd)
 
-		processAnalyticsTask(analyticsTask)
+		processAnalyticsTask(analyticsTask, srvCtx.Config)
 	},
 }
 
@@ -94,7 +95,9 @@ var suggestFeeCmd = &cobra.Command{
 			SuggestFee:     true,
 		}
 
-		processAnalyticsTask(analyticsTask)
+		srvCtx := server.GetServerContextFromCmd(cmd)
+
+		processAnalyticsTask(analyticsTask, srvCtx.Config)
 	},
 }
 
@@ -111,7 +114,7 @@ func init() {
 	rootCmd.AddCommand(analyticsCmd)
 }
 
-func processAnalyticsTask(task go_ooo_types.AnalyticsTask) {
+func processAnalyticsTask(task go_ooo_types.AnalyticsTask, cfg *config.Config) {
 	fmt.Print("Enter your password:	")
 
 	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
@@ -132,7 +135,7 @@ func processAnalyticsTask(task go_ooo_types.AnalyticsTask) {
 		return
 	}
 	request := bytes.NewBuffer(requestJSON)
-	url := fmt.Sprintf("http://%s:%d", viper.GetString(config.ServeHost), viper.GetInt(config.ServePort))
+	url := fmt.Sprintf("http://%s:%s", cfg.Serve.Host, cfg.Serve.Port)
 
 	req, err := http.NewRequest("POST", fmt.Sprint(url, "/analytics"), request)
 

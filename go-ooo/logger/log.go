@@ -2,8 +2,6 @@ package logger
 
 import (
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"os"
 )
 
@@ -12,7 +10,13 @@ func init() {
 		FullTimestamp: true,
 	})
 
-	logLevel := viper.GetString(config.LogLevel)
+	log.SetLevel(log.InfoLevel)
+	log.SetOutput(os.Stdout)
+}
+
+type Fields map[string]interface{}
+
+func SetLogLevel(logLevel string) {
 	logrusLevel := log.InfoLevel
 
 	switch logLevel {
@@ -26,12 +30,8 @@ func init() {
 		logrusLevel = log.InfoLevel
 		break
 	}
-
 	log.SetLevel(logrusLevel)
-	log.SetOutput(os.Stdout)
 }
-
-type Fields map[string]interface{}
 
 func packFields(pkg, function, action string, fields Fields) log.Fields {
 	packedFields := log.Fields{

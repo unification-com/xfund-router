@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"go-ooo/config"
 	"go-ooo/database/models"
 	"go-ooo/logger"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	solsha3 "github.com/miguelmota/go-solidity-sha3"
-	"github.com/spf13/viper"
 )
 
 func (o *OoORouterService) ProcessPendingJobQueue() {
@@ -66,7 +64,7 @@ func (o *OoORouterService) preProcessPendingJob(job models.DataRequests, current
 	requestBlockDiff := currentBlockNum - requestTxReceipt.BlockNumber.Uint64()
 	switch job.GetRequestStatus() {
 	case models.REQUEST_STATUS_INITIALISED:
-		waitConfirmations := viper.GetUint64(config.JobsWaitConfirmations)
+		waitConfirmations := o.cfg.Jobs.WaitConfirmations
 		if requestBlockDiff >= waitConfirmations {
 			go func(o *OoORouterService, job models.DataRequests) {
 				o.processFulfillmentFetchData(job, currentBlockNum)

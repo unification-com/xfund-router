@@ -23,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/event"
-	"github.com/spf13/viper"
 )
 
 type OoORouterService struct {
@@ -31,6 +30,7 @@ type OoORouterService struct {
 	client           *ethclient.Client
 	contractInstance *ooo_router.OooRouter
 	context          context.Context
+	cfg              *config.Config
 
 	transactOpts *bind.TransactOpts
 	callOpts     *bind.CallOpts
@@ -61,7 +61,7 @@ type OoORouterService struct {
 	prevTxNonce uint64
 }
 
-func NewOoORouter(ctx context.Context, client *ethclient.Client,
+func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Client,
 	contractInstance *ooo_router.OooRouter, contractAddress common.Address,
 	oraclePrivateKey []byte, db *database.DB, oooApi *ooo_api.OOOApi) (*OoORouterService, error) {
 
@@ -91,7 +91,7 @@ func NewOoORouter(ctx context.Context, client *ethclient.Client,
 		"address": oracleAddressStr,
 	})
 
-	transactOpts, err := bind.NewKeyedTransactorWithChainID(oraclePrivateKeyECDSA, big.NewInt(viper.GetInt64(config.ChainNetworkId)))
+	transactOpts, err := bind.NewKeyedTransactorWithChainID(oraclePrivateKeyECDSA, big.NewInt(cfg.Chain.NetworkId))
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func NewOoORouter(ctx context.Context, client *ethclient.Client,
 	transactOpts.Value = big.NewInt(0)
 
 	transactOpts.GasPrice = nil
-	transactOpts.GasLimit = uint64(viper.GetInt64(config.ChainGasLimit)) // in units
+	transactOpts.GasLimit = cfg.Chain.GasLimit // in units
 	transactOpts.Context = ctx
 
 	callOpts := &bind.CallOpts{From: common.HexToAddress(oracleAddressStr), Context: ctx}
@@ -115,7 +115,7 @@ func NewOoORouter(ctx context.Context, client *ethclient.Client,
 
 	// todo - have a cmd flag to use from block to override all
 	// check conf
-	firstBlockFromConf := viper.GetUint64(config.ChainFirstBlock)
+	firstBlockFromConf := cfg.Chain.FirstBlock
 	if firstBlockFromConf > 0 {
 		initialFromBlock = firstBlockFromConf
 	}
@@ -144,6 +144,7 @@ func NewOoORouter(ctx context.Context, client *ethclient.Client,
 		client:                  client,
 		contractInstance:        contractInstance,
 		context:                 ctx,
+		cfg:                     cfg,
 		logDataRequestedHash:    logDataRequestedHash,
 		logRequestFulfilledHash: logRequestFulfilledHash,
 		contractAbi:             contractAbi,

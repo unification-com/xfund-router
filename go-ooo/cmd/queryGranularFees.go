@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
 )
 
@@ -26,7 +27,9 @@ Examples:
 		adminTask.Task = "query_granular_fees"
 		adminTask.ToOrConsumer = consumer
 
-		processAdminTask(adminTask)
+		srvCtx := server.GetServerContextFromCmd(cmd)
+
+		processAdminTask(adminTask, srvCtx.Config)
 	},
 }
 

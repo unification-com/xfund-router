@@ -13,8 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"go-ooo/logger"
 	"net/http"
 )
@@ -32,7 +30,7 @@ func (s *Service) initPrometheus() {
 
 	http.Handle("/metrics", promhttp.Handler())
 
-	promListen := fmt.Sprintf(":%s", viper.GetString(config.PrometheusPort))
+	promListen := fmt.Sprintf(":%s", s.cfg.Prometheus.Port)
 
 	logger.InfoWithFields("service", "initPrometheus", "", "initialise prometheus", logger.Fields{
 		"listen": promListen,

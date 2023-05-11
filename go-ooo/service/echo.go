@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"go-ooo/logger"
 	go_ooo_types "go-ooo/types"
 	"net/http"
@@ -23,7 +21,7 @@ func (s *Service) initEcho() {
 	s.echoService.POST("/admin", s.AddAdminTask)
 	s.echoService.POST("/analytics", s.AddAnalyticsTask)
 
-	s.echoService.Logger.Fatal(s.echoService.Start(fmt.Sprintf("%s:%d", viper.GetString(config.ServeHost), viper.GetInt(config.ServePort))))
+	s.echoService.Logger.Fatal(s.echoService.Start(fmt.Sprintf("%s:%s", s.cfg.Serve.Host, s.cfg.Serve.Port)))
 }
 
 func (s *Service) AddAdminTask(c echo.Context) error {

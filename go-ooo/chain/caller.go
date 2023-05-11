@@ -2,8 +2,6 @@ package chain
 
 import (
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/spf13/viper"
-	"go-ooo/config"
 	"go-ooo/logger"
 	"math/big"
 )
@@ -48,7 +46,7 @@ func (o *OoORouterService) RenewTransactOpts() error {
 	}
 	o.transactOpts.GasPrice = gasPrice
 
-	maxGasPriceConf := viper.GetInt64(config.ChainMaxGasPrice)
+	maxGasPriceConf := o.cfg.Chain.MaxGasPrice
 
 	if maxGasPriceConf > 0 {
 		maxGasPrice := big.NewInt(0).Mul(big.NewInt(maxGasPriceConf), big.NewInt(params.GWei))

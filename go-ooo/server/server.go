@@ -1,4 +1,4 @@
-package app
+package server
 
 import (
 	"context"
@@ -6,30 +6,29 @@ import (
 	"os/signal"
 	"syscall"
 
-	"go-ooo/config"
 	"go-ooo/database"
 	"go-ooo/keystore"
 	"go-ooo/logger"
 	"go-ooo/service"
 	"go-ooo/version"
-
-	"github.com/spf13/viper"
 )
 
 type Server struct {
 	srv         *service.Service
 	ctx         context.Context
+	srvCtx      *Context
 	Vers        version.Info
 	keystore    *keystore.Keystorage
 	db          *database.DB
 	decryptPass string
 }
 
-func NewServer(decryptPass string) (*Server, error) {
+func NewServer(srcCtx *Context, decryptPass string) (*Server, error) {
 	ctx := context.Background()
 
 	return &Server{
 		ctx:         ctx,
+		srvCtx:      srcCtx,
 		Vers:        version.NewInfo(),
 		decryptPass: decryptPass,
 	}, nil
@@ -66,9 +65,15 @@ func (s *Server) initSignal() {
 
 func (s *Server) initKeystore() {
 
+	cfg := s.srvCtx.Config
+
 	logger.Info("app", "initKeystore", "", "initialise keystore")
 
-	ks, err := keystore.NewKeyStorage(viper.GetString(config.KeystorageFile))
+	logger.Debug("app", "initKeystore", "", "", logger.Fields{
+		"keystore": cfg.Keystore.File,
+	})
+
+	ks, err := keystore.NewKeyStorage(cfg.Keystore.File)
 	if err != nil {
 		logger.Warn("app", "initKeystore", "open keystorage",
 			"can't read keystorage, creating a new one...")
@@ -88,7 +93,7 @@ func (s *Server) initKeystore() {
 		}
 	}
 
-	err = s.keystore.SelectPrivateKey(viper.GetString(config.KeystorageAccount))
+	err = s.keystore.SelectPrivateKey(cfg.Keystore.Account)
 	if err != nil {
 		panic(err)
 	}
@@ -98,7 +103,7 @@ func (s *Server) initDatabase() {
 
 	logger.Info("app", "initDatabase", "", "initialise database")
 
-	dbConn, err := database.NewDb()
+	dbConn, err := database.NewDb(s.srvCtx.Config)
 	if err != nil {
 		panic(err)
 	}
@@ -112,7 +117,7 @@ func (s *Server) initDatabase() {
 func (s *Server) initService() {
 	logger.Info("app", "initService", "", "initialise service")
 
-	srv, err := service.NewService(s.ctx, []byte(s.keystore.GetSelectedPrivateKey()),
+	srv, err := service.NewService(s.ctx, s.srvCtx.Config, []byte(s.keystore.GetSelectedPrivateKey()),
 		s.db, s.keystore.KeyStore.GetToken())
 	if err != nil {
 		panic(err)

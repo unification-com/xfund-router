@@ -1,12 +1,9 @@
 package cmd
 
 import (
-	"errors"
-	"fmt"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"go-ooo/app"
-	"os"
+	"go-ooo/logger"
+	"go-ooo/server"
 )
 
 // startCmd represents the start command
@@ -30,17 +27,21 @@ Examples:
   go-ooo start --home=/home/user/some-other-go-ooo
   go-ooo start --home=/home/user/some-other-go-ooo --pass=/path/to/pass.txt
 `,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		if _, err := os.Stat(viper.ConfigFileUsed()); errors.Is(err, os.ErrNotExist) {
-			fmt.Println(viper.ConfigFileUsed(), "does not exist. please run 'go-ooo init'")
-			os.Exit(1)
-		}
+	PreRunE: func(cmd *cobra.Command, _ []string) error {
+		serverCtx := server.GetServerContextFromCmd(cmd)
+
+		// Bind flags to the Context's Viper
+		serverCtx.Viper.BindPFlags(cmd.Flags())
+
+		return serverCtx.Config.ValidateBasic()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		server, err := app.NewServer(keystorePass)
+		serverCtx := server.GetServerContextFromCmd(cmd)
+		server, err := server.NewServer(serverCtx, keystorePass)
 		if err != nil {
 			panic(err)
 		}
+		logger.SetLogLevel(serverCtx.Config.Log.Level)
 		server.InitServer()
 		server.Run()
 	},

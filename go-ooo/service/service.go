@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"github.com/labstack/echo/v4"
-	"github.com/spf13/viper"
 	"time"
 
 	"go-ooo/chain"
@@ -24,6 +23,7 @@ type Service struct {
 	contractInstance  *ooo_router.OooRouter
 	db                *database.DB
 	ctx               context.Context
+	cfg               *config.Config
 	jobTicker         *time.Ticker // periodic jobTicker
 	updatePairsTicker *time.Ticker
 	oooRouterService  *chain.OoORouterService
@@ -41,24 +41,28 @@ type Service struct {
 	authToken string
 }
 
-func NewService(ctx context.Context, oraclePrivateKey []byte,
+func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
 	db *database.DB, authToken string) (*Service, error) {
 
-	contractAddress := common.HexToAddress(viper.GetString(config.ChainContractAddress))
+	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
 	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
-		"address": viper.GetString(config.ChainEthWsHost),
+		"address": cfg.Chain.EthWsHost,
 	})
-	client, err := ethclient.Dial(viper.GetString(config.ChainEthWsHost))
+	client, err := ethclient.Dial(cfg.Chain.EthWsHost)
 
 	if err != nil {
 		return nil, err
 	}
 
 	var pollInterval = time.Duration(30)
-	checkDuration := viper.GetInt64(config.JobsCheckDuration)
+	checkDuration := cfg.Jobs.CheckDuration
 	if checkDuration != 0 {
 		pollInterval = time.Duration(checkDuration)
 	}
+
+	logger.Debug("service", "NewService", "", "poll service", logger.Fields{
+		"poll_interval": time.Second * pollInterval,
+	})
 
 	if err != nil {
 		return nil, err
@@ -72,14 +76,14 @@ func NewService(ctx context.Context, oraclePrivateKey []byte,
 		return nil, err
 	}
 
-	oooApi, err := ooo_api.NewApi(ctx, db)
+	oooApi, err := ooo_api.NewApi(ctx, cfg, db)
 
 	if err != nil {
 		return nil, err
 	}
 
 	logger.Info("service", "NewService", "", "init ooo router service")
-	oooRouterService, err := chain.NewOoORouter(ctx, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
+	oooRouterService, err := chain.NewOoORouter(ctx, cfg, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
 
 	if err != nil {
 		return nil, err
@@ -87,6 +91,7 @@ func NewService(ctx context.Context, oraclePrivateKey []byte,
 
 	return &Service{
 		ctx:              ctx,
+		cfg:              cfg,
 		client:           client,
 		contractAddress:  contractAddress,
 		contractInstance: oooRouterInstance,

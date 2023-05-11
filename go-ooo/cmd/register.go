@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
 	"strconv"
 
@@ -29,7 +30,9 @@ Examples:
 		adminTask.Task = "register"
 		adminTask.FeeOrAmount = uint64(fee)
 
-		processAdminTask(adminTask)
+		srvCtx := server.GetServerContextFromCmd(cmd)
+
+		processAdminTask(adminTask, srvCtx.Config)
 	},
 }
 

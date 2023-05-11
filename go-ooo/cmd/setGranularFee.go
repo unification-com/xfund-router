@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
 	"strconv"
 
@@ -32,7 +33,9 @@ Examples:
 		adminTask.FeeOrAmount = uint64(fee)
 		adminTask.ToOrConsumer = consumer
 
-		processAdminTask(adminTask)
+		srvCtx := server.GetServerContextFromCmd(cmd)
+
+		processAdminTask(adminTask, srvCtx.Config)
 	},
 }
 
