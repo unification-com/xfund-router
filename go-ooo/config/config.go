@@ -130,6 +130,9 @@ func DefaultConfig() *Config {
 
 func (c *Config) InitForNet(network string) {
 	switch network {
+	case "sepolia":
+		c.InitForSepolia()
+		break
 	case "goerli":
 		c.InitForGoerli()
 		break
@@ -156,6 +159,15 @@ func (c *Config) InitForDevNet() {
 	c.Chain.FirstBlock = 1
 }
 
+func (c *Config) InitForSepolia() {
+	c.Chain.ContractAddress = "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31"
+	c.Chain.EthHttpHost = ""
+	c.Chain.EthWsHost = ""
+	c.Chain.NetworkId = 11155111
+	c.Chain.FirstBlock = 7345730
+}
+
+// InitForGoerli will be deprecated and removed soon
 func (c *Config) InitForGoerli() {
 	c.Chain.ContractAddress = "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31"
 	c.Chain.EthHttpHost = ""

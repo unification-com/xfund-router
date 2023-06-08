@@ -9,7 +9,7 @@ const { expect } = require("chai")
 
 const { generateRequestId, generateSigMsg, getReqIdFromReceipt, randomPrice } = require("./helpers/utils")
 
-const MockToken = artifacts.require("MockToken") // Loads a compiled contract
+const xFUNDTestnet = artifacts.require("xFUNDTestnet") // Loads a compiled contract
 const Router = artifacts.require("Router") // Loads a compiled contract
 const MockConsumer = artifacts.require("MockConsumer") // Loads a compiled contract
 
@@ -29,17 +29,17 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
   // deploy contracts before every test
   beforeEach(async function () {
     // admin deploy Token contract
-    this.MockTokenContract = await MockToken.new("MockToken", "MockToken", initSupply, decimals, {
+    this.xFUNDTestnetContract = await xFUNDTestnet.new("xFUND", "xFUND", initSupply, decimals, {
       from: admin,
     })
 
     // admin deploy Router contract
-    this.RouterContract = await Router.new(this.MockTokenContract.address, { from: admin })
+    this.RouterContract = await Router.new(this.xFUNDTestnetContract.address, { from: admin })
 
     // deploy mock consumer
     this.MockConsumerContract = await MockConsumer.new(
       this.RouterContract.address,
-      this.MockTokenContract.address,
+      this.xFUNDTestnetContract.address,
       {
         from: dataConsumerOwner,
       },
@@ -52,7 +52,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         // register provider on router
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -81,7 +81,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         // register provider on router
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -124,12 +124,12 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         await this.RouterContract.registerAsProvider(defaultFee, { from: p2 })
         for (let i = 0; i < accs.length; i += 1) {
           const acc = accs[i]
-          const c = await MockConsumer.new(this.RouterContract.address, this.MockTokenContract.address, {
+          const c = await MockConsumer.new(this.RouterContract.address, this.xFUNDTestnetContract.address, {
             from: acc,
           })
 
           // send xFUND to consumer contract
-          await this.MockTokenContract.transfer(c.address, tokens, { from: admin })
+          await this.xFUNDTestnetContract.transfer(c.address, tokens, { from: admin })
           // increase router allowance
           await c.increaseRouterAllowance(tokens, { from: acc })
           contracts.push(c)
@@ -164,7 +164,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         // register provider on router
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -202,7 +202,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
           from: dataProvider,
         })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, granularFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, granularFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(granularFee, { from: dataConsumerOwner })
 
@@ -237,7 +237,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         // register provider on router
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -263,14 +263,14 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
 
         await this.RouterContract.withdraw(dataProvider, defaultFee, { from: dataProvider })
 
-        expect(await this.MockTokenContract.balanceOf(dataProvider)).to.be.bignumber.equal(new BN(defaultFee))
+        expect(await this.xFUNDTestnetContract.balanceOf(dataProvider)).to.be.bignumber.equal(new BN(defaultFee))
       })
 
       it("provider can withdraw tokens to beneficiary address", async function () {
         // register provider on router
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -296,7 +296,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
 
         await this.RouterContract.withdraw(beneficiary, defaultFee, { from: dataProvider })
 
-        expect(await this.MockTokenContract.balanceOf(beneficiary)).to.be.bignumber.equal(new BN(defaultFee))
+        expect(await this.xFUNDTestnetContract.balanceOf(beneficiary)).to.be.bignumber.equal(new BN(defaultFee))
       })
     })
   })
@@ -343,7 +343,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         await this.RouterContract.registerAsProvider(defaultFee, { from: rando })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -374,7 +374,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         await this.RouterContract.registerAsProvider(defaultFee, { from: rando })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 
@@ -404,7 +404,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
         // register providers on router
         await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
         // send xFUND to consumer contract
-        await this.MockTokenContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
+        await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
         // increase router allowance
         await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
 

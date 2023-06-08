@@ -12,7 +12,7 @@ const contractsToFlatten = [
   },
   {
     path: "contracts/mocks",
-    fileName: "MockToken.sol",
+    fileName: "xFUNDTestnet.sol",
   },
 ]
 

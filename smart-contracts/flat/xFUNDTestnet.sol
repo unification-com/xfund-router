@@ -20,11 +20,11 @@ library SafeMath {
      * _Available since v3.4._
      */
     function tryAdd(uint256 a, uint256 b) internal pure returns (bool, uint256) {
-    unchecked {
-        uint256 c = a + b;
-        if (c < a) return (false, 0);
-        return (true, c);
-    }
+        unchecked {
+            uint256 c = a + b;
+            if (c < a) return (false, 0);
+            return (true, c);
+        }
     }
 
     /**
@@ -33,10 +33,10 @@ library SafeMath {
      * _Available since v3.4._
      */
     function trySub(uint256 a, uint256 b) internal pure returns (bool, uint256) {
-    unchecked {
-        if (b > a) return (false, 0);
-        return (true, a - b);
-    }
+        unchecked {
+            if (b > a) return (false, 0);
+            return (true, a - b);
+        }
     }
 
     /**
@@ -45,15 +45,15 @@ library SafeMath {
      * _Available since v3.4._
      */
     function tryMul(uint256 a, uint256 b) internal pure returns (bool, uint256) {
-    unchecked {
+        unchecked {
         // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
         // benefit is lost if 'b' is also tested.
         // See: https://github.com/OpenZeppelin/openzeppelin-contracts/pull/522
-        if (a == 0) return (true, 0);
-        uint256 c = a * b;
-        if (c / a != b) return (false, 0);
-        return (true, c);
-    }
+            if (a == 0) return (true, 0);
+            uint256 c = a * b;
+            if (c / a != b) return (false, 0);
+            return (true, c);
+        }
     }
 
     /**
@@ -62,10 +62,10 @@ library SafeMath {
      * _Available since v3.4._
      */
     function tryDiv(uint256 a, uint256 b) internal pure returns (bool, uint256) {
-    unchecked {
-        if (b == 0) return (false, 0);
-        return (true, a / b);
-    }
+        unchecked {
+            if (b == 0) return (false, 0);
+            return (true, a / b);
+        }
     }
 
     /**
@@ -74,10 +74,10 @@ library SafeMath {
      * _Available since v3.4._
      */
     function tryMod(uint256 a, uint256 b) internal pure returns (bool, uint256) {
-    unchecked {
-        if (b == 0) return (false, 0);
-        return (true, a % b);
-    }
+        unchecked {
+            if (b == 0) return (false, 0);
+            return (true, a % b);
+        }
     }
 
     /**
@@ -166,10 +166,10 @@ library SafeMath {
      * - Subtraction cannot overflow.
      */
     function sub(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-    unchecked {
-        require(b <= a, errorMessage);
-        return a - b;
-    }
+        unchecked {
+            require(b <= a, errorMessage);
+            return a - b;
+        }
     }
 
     /**
@@ -189,10 +189,10 @@ library SafeMath {
      * - The divisor cannot be zero.
      */
     function div(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-    unchecked {
-        require(b > 0, errorMessage);
-        return a / b;
-    }
+        unchecked {
+            require(b > 0, errorMessage);
+            return a / b;
+        }
     }
 
     /**
@@ -211,10 +211,10 @@ library SafeMath {
      * - The divisor cannot be zero.
      */
     function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-    unchecked {
-        require(b > 0, errorMessage);
-        return a % b;
-    }
+        unchecked {
+            require(b > 0, errorMessage);
+            return a % b;
+        }
     }
 }
 
@@ -616,10 +616,10 @@ contract ERC20 is Context, IERC20 {
 
 
 /**
- * Mock token for unit testing
+ * xFUND token for unit testing & testnets
  * @dev {ERC20} token
  */
-contract MockToken is ERC20 {
+contract xFUNDTestnet is ERC20 {
     using SafeMath for uint256;
 
     uint8 private decs;
@@ -638,8 +638,17 @@ contract MockToken is ERC20 {
         return decs;
     }
 
-    function gimme() external {
+    function m() internal {
         uint256 amount = uint256(10).mul(uint256(10) ** decimals());
         _mint(msg.sender, amount);
+    }
+
+    function mint() external {
+        m();
+    }
+
+    // For backwards compatibility
+    function gimme() external {
+        m();
     }
 }

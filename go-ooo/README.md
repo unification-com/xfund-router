@@ -24,7 +24,7 @@ make build
 ./build/go-ooo init <network>
 ```
 
-Where `<network>` is one of `dev`, `goerli`, `mainnet` or `polygon`. Using `dev` will configure `go-ooo` for the Docker
+Where `<network>` is one of `dev`, `sepolia`, `mainnet` or `polygon`. Using `dev` will configure `go-ooo` for the Docker
 [development environment](../docker/README.md).
 
 This will save the default configuration to `$HOME/.go-ooo`, with the initial values for the `dev` network.

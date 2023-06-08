@@ -1,4 +1,4 @@
-const MockToken = artifacts.require("MockToken")
+const xFUNDTestnet = artifacts.require("xFUNDTestnet")
 const Router = artifacts.require("Router")
 const MockConsumer = artifacts.require("MockConsumer")
 const DemoConsumer = artifacts.require("DemoConsumer2")
@@ -9,23 +9,23 @@ module.exports = function (deployer, network) {
     default:
     case "development":
     case "develop":
-      // 1. MockToken
+      // 1. xFUNDTestnet
       deployer
-        .deploy(MockToken, "MockToken", "MOCK", 10000000000000, 9)
+        .deploy(xFUNDTestnet, "xFUND", "xFUND", 10000000000000, 9)
         .then(function () {
           // 2. Router
-          return deployer.deploy(Router, MockToken.address)
+          return deployer.deploy(Router, xFUNDTestnet.address)
         })
         .then(function () {
           // 3. MockConsumer
-          return deployer.deploy(MockConsumer, Router.address, MockToken.address)
+          return deployer.deploy(MockConsumer, Router.address, xFUNDTestnet.address)
         })
         .then(function () {
           // 4. MockConsumerCustomRequest
           return deployer.deploy(
             DemoConsumer,
             Router.address,
-            MockToken.address,
+            xFUNDTestnet.address,
             "0xE11BA2b4D45Eaed5996Cd0823791E0C93114882d",
             "10000000",
           )
@@ -50,6 +50,11 @@ module.exports = function (deployer, network) {
     case "polygon-fork":
       // Router
       deployer.deploy(Router, "0x77a3840f78e4685afaf9c416b36e6eae6122567b")
+      break
+    case "sepolia":
+    case "sepolia-fork":
+      // Router
+      deployer.deploy(Router, "0xb07C72acF3D7A5E9dA28C56af6F93862f8cc8196")
       break
   }
 }
