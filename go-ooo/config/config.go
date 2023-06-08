@@ -164,7 +164,7 @@ func (c *Config) InitForSepolia() {
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 11155111
-	c.Chain.FirstBlock = 7345730
+	c.Chain.FirstBlock = 3647468
 }
 
 // InitForGoerli will be deprecated and removed soon
