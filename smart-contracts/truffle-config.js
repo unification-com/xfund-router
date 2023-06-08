@@ -12,10 +12,9 @@ if (fs.existsSync("./custom_networks.js")) {
 }
 
 const {
-  ETH_PKEY_RINKEBY,
-  INFURA_PROJECT_ID_RINKEBY,
+  ETH_PKEY_TESTNET,
   ETH_PKEY_MAINNET,
-  INFURA_PROJECT_ID_MAINNET,
+  INFURA_PROJECT_ID,
   ETHERSCAN_API,
 } = process.env
 
@@ -39,19 +38,30 @@ module.exports = {
     goerli: {
       provider: () =>
         new HDWalletProvider({
-          privateKeys: [ETH_PKEY_RINKEBY],
-          providerOrUrl: `https://goerli.infura.io/v3/${INFURA_PROJECT_ID_RINKEBY}`,
+          privateKeys: [ETH_PKEY_TESTNET],
+          providerOrUrl: `https://goerli.infura.io/v3/${INFURA_PROJECT_ID}`,
         }),
       network_id: "5",
       gas: 10000000,
       gasPrice: 2000000000,
       skipDryRun: true,
     },
+    sepolia: {
+      provider: () =>
+        new HDWalletProvider({
+          privateKeys: [ETH_PKEY_TESTNET],
+          providerOrUrl: `https://sepolia.infura.io/v3/${INFURA_PROJECT_ID}`,
+        }),
+      network_id: "11155111",
+      gas: 10000000,
+      gasPrice: 5000000000,
+      skipDryRun: true,
+    },
     mainnet: {
       provider: () =>
         new HDWalletProvider({
           privateKeys: [ETH_PKEY_MAINNET],
-          providerOrUrl: `https://mainnet.infura.io/v3/${INFURA_PROJECT_ID_MAINNET}`,
+          providerOrUrl: `https://mainnet.infura.io/v3/${INFURA_PROJECT_ID}`,
         }),
       network_id: "1",
       gasPrice: 12000000000, // 12 gwei
@@ -61,7 +71,7 @@ module.exports = {
       provider: () =>
         new HDWalletProvider({
           privateKeys: [ETH_PKEY_MAINNET],
-          providerOrUrl: `https://polygon-mainnet.infura.io/v3/${INFURA_PROJECT_ID_MAINNET}`,
+          providerOrUrl: `https://polygon-mainnet.infura.io/v3/${INFURA_PROJECT_ID}`,
         }),
       network_id: "137",
       gasPrice: 40000000000, // 40 gwei
