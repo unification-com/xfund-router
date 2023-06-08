@@ -1,6 +1,6 @@
 const { BN } = require("@openzeppelin/test-helpers")
 
-const MockERC20 = artifacts.require("MockToken")
+const MockERC20 = artifacts.require("xFUNDTestnet")
 const Router = artifacts.require("Router")
 const DemoConsumer2 = artifacts.require("DemoConsumer2")
 
