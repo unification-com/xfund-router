@@ -30,13 +30,13 @@ database configuration, Eth RPC URLs etc.
 Current network options are:
 
   dev
-  goerli
+  sepolia
   mainnet
   polygon
 
 Examples:
 
-  go-ooo init goerli
+  go-ooo init sepolia
   go-ooo init dev --home=/path/to/go-ooo-home
 
 `,
