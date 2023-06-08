@@ -15,6 +15,8 @@ const args = arg({
 
 const getNetwork = (network) => {
   switch(network) {
+    case "sepolia":
+      return "11155111"
     case "rinkeby":
       return 4
     case "dev":
@@ -44,7 +46,7 @@ const getAbiAndAddressForEnv = (contract, network) => {
 const getDeployedAddresses = (network) => {
   const networkId = getNetwork(network)
   const contracts = [
-    "MockToken",
+    "xFUNDTestnet",
     "Router",
     "ConsumerLib",
   ]

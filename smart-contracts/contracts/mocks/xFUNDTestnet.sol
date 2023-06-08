@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 /**
- * Mock token for unit testing
+ * xFUND token for unit testing & testnets
  * @dev {ERC20} token
  */
 contract xFUNDTestnet is ERC20 {
@@ -28,13 +28,17 @@ contract xFUNDTestnet is ERC20 {
         return decs;
     }
 
-    function mint() external {
+    function m() internal {
         uint256 amount = uint256(10).mul(uint256(10) ** decimals());
         _mint(msg.sender, amount);
     }
 
+    function mint() external {
+        m();
+    }
+
     // For backwards compatibility
     function gimme() external {
-        mint();
+        m();
     }
 }

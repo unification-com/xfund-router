@@ -7,7 +7,7 @@ const {
 
 const { expect } = require("chai")
 
-const MockToken = artifacts.require("MockToken") // Loads a compiled contract
+const xFUNDTestnet = artifacts.require("xFUNDTestnet") // Loads a compiled contract
 const Router = artifacts.require("Router") // Loads a compiled contract
 
 contract("Router - direct interaction tests", (accounts) => {
@@ -20,12 +20,12 @@ contract("Router - direct interaction tests", (accounts) => {
   // deploy contracts before every test
   beforeEach(async function () {
     // admin deploy Token contract
-    this.MockTokenContract = await MockToken.new("MockToken", "MockToken", initSupply, decimals, {
+    this.xFUNDTestnetContract = await xFUNDTestnet.new("xFUND", "xFUND", initSupply, decimals, {
       from: admin,
     })
 
     // admin deploy Router contract
-    this.RouterContract = await Router.new(this.MockTokenContract.address, { from: admin })
+    this.RouterContract = await Router.new(this.xFUNDTestnetContract.address, { from: admin })
   })
 
   describe("should succeed", function () {
@@ -96,11 +96,11 @@ contract("Router - direct interaction tests", (accounts) => {
 
     describe("getters", function () {
       it("getToken - returns expected address", async function () {
-        const mockToken = await MockToken.new("MockToken", "MockToken", initSupply, decimals, { from: admin })
-        const mockRouter = await Router.new(mockToken.address, { from: admin })
+        const xFUNDTestnetContract = await xFUNDTestnet.new("xFUND", "xFUND", initSupply, decimals, { from: admin })
+        const mockRouter = await Router.new(xFUNDTestnetContract.address, { from: admin })
 
         const storedAddress = await mockRouter.getTokenAddress()
-        expect(storedAddress).to.equal(mockToken.address)
+        expect(storedAddress).to.equal(xFUNDTestnetContract.address)
       })
 
       it("getProviderMinFee - returns expected minFee", async function () {

@@ -9,7 +9,7 @@ const { expect } = require("chai")
 
 const { generateRequestId, generateSigMsg } = require("./helpers/utils")
 
-const MockToken = artifacts.require("MockToken") // Loads a compiled contract
+const xFUNDTestnet = artifacts.require("xFUNDTestnet") // Loads a compiled contract
 const Router = artifacts.require("Router") // Loads a compiled contract
 const DemoConsumer = artifacts.require("DemoConsumer") // Loads a compiled contract
 
@@ -27,17 +27,17 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
   // deploy contracts before every test
   beforeEach(async function () {
     // admin deploy Token contract
-    this.MockTokenContract = await MockToken.new("MockToken", "MockToken", initSupply, decimals, {
+    this.xFUNDTestnetContract = await xFUNDTestnet.new("xFUND", "xFUND", initSupply, decimals, {
       from: admin,
     })
 
     // admin deploy Router contract
-    this.RouterContract = await Router.new(this.MockTokenContract.address, { from: admin })
+    this.RouterContract = await Router.new(this.xFUNDTestnetContract.address, { from: admin })
 
     // deploy demo
     this.DemoConsumer = await DemoConsumer.new(
       this.RouterContract.address,
-      this.MockTokenContract.address,
+      this.xFUNDTestnetContract.address,
       dataProvider,
       defaultFee,
       {
@@ -48,7 +48,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
     // register provider on router
     await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
     // send xFUND to consumer contract
-    await this.MockTokenContract.transfer(this.DemoConsumer.address, defaultFee, { from: admin })
+    await this.xFUNDTestnetContract.transfer(this.DemoConsumer.address, defaultFee, { from: admin })
   })
 
   it("can setProvider", async function () {
@@ -65,7 +65,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
       "router cannot be the zero address",
     )
 
-    const newRouterContract = await Router.new(this.MockTokenContract.address, { from: admin })
+    const newRouterContract = await Router.new(this.xFUNDTestnetContract.address, { from: admin })
 
     await this.DemoConsumer.setRouter(newRouterContract.address, { from: dataConsumerOwner })
   })
@@ -75,7 +75,7 @@ contract("Router - fulfillment & withdraw tests", (accounts) => {
   })
 
   it("can withdrawxFund", async function () {
-    await this.MockTokenContract.transfer(this.DemoConsumer.address, 100000000, { from: admin })
+    await this.xFUNDTestnetContract.transfer(this.DemoConsumer.address, 100000000, { from: admin })
     await this.DemoConsumer.withdrawxFund(dataConsumerOwner, 100000000, { from: dataConsumerOwner })
   })
 

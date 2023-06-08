@@ -2,7 +2,7 @@ const { constants, expectRevert } = require("@openzeppelin/test-helpers")
 
 const { expect } = require("chai")
 
-const MockToken = artifacts.require("MockToken") // Loads a compiled contract
+const xFUNDTestnet = artifacts.require("xFUNDTestnet") // Loads a compiled contract
 const Router = artifacts.require("Router") // Loads a compiled contract
 
 contract("Router - deploy", (accounts) => {
@@ -12,14 +12,14 @@ contract("Router - deploy", (accounts) => {
 
   before(async function () {
     // admin deploy Token contract
-    this.MockTokenContract = await MockToken.new("MockToken", "MockToken", initSupply, decimals, {
+    this.xFUNDTestnetContract = await xFUNDTestnet.new("xFUND", "xFUND", initSupply, decimals, {
       from: admin,
     })
   })
 
   it("can deploy Router with Token - has correct token address", async function () {
-    const RouterContract = await Router.new(this.MockTokenContract.address, { from: admin })
-    expect(await RouterContract.getTokenAddress()).to.equal(this.MockTokenContract.address)
+    const RouterContract = await Router.new(this.xFUNDTestnetContract.address, { from: admin })
+    expect(await RouterContract.getTokenAddress()).to.equal(this.xFUNDTestnetContract.address)
   })
 
   it("must deploy with token", async function () {
