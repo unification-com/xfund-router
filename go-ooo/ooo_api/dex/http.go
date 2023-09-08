@@ -11,6 +11,7 @@ import (
 
 func runQuery(query []byte, url string) ([]byte, error) {
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(query))
+	req.Header.Set("Content-Type", "application/json")
 
 	if err != nil {
 		return nil, err
