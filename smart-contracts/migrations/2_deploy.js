@@ -31,16 +31,6 @@ module.exports = function (deployer, network) {
           )
         })
       break
-    case "rinkeby":
-    case "rinkeby-fork":
-      // Router
-      deployer.deploy(Router, "0x245330351344f9301690d5d8de2a07f5f32e1149")
-      break
-    case "goerli":
-    case "goerli-fork":
-      // Router
-      deployer.deploy(Router, "0xb07C72acF3D7A5E9dA28C56af6F93862f8cc8196")
-      break
     case "mainnet":
     case "mainnet-fork":
       // Router
@@ -55,6 +45,10 @@ module.exports = function (deployer, network) {
     case "sepolia-fork":
       // Router
       deployer.deploy(Router, "0xb07C72acF3D7A5E9dA28C56af6F93862f8cc8196")
+      break
+    case "shibarium":
+    case "shibarium-fork":
+      deployer.deploy(Router, "0x89dc93C6c12CaE47aCAf4aD9305d7A442C30dBB2")
       break
   }
 }

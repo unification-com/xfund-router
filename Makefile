@@ -1,8 +1,8 @@
 #!/usr/bin/make -f
 
 abigen:
-	npx truffle run abigen
-	abigen --abi smart-contracrts/abigenBindings/abi/Router.abi --pkg ooo_router --out go-ooo/ooo_router/ooo_router.go
+	cd smart-contracts && npx truffle run abigen
+	abigen --abi smart-contracts/abigenBindings/abi/Router.abi --pkg ooo_router --out go-ooo/ooo_router/ooo_router.go
 
 # Dev environment
 dev-env:

@@ -7,10 +7,6 @@ const contractsToFlatten = [
     fileName: "Router.sol",
   },
   {
-    path: "contracts/dev",
-    fileName: "BlockhashStore.sol",
-  },
-  {
     path: "contracts/mocks",
     fileName: "xFUNDTestnet.sol",
   },

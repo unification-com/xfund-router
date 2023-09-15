@@ -35,17 +35,6 @@ module.exports = {
       network_id: "*",
       defaultEtherBalance: 500,
     },
-    goerli: {
-      provider: () =>
-        new HDWalletProvider({
-          privateKeys: [ETH_PKEY_TESTNET],
-          providerOrUrl: `https://goerli.infura.io/v3/${INFURA_PROJECT_ID}`,
-        }),
-      network_id: "5",
-      gas: 10000000,
-      gasPrice: 2000000000,
-      skipDryRun: true,
-    },
     sepolia: {
       provider: () =>
         new HDWalletProvider({
@@ -75,6 +64,16 @@ module.exports = {
         }),
       network_id: "137",
       gasPrice: 40000000000, // 40 gwei
+      skipDryRun: true,
+    },
+    shibarium: {
+      provider: () =>
+        new HDWalletProvider({
+          privateKeys: [ETH_PKEY_MAINNET],
+          providerOrUrl: 'https://rpc.shibrpc.com',
+        }),
+      network_id: "109",
+      gasPrice: 10000000000, // 10 gwei
       skipDryRun: true,
     },
     ...customNetworks,
