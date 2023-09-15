@@ -24,6 +24,10 @@ const getNetwork = (network) => {
       return 5777
     case "mainnet":
       return 1
+    case "shibarium":
+      return 109
+    case "polygon":
+      return 137
   }
 }
 
@@ -46,9 +50,9 @@ const getAbiAndAddressForEnv = (contract, network) => {
 const getDeployedAddresses = (network) => {
   const networkId = getNetwork(network)
   const contracts = [
-    "xFUNDTestnet",
+    // "xFUNDTestnet",
     "Router",
-    "ConsumerLib",
+    // "ConsumerLib",
   ]
   console.log(`Network: ${network} (${networkId})`)
   for(let i = 0; i < contracts.length; i += 1) {
