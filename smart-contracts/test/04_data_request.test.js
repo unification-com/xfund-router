@@ -257,6 +257,7 @@ contract("Router - data request tests", (accounts) => {
     it("initialiseRequest - insufficient xFUND balance", async function () {
       // register provider on router
       await this.RouterContract.registerAsProvider(defaultFee, { from: dataProvider })
+      await this.MockConsumerContract.increaseRouterAllowance(defaultFee, { from: dataConsumerOwner })
       await expectRevert(
         this.MockConsumerContract.getData(dataProvider, defaultFee, endpoint, { from: dataConsumerOwner }),
         "ERC20: transfer amount exceeds balance",
@@ -270,7 +271,7 @@ contract("Router - data request tests", (accounts) => {
       await this.xFUNDTestnetContract.transfer(this.MockConsumerContract.address, defaultFee, { from: admin })
       await expectRevert(
         this.MockConsumerContract.getData(dataProvider, defaultFee, endpoint, { from: dataConsumerOwner }),
-        "ERC20: transfer amount exceeds allowance",
+        "ERC20: insufficient allowance.",
       )
     })
   })
