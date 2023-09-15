@@ -60,7 +60,7 @@ module.exports = async function (callback) {
     console.log("requesting", data)
     receipt = await demoConsumer.requestData(endpoint, pair, { from: consumerOwner })
     console.log("tx hash", receipt.tx)
-    const requestId = receipt.receipt.rawLogs[2].topics[3]
+    const requestId = receipt.receipt.rawLogs[1].topics[3]
     console.log("requestId", requestId)
 
     console.log("waiting for fulfilment. This may take 3 - 4 blocks.")
