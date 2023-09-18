@@ -16,7 +16,7 @@ ldflags = -X go-ooo/version.Version=$(VERSION) \
 BUILD_FLAGS := -ldflags '$(ldflags)'
 
 build:
-	rm -f build/go-ooo && CGO_ENABLED=0 go build -mod=readonly $(BUILD_FLAGS) -o ./build/go-ooo ./
+	rm -f build/go-ooo && go build -mod=readonly $(BUILD_FLAGS) -o ./build/go-ooo ./
 
 build-testapp:
 	rm -f build/testapp && go build -mod=readonly $(BUILD_FLAGS) -o ./build/testapp ./testapp
