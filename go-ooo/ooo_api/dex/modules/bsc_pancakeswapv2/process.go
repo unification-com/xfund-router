@@ -3,6 +3,7 @@ package bsc_pancakeswapv2
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go-ooo/ooo_api/dex/types"
 	"go-ooo/utils"
 	"math/big"
@@ -25,7 +26,7 @@ func (d DexModule) processPairs(result []byte) ([]types.DexPair, bool, error) {
 	}
 
 	if decodedResponse.Errors != nil {
-		return nil, false, errors.New(decodedResponse.Errors[0].Message)
+		return nil, false, errors.New(fmt.Sprintf("Error from GraphQL API: %s", decodedResponse.Errors[0].Message))
 	}
 
 	if len(decodedResponse.Data.Pairs) == 1000 {

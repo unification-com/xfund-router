@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	ModuleName  = "eth_uniswapv2"
-	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2"
+	ModuleName = "eth_uniswapv2"
+	//SubGraphUrl = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2"
+	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/ianlapham/uniswap-v2-dev"
 	Chain       = types.ChainEth
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search

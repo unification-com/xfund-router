@@ -29,7 +29,7 @@ func (d DexModule) Name() string {
 }
 
 func (d DexModule) SubgraphUrl() string {
-	return fmt.Sprintf(`https://data-platform.nodereal.io/graph/v1/%s/projects/pancakeswap`, d.nodeRealApiKey)
+	return fmt.Sprintf(`https://open-platform.nodereal.io/%s/pancakeswap-free/graphql`, d.nodeRealApiKey)
 }
 
 func (d DexModule) Chain() string {

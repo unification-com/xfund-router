@@ -18,7 +18,7 @@ func runQuery(query []byte, url string) ([]byte, error) {
 	}
 
 	httpClient := http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: 20 * time.Second,
 	}
 
 	resp, err := httpClient.Do(req)

@@ -42,6 +42,8 @@ func (dm *Manager) UpdateAllPairsAndTokens() {
 				continue
 			}
 
+			// ToDo: migrate to Graph Network & GRT fees
+			// ToDo: implement fallback query URLs
 			pairs, more, err := module.ProcessPairsQueryResult(res)
 
 			if err != nil {
