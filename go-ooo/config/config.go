@@ -52,11 +52,12 @@ type LogConfig struct {
 }
 
 type SubchainConfig struct {
-	EthHttpRpc     string `mapstructure:"eth_http_rpc"`
-	PolygonHttpRpc string `mapstructure:"polygon_http_rpc"`
-	BcsHttpRpc     string `mapstructure:"bsc_http_rpc"`
-	XdaiHttpRpc    string `mapstructure:"xdai_http_rpc"`
-	FantomHttpRpc  string `mapstructure:"fantom_http_rpc"`
+	EthHttpRpc       string `mapstructure:"eth_http_rpc"`
+	PolygonHttpRpc   string `mapstructure:"polygon_http_rpc"`
+	BcsHttpRpc       string `mapstructure:"bsc_http_rpc"`
+	XdaiHttpRpc      string `mapstructure:"xdai_http_rpc"`
+	FantomHttpRpc    string `mapstructure:"fantom_http_rpc"`
+	ShibariumHttpRpc string `mapstructure:"shibarium_http_rpc"`
 }
 
 type ApiKeysConfig struct {
@@ -116,11 +117,12 @@ func DefaultConfig() *Config {
 			Level: "info",
 		},
 		Subchain: SubchainConfig{
-			EthHttpRpc:     "https://eth.althea.net",
-			PolygonHttpRpc: "https://polygon-rpc.com",
-			BcsHttpRpc:     "https://bsc-dataseed.binance.org",
-			XdaiHttpRpc:    "https://rpc.gnosischain.com",
-			FantomHttpRpc:  "https://finchains.io/api",
+			EthHttpRpc:       "https://eth.althea.net",
+			PolygonHttpRpc:   "https://polygon-rpc.com",
+			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
+			XdaiHttpRpc:      "https://rpc.gnosischain.com",
+			FantomHttpRpc:    "https://finchains.io/api",
+			ShibariumHttpRpc: "https://rpc.shibrpc.com",
 		},
 		ApiKeys: ApiKeysConfig{
 			Nodereal: "",

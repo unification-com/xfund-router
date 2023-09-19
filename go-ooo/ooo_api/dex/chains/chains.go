@@ -23,7 +23,7 @@ func GetChain(name string, cfg config.SubchainConfig) (*ChainDef, error) {
 	case "polygon":
 		chainId = "137"
 		chainName = "Polygon Mainnet"
-		blocksPerMin = 20
+		blocksPerMin = 12
 		rpcUrl = cfg.PolygonHttpRpc
 	case "bsc":
 		chainId = "56"
@@ -45,6 +45,11 @@ func GetChain(name string, cfg config.SubchainConfig) (*ChainDef, error) {
 		chainName = "Fantom Mainnet"
 		blocksPerMin = 30
 		rpcUrl = cfg.FantomHttpRpc
+	case "shibarium":
+		chainId = "109"
+		chainName = "Shibarium Mainnet"
+		blocksPerMin = 12
+		rpcUrl = cfg.ShibariumHttpRpc
 	default:
 		return &ChainDef{}, errors.New("not supported")
 	}
