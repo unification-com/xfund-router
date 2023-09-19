@@ -8,10 +8,11 @@ const (
 	// MinTxCount - min tx count a pair should have for the DEX pair search
 	MinTxCount = 250
 
-	ChainEth     = "eth"
-	ChainPolygon = "polygon"
-	ChainBsc     = "bsc"
-	ChainXdai    = "xdai"
+	ChainEth       = "eth"
+	ChainPolygon   = "polygon"
+	ChainBsc       = "bsc"
+	ChainXdai      = "xdai"
+	ChainShibarium = "shibarium"
 )
 
 type DexToken struct {

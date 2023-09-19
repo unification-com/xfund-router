@@ -130,6 +130,7 @@ polygon_http_rpc = "{{ .Subchain.PolygonHttpRpc }}"
 bsc_http_rpc = "{{ .Subchain.BcsHttpRpc }}"
 xdai_http_rpc = "{{ .Subchain.XdaiHttpRpc }}"
 fantom_http_rpc = "{{ .Subchain.FantomHttpRpc }}"
+shibarium_http_rpc = "{{ .Subchain.ShibariumHttpRpc }}"
 
 ##########################################
 ## API Keys                             ##

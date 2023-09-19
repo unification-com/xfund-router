@@ -3,6 +3,7 @@ package dex
 import (
 	"context"
 	"go-ooo/config"
+	"go-ooo/logger"
 	"net/http"
 	"time"
 
@@ -37,7 +38,7 @@ func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB, mod
 	moduleMap := make(map[string]Module)
 	chainMap := make(map[string]*chains.ChainDef)
 
-	supportedChains := []string{types.ChainEth, types.ChainPolygon, types.ChainBsc, types.ChainXdai}
+	supportedChains := []string{types.ChainEth, types.ChainPolygon, types.ChainBsc, types.ChainXdai, types.ChainShibarium}
 
 	for _, module := range modules {
 		moduleMap[module.Name()] = module
@@ -48,6 +49,13 @@ func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB, mod
 		if err != nil {
 			panic(err)
 		}
+		logger.Debug("dex", "NewDexManager", "GetChain", "got config for chain block number queries", logger.Fields{
+			"chain_name":     ch.ChainName,
+			"chain_id":       ch.ChainId,
+			"chain_short":    ch.ChainShort,
+			"blocks_per_min": ch.BlocksPerMin,
+			"rpc":            ch.RpcUrl,
+		})
 		chainMap[c] = ch
 	}
 

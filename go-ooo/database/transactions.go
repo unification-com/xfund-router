@@ -231,6 +231,10 @@ func (d *DB) FindOrInsertNewDexPair(t0Symbol string, t1Symbol string,
 
 	if pair.ID == 0 {
 		return d.InsertNewDexPair(t0Symbol, t1Symbol, contractAddress, dexName, t0DbId, t1DbId, reserveUsd)
+	} else {
+		// update Reserve value
+		pair.ReserveUsd = reserveUsd
+		err = d.Save(&pair).Error
 	}
 
 	return pair, err
