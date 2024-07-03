@@ -61,7 +61,7 @@ type SubchainConfig struct {
 }
 
 type ApiKeysConfig struct {
-	Nodereal string `mapstructure:"nodereal_key"`
+	GraphNetwork string `mapstructure:"graph_network_key"`
 }
 
 type Config struct {
@@ -117,7 +117,7 @@ func DefaultConfig() *Config {
 			Level: "info",
 		},
 		Subchain: SubchainConfig{
-			EthHttpRpc:       "https://eth.althea.net",
+			EthHttpRpc:       "https://rpc.mevblocker.io",
 			PolygonHttpRpc:   "https://polygon-rpc.com",
 			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
 			XdaiHttpRpc:      "https://rpc.gnosischain.com",
@@ -125,7 +125,7 @@ func DefaultConfig() *Config {
 			ShibariumHttpRpc: "https://rpc.shibrpc.com",
 		},
 		ApiKeys: ApiKeysConfig{
-			Nodereal: "",
+			GraphNetwork: "",
 		},
 	}
 }

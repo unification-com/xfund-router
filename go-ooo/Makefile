@@ -56,4 +56,10 @@ $(GORELEASER):
 	@echo "Installing goreleaser..."
 	@(cd /tmp && go install github.com/goreleaser/goreleaser@latest)
 
-.PHONY: abigen build install build-release lint test test-verbose goreleaser release snapshot
+check-updates:
+	@echo "checking for module updates"
+	@go list -u -f '{{if (and (not (or .Main .Indirect)) .Update)}}{{.Path}}: {{.Version}} -> {{.Update.Version}}{{end}}' -m all 2> /dev/null
+	@echo "run:"
+	@echo "go get github.com/user/repo to update."
+
+.PHONY: abigen build install build-release lint test test-verbose goreleaser release snapshot check-updates

@@ -1,4 +1,4 @@
-package polygon_quickswap
+package eth_uniswap_v3
 
 import (
 	"encoding/json"
@@ -6,29 +6,24 @@ import (
 	"strings"
 )
 
-func (d DexModule) generatePairsListQuery(skip uint64) ([]byte, error) {
-	skipFilter := ""
-	if skip > 0 {
-		skipFilter = fmt.Sprintf(`skip: %d,`, skip)
-	}
+func (d DexModule) generatePairsListQuery(contractAddresses string) ([]byte, error) {
+
+	c := strings.ToLower(contractAddresses)
 
 	jsonData := map[string]string{
 		"query": fmt.Sprintf(`
             {
-	            pairs(
-	                first: 1000,
-                    %s
-	                orderBy: reserveUSD,
-	                orderDirection: desc,
+	            pools(
                     where :
                      {
-                          reserveUSD_gt: "%d"
+                          id_in: [%s]
                      }
 	            ) 
                 {
                      id
-	                 reserveUSD
+	                 totalValueLockedUSD
 	                 volumeUSD
+	                 txCount
 	                 untrackedVolumeUSD
 	                 token0Price
 	                 token1Price
@@ -48,13 +43,16 @@ func (d DexModule) generatePairsListQuery(skip uint64) ([]byte, error) {
                          __typename
 	                 }
 	            }
-	        }`, skipFilter, MinLiquidity),
+	        }`, c),
 	}
 
 	return json.Marshal(jsonData)
 }
 
-func (d DexModule) generatePricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, error) {
+func (d DexModule) generatePricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error) {
+
+	c := strings.ToLower(pairContractAddress)
+
 	baseQuery := fmt.Sprintf(`
                     id
 	                token0 {
@@ -72,14 +70,26 @@ func (d DexModule) generatePricesQuery(pairContractAddress string, minutes, curr
 
 	var queries = make(map[string]string)
 
-	// Subgraphs are sometimes 2 or 3 blocks behind with indexing
-	qBlock := currentBlock - 3
-
-	for i := 0; i < int(minutes); i++ {
-		q := fmt.Sprintf(`pair(id: "%s", block: { number: %d }) {
+	// latest price
+	queries["p0"] = fmt.Sprintf(`pools(where: {id_in: [%s]}) {
                      %s
-                }`, pairContractAddress, qBlock-(blocksPerMin*uint64(i)), baseQuery)
-		queries[fmt.Sprintf(`p%d`, i)] = q
+                }`, c, baseQuery)
+
+	if minutes > 0 {
+		//lastBlock := currentBlock - uint64(1)
+		//subBlocks := minutes * blocksPerMin
+		//for p := uint64(0); p < subBlocks; p++ {
+		//	q := fmt.Sprintf(`pools(block: { number: %d }, where: {id_in: [%s]}) {
+		//             %s
+		//        }`, lastBlock-p, c, baseQuery)
+		//	queries[fmt.Sprintf(`p%d`, p+1)] = q
+		//}
+		for i := 1; i <= int(minutes); i++ {
+			q := fmt.Sprintf(`pools(block: { number: %d }, where: {id_in: [%s]}) {
+		                %s
+		           }`, currentBlock-(blocksPerMin*uint64(i)), c, baseQuery)
+			queries[fmt.Sprintf(`p%d`, i)] = q
+		}
 	}
 
 	qs := []string{}
@@ -92,5 +102,7 @@ func (d DexModule) generatePricesQuery(pairContractAddress string, minutes, curr
 		"query": fmt.Sprintf(`{%s}`, strings.Join(qs, ",")),
 	}
 
-	return json.Marshal(jsonData)
+	ret, err := json.Marshal(jsonData)
+
+	return ret, uint64(len(queries)), err
 }

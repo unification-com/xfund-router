@@ -16,7 +16,7 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 
 [chain]
 # Address of the Router smart contract
-contract_address = "{{ .Chain.ContractAddress }}"
+contract_address = "{{ .Chain.ContractAddresses }}"
 
 # Network Id, e.g. 1 for mainnet etc.
 network_id = {{ .Chain.NetworkId }}
@@ -139,7 +139,7 @@ shibarium_http_rpc = "{{ .Subchain.ShibariumHttpRpc }}"
 # some DEX GraphQL APIs require keys
 
 [api_keys]
-nodereal_key = "{{ .ApiKeys.Nodereal }}"
+graph_network_key = "{{ .ApiKeys.GraphNetwork }}"
 `
 
 var configTemplate *template.Template

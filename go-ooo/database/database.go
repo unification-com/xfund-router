@@ -78,7 +78,6 @@ func (d *DB) Migrate() (err error) {
 		&models.FailedFulfilment{},
 		&models.ToBlocks{},
 		&models.SupportedPairs{},
-		&models.DexTokens{},
 		&models.DexPairs{},
 		&models.TokenContracts{},
 		&models.VersionInfo{},
@@ -88,6 +87,8 @@ func (d *DB) Migrate() (err error) {
 	d.MigrateV0ToV1()
 
 	d.MigrateV1ToV2()
+
+	d.MigrateV2ToV3()
 
 	return
 }

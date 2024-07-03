@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"go-ooo/database/models"
+	"time"
 )
 
 /*
@@ -87,30 +88,30 @@ func (d *DB) PairsNoLongerSupported(pairs []string) ([]models.SupportedPairs, er
   DexPairs queries
 */
 
-func (d *DB) FindByDexPairName(base string, target string, dexName string) (models.DexPairs, error) {
+func (d *DB) FindByDexPairName(base, target, chain, dexName string) ([]models.DexPairs, error) {
 	pair := fmt.Sprintf("%s-%s", base, target)
 	pairRev := fmt.Sprintf("%s-%s", target, base)
+	var result []models.DexPairs
+	err := d.Where(
+		"(pair = ? OR pair = ?) AND chain = ? AND dex = ? AND verified = ?", pair, pairRev, chain, dexName, true,
+	).Order("reserve_usd desc").Find(&result).Error
+	return result, err
+}
+
+func (d *DB) FindByDexChainAddress(chain, dex, contractAddress string) (models.DexPairs, error) {
 	result := models.DexPairs{}
 	err := d.Where(
-		"(pair = ? OR pair = ?) AND dex_name = ?", pair, pairRev, dexName,
+		"chain = ? AND dex = ? AND contract_address = ?", chain, dex, contractAddress,
 	).Order("reserve_usd desc").First(&result).Error
 	return result, err
 }
 
-/*
-  DexTokens queries
-*/
-
-func (d *DB) FindByDexTokenSymbol(symbol string, dexName string) (models.DexTokens, error) {
-	result := models.DexTokens{}
-	err := d.Where("token_symbol = ? AND dex_name = ?", symbol, dexName).First(&result).Error
-	return result, err
-}
-
-func (d *DB) FindByDexTokenAll(symbol string, dexName string, tokenContractsId uint) (models.DexTokens, error) {
-	result := models.DexTokens{}
-	err := d.Where("token_symbol = ? AND dex_name = ? AND token_contracts_id = ?", symbol, dexName, tokenContractsId).First(&result).Error
-	return result, err
+func (d *DB) Get100PairsForDataRefresh(chain, dex string) ([]models.DexPairs, error) {
+	var res []models.DexPairs
+	duration, _ := time.ParseDuration("-6h")
+	qTime := time.Now().Add(duration)
+	err := d.Where("chain = ? AND dex = ? AND updated_at <= ? AND verified = ?", chain, dex, qTime, true).Limit(100).Find(&res).Error
+	return res, err
 }
 
 /*
@@ -120,6 +121,12 @@ func (d *DB) FindByDexTokenAll(symbol string, dexName string, tokenContractsId u
 func (d *DB) FindByTokenAndAddress(symbol string, address string) (models.TokenContracts, error) {
 	result := models.TokenContracts{}
 	err := d.Where("token_symbol = ? AND contract_address = ?", symbol, address).First(&result).Error
+	return result, err
+}
+
+func (d *DB) FindByChainAndAddress(chain string, address string) (models.TokenContracts, error) {
+	result := models.TokenContracts{}
+	err := d.Where("chain = ? AND contract_address = ?", chain, address).First(&result).Error
 	return result, err
 }
 

@@ -1,16 +1,19 @@
-package polygon_quickswap
+package eth_uniswap_v2
 
 import (
 	"go-ooo/ooo_api/dex/types"
 )
 
 const (
-	ModuleName  = "polygon_quickswap"
-	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/sameepsi/quickswap06"
-	Chain       = types.ChainPolygon
+	ModuleName = "eth_uniswap_v2"
+	// HostedSubgraphUrl will be deprecated
+	HostedSubgraphUrl      = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2"
+	GraphNetworkSubgraphId = "EYCKATKGBKLWvSfwvBjzfCBmGwYNdVkduYXVivCsLRFu"
+	Chain                  = types.ChainEth
+	Dex                    = "uniswap_v2"
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search
-	MinLiquidity = types.MinLiquidity
+	MinLiquidity = 75000 // types.MinLiquidity
 
 	// MinTxCount - min tx count a pair should have for the DEX pair search
 	MinTxCount = types.MinTxCount

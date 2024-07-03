@@ -15,12 +15,11 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 
 	minutes, _ := strconv.ParseInt(mins, 10, 64)
 
-	// default to 10 minutes' of data
-	if minutes == 0 {
-		minutes = 10
+	if minutes < 0 {
+		minutes = 0
 	}
 
-	// no more than 1 hour's data
+	// no more than 60 minutes
 	if minutes > 60 {
 		minutes = 60
 	}
@@ -37,7 +36,6 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		"minutes":   minutes,
 	})
 
-	var outliersRemoved []float64
 	priceCount := 0
 	total := big.NewInt(0)
 
@@ -52,19 +50,72 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		return "0", errors.New("no prices found on DEXs for pair")
 	}
 
+	dMax := float64(1)
+
+	outliersRemoved, mean, stdDev, chauvenetUsed := removeOutliersFromData(rawPrices, dMax)
+
+	if len(outliersRemoved) == 0 {
+		for len(outliersRemoved) == 0 {
+			dMax += 1
+			if dMax >= 4 {
+				break
+			}
+			outliersRemoved, mean, stdDev, chauvenetUsed = removeOutliersFromData(rawPrices, dMax)
+		}
+	}
+
+	if len(outliersRemoved) == 0 {
+		outliersRemoved = rawPrices
+	}
+
+	// calculate mean from data set with outliers removed
+	for _, oR := range outliersRemoved {
+		p := big.NewFloat(oR)
+		wei := utils.EtherToWei(p)
+		if wei.Cmp(big.NewInt(0)) > 0 {
+			total = new(big.Int).Add(total, wei)
+			priceCount++
+		}
+	}
+
+	if total.Cmp(big.NewInt(0)) <= 0 {
+		return "", errors.New("cannot calculate mean, price is zero")
+	}
+
+	meanPrice := new(big.Int).Div(total, big.NewInt(int64(priceCount)))
+
+	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
+		"base":               base,
+		"target":             target,
+		"minutes":            minutes,
+		"num_prices_raw":     len(rawPrices),
+		"num_prices_chauv":   len(outliersRemoved),
+		"num_prices_removed": len(rawPrices) - len(outliersRemoved),
+		"raw_prices_mean":    mean,
+		"raw_std_dev":        stdDev,
+		"final_wei_mean":     meanPrice.String(),
+		"chauvenet_used":     chauvenetUsed,
+		"d_max":              dMax,
+	})
+
+	return meanPrice.String(), nil
+}
+
+func removeOutliersFromData(rawPrices []float64, dMax float64) ([]float64, float64, float64, bool) {
+	var outliersRemoved []float64
+
 	mean, err := stats.Mean(rawPrices)
 
 	if err != nil {
-		return "", err
+		return rawPrices, 0, 0, false
 	}
 
 	stdDev, err := stats.StandardDeviation(rawPrices)
 
 	if err != nil {
-		return "", err
+		return rawPrices, 0, 0, false
 	}
 
-	dMax := float64(3)
 	chauvenetUsed := false
 
 	// remove outliers with Chauvenet Criterion, but only if stdDev > 0
@@ -82,33 +133,5 @@ func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
 		}
 	}
 
-	// calculate mean from data set with outliers removed
-	for _, o := range outliersRemoved {
-		p := big.NewFloat(o)
-		wei := utils.EtherToWei(p)
-		if wei.Cmp(big.NewInt(0)) > 0 {
-			total = new(big.Int).Add(total, wei)
-			priceCount++
-		}
-	}
-
-	if total.Cmp(big.NewInt(0)) <= 0 {
-		return "", errors.New("cannot calculate mean, price is zero")
-	}
-
-	meanPrice := new(big.Int).Div(total, big.NewInt(int64(priceCount)))
-
-	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
-		"base":               base,
-		"target":             target,
-		"num_prices_raw":     len(rawPrices),
-		"num_prices_chauv":   len(outliersRemoved),
-		"num_prices_removed": len(rawPrices) - len(outliersRemoved),
-		"raw_prices_mean":    mean,
-		"raw_std_dev":        stdDev,
-		"final_wei_mean":     meanPrice.String(),
-		"chauvenet_used":     chauvenetUsed,
-	})
-
-	return meanPrice.String(), nil
+	return outliersRemoved, mean, stdDev, chauvenetUsed
 }

@@ -10,7 +10,33 @@ The Go implementation of the OoO Provider application, required to be run by pro
 
 Go v1.18+ is required to compile the `go-ooo` application.
 
-## Running
+## testapp
+
+`testapp` can be used to test AdHoc DEX queries. It is useful for quickly testing AdHoc data retrieval without needing
+to deploy and run a full development network stack (Docker `devnet`, `go-ooo` application, running on-chain queries etc.)
+
+1. Build the `testapp`
+
+```bash
+make build-testapp
+```
+
+2. Populate the temp database
+
+```bash
+./build/testapp api adhoc-update --graphnetapi [GRAPHNET_API_KEY]
+```
+
+3. Run AdHoc queries
+
+```bash
+./build/testapp api adhoc WETH.USDC.AD --graphnetapi [GRAPHNET_API_KEY]
+```
+
+## go-ooo
+
+`go-ooo`, the core OoO service application receives and processes data requests. The application requires on-chain 
+communication, and a registered key. With the Docker `devnet`, this is already configured and ready to test.
 
 First, build the Go application:
 

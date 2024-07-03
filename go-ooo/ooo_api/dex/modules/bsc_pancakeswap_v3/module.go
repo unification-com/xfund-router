@@ -1,4 +1,4 @@
-package eth_sushiswap
+package bsc_pancakeswap_v3
 
 import (
 	"context"
@@ -12,7 +12,6 @@ var (
 	_ dex.Module = DexModule{}
 )
 
-// app module Basics object
 type DexModule struct {
 	ctx                context.Context
 	graphNetworkApiKey string
@@ -30,9 +29,6 @@ func (d DexModule) Name() string {
 }
 
 func (d DexModule) SubgraphUrl() string {
-	if d.graphNetworkApiKey == "" {
-		return HostedSubgraphUrl
-	}
 	return fmt.Sprintf(`https://gateway-arbitrum.network.thegraph.com/api/%s/subgraphs/id/%s`, d.graphNetworkApiKey, GraphNetworkSubgraphId)
 }
 

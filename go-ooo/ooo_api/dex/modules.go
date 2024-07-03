@@ -16,12 +16,13 @@ type Module interface {
 	Name() string
 	SubgraphUrl() string
 	Chain() string
+	Dex() string
 	MinLiquidity() uint64
 	MinTxCount() uint64
-	GeneratePairsQuery(skip uint64) ([]byte, error)
-	ProcessPairsQueryResult(result []byte) ([]types.DexPair, bool, error)
-	GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, error)
-	ProcessDexPricesResult(base, target string, minutes uint64, result []byte) ([]float64, error)
+	GeneratePairsQuery(contractAddresses string) ([]byte, error)
+	ProcessPairsQueryResult(result []byte) ([]types.DexPair, error)
+	GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error)
+	ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]float64, error)
 }
 
 type Manager struct {
