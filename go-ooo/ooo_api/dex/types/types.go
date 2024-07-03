@@ -9,7 +9,7 @@ const (
 	MinTxCount = 250
 
 	ChainEth       = "eth"
-	ChainPolygon   = "polygon"
+	ChainPolygon   = "polygon_pos"
 	ChainBsc       = "bsc"
 	ChainXdai      = "xdai"
 	ChainShibarium = "shibarium"
@@ -37,4 +37,27 @@ type DexPair struct {
 	TxCount            string
 	Typename           string
 	UntrackedVolumeUSD string
+}
+
+type MetaDexToken struct {
+	Chain           string `json:"chain,omitempty"`
+	Symbol          string `json:"symbol,omitempty"`
+	Name            string `json:"name,omitempty"`
+	ContractAddress string `json:"contractAddress,omitempty"`
+}
+
+type MetaDexPair struct {
+	ContractAddress string       `json:"contractAddress,omitempty"`
+	Pair            string       `json:"pair,omitempty"`
+	ReserveUsd      float64      `json:"reserveUsd,omitempty"`
+	VolumeUsd       float64      `json:"volumeUsd,omitempty"`
+	TxCount         uint64       `json:"txCount,omitempty"`
+	Token0          MetaDexToken `json:"token0,omitempty"`
+	Token1          MetaDexToken `json:"token1,omitempty"`
+}
+
+type PairMetaData struct {
+	Pairs []MetaDexPair `json:"pairs,omitempty"`
+	Chain string        `json:"chain,omitempty"`
+	Dex   string        `json:"dex,omitempty"`
 }

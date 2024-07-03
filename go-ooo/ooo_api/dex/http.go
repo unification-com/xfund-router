@@ -10,15 +10,23 @@ import (
 )
 
 func runQuery(query []byte, url string) ([]byte, error) {
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(query))
-	req.Header.Set("Content-Type", "application/json")
+
+	var req *http.Request
+	var err error
+
+	if query != nil {
+		req, err = http.NewRequest("POST", url, bytes.NewBuffer(query))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req, err = http.NewRequest("GET", url, nil)
+	}
 
 	if err != nil {
 		return nil, err
 	}
 
 	httpClient := http.Client{
-		Timeout: 20 * time.Second,
+		Timeout: 60 * time.Second,
 	}
 
 	resp, err := httpClient.Do(req)

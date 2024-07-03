@@ -20,7 +20,7 @@ func GetChain(name string, cfg config.SubchainConfig) (*ChainDef, error) {
 		chainName = "Ethereum Mainnet"
 		blocksPerMin = 5
 		rpcUrl = cfg.EthHttpRpc
-	case "polygon":
+	case "polygon_pos":
 		chainId = "137"
 		chainName = "Polygon Mainnet"
 		blocksPerMin = 12

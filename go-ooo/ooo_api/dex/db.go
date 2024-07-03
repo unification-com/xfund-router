@@ -1,12 +1,13 @@
 package dex
 
 import (
+	"github.com/ethereum/go-ethereum/common"
+	"go-ooo/logger"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
-	"go-ooo/logger"
 	"go-ooo/ooo_api/dex/types"
-	"go-ooo/utils"
 )
 
 func (dm *Manager) pairIsValid(pair types.DexPair) bool {
@@ -31,105 +32,46 @@ func (dm *Manager) pairIsValid(pair types.DexPair) bool {
 	return true
 }
 
-func (dm *Manager) updatePairsInDb(pairs []types.DexPair, dex, chain string) {
-	for _, pair := range pairs {
-		// check if pair is valid & clean
-		if !dm.pairIsValid(pair) {
-			// Log, ignore and continue
-			logger.Debug("dex", "updatePairsInDb", "", "pair not valid - ignoring", logger.Fields{
-				"token0_symbol":   pair.Token0.Symbol,
-				"token1_symbol":   pair.Token1.Symbol,
-				"token0_contract": pair.Token0.Id,
-				"token1_contract": pair.Token1.Id,
-				"pair_contract":   pair.Id,
-				"dex":             dex,
-			})
+func (dm *Manager) processPairMetaData(data types.PairMetaData) {
+	chain := data.Chain
+	dex := data.Dex
+	for _, pair := range data.Pairs {
+		token0 := pair.Token0
+		token1 := pair.Token1
 
-			continue
-		}
-
-		// pair.Token0.Id is the token's contract address
-		t0Db, err := dm.db.FindOrInsertNewTokenContract(pair.Token0.Symbol, pair.Token0.Id, chain)
+		t0Db, err := dm.db.FindOrInsertNewTokenContract(token0.Symbol, token0.ContractAddress, chain)
 
 		if err != nil {
 			// log error and continue
-			logger.ErrorWithFields("dex", "updatePairsInDb", "FindOrInsertNewTokenContract", err.Error(), logger.Fields{
+			logger.ErrorWithFields("dex", "processPairMetaData", "FindOrInsertNewTokenContract", err.Error(), logger.Fields{
 				"chain":         chain,
 				"dex":           dex,
 				"what":          "token0",
-				"symbol":        pair.Token0.Symbol,
-				"contract":      pair.Token0.Id,
-				"pair_contract": pair.Id,
+				"symbol":        token0.Symbol,
+				"contract":      token0.ContractAddress,
+				"pair_contract": pair.ContractAddress,
 			})
 
 			continue
 		}
 
-		t1Db, err := dm.db.FindOrInsertNewTokenContract(pair.Token1.Symbol, pair.Token1.Id, chain)
+		t1Db, err := dm.db.FindOrInsertNewTokenContract(token1.Symbol, token1.ContractAddress, chain)
 
 		if err != nil {
 			// log error and continue
-			logger.ErrorWithFields("dex", "updatePairsInDb", "FindOrInsertNewTokenContract", err.Error(), logger.Fields{
+			logger.ErrorWithFields("dex", "processPairMetaData", "FindOrInsertNewTokenContract", err.Error(), logger.Fields{
 				"chain":         chain,
 				"dex":           dex,
 				"what":          "token1",
-				"symbol":        pair.Token1.Symbol,
-				"contract":      pair.Token1.Id,
-				"pair_contract": pair.Id,
+				"symbol":        token1.Symbol,
+				"contract":      token1.ContractAddress,
+				"pair_contract": pair.ContractAddress,
 			})
 
 			continue
 		}
 
-		t0DtDb, err := dm.db.FindOrInsertNewDexToken(pair.Token0.Symbol, t0Db.ID, dex, chain)
-
-		if err != nil {
-			// log error and continue
-			logger.ErrorWithFields("dex", "updatePairsInDb", "FindOrInsertNewDexToken", err.Error(), logger.Fields{
-				"chain":           chain,
-				"dex":             dex,
-				"what":            "token0",
-				"symbol":          pair.Token0.Symbol,
-				"contract_row_id": t0Db.ID,
-				"pair_contract":   pair.Id,
-			})
-
-			continue
-		}
-
-		t1DtDb, err := dm.db.FindOrInsertNewDexToken(pair.Token1.Symbol, t1Db.ID, dex, chain)
-
-		if err != nil {
-			// log error and continue
-			logger.ErrorWithFields("dex", "updatePairsInDb", "FindOrInsertNewDexToken", err.Error(), logger.Fields{
-				"chain":           chain,
-				"dex":             dex,
-				"what":            "token1",
-				"symbol":          pair.Token1.Symbol,
-				"contract_row_id": t1Db.ID,
-				"pair_contract":   pair.Id,
-			})
-
-			continue
-		}
-
-		// store liquidity
-		reserve, err := utils.ParseBigFloat(pair.ReserveUSD)
-
-		if err != nil {
-			// log error and continue
-			logger.ErrorWithFields("dex", "updatePairsInDb", "ParseBigFloat", err.Error(), logger.Fields{
-				"chain":         chain,
-				"dex":           dex,
-				"pair_contract": pair.Id,
-			})
-
-			continue
-		}
-
-		reserveUsd, _ := reserve.Float64()
-
-		_, err = dm.db.FindOrInsertNewDexPair(pair.Token0.Symbol, pair.Token1.Symbol, pair.Id, dex, t0DtDb.ID, t1DtDb.ID, reserveUsd)
+		_, err = dm.db.FindOrInsertNewDexPair(token0.Symbol, token1.Symbol, chain, pair.ContractAddress, dex, t0Db.ID, t1Db.ID, pair.ReserveUsd, pair.TxCount)
 
 		if err != nil {
 			// log error and continue
@@ -138,10 +80,38 @@ func (dm *Manager) updatePairsInDb(pairs []types.DexPair, dex, chain string) {
 				"dex":           dex,
 				"token0_symbol": pair.Token0.Symbol,
 				"token1_symbol": pair.Token1.Symbol,
-				"token0_row_id": t0DtDb.ID,
-				"token1_row_id": t1DtDb.ID,
-				"pair_contract": pair.Id,
-				"reserve_usd":   reserveUsd,
+				"token0_row_id": t0Db.ID,
+				"token1_row_id": t1Db.ID,
+				"pair_contract": pair.ContractAddress,
+				"reserve_usd":   pair.ReserveUsd,
+				"tx_count":      pair.TxCount,
+			})
+		}
+	}
+}
+
+func (dm *Manager) updatePairsInDb(pairs []types.DexPair, chain, dex string) {
+
+	for _, p := range pairs {
+		contractAddress := common.HexToAddress(p.Contract)
+		txCount, err := strconv.Atoi(p.TxCount)
+		if err != nil {
+			txCount = 0
+		}
+		reserveUsd, err := strconv.ParseFloat(p.ReserveUSD, 64)
+
+		if err != nil {
+			reserveUsd = 0.0
+		}
+
+		err = dm.db.UpdateDexPairMetaData(chain, dex, contractAddress.Hex(), reserveUsd, uint64(txCount))
+
+		if err != nil {
+			// log error and continue
+			logger.ErrorWithFields("dex", "updatePairsInDb", "FindOrInsertNewDexPair", err.Error(), logger.Fields{
+				"chain":            chain,
+				"dex":              dex,
+				"contract_address": contractAddress.Hex(),
 			})
 		}
 	}

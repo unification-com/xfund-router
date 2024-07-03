@@ -12,12 +12,12 @@ import (
 	"go-ooo/database"
 	"go-ooo/logger"
 	"go-ooo/ooo_api/dex"
-	"go-ooo/ooo_api/dex/modules/bsc_pancakeswapv2"
+	"go-ooo/ooo_api/dex/modules/bsc_pancakeswap_v3"
 	"go-ooo/ooo_api/dex/modules/eth_shibaswap"
 	"go-ooo/ooo_api/dex/modules/eth_sushiswap"
-	"go-ooo/ooo_api/dex/modules/eth_uniswapv2"
-	"go-ooo/ooo_api/dex/modules/eth_uniswapv3"
-	"go-ooo/ooo_api/dex/modules/polygon_quickswap"
+	"go-ooo/ooo_api/dex/modules/eth_uniswap_v2"
+	"go-ooo/ooo_api/dex/modules/eth_uniswap_v3"
+	"go-ooo/ooo_api/dex/modules/polygon_pos_quickswap_v3"
 	"go-ooo/ooo_api/dex/modules/xdai_honeyswap"
 )
 
@@ -33,13 +33,13 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 
 	dexModuleManager := dex.NewDexManager(
 		ctx, cfg, db,
-		eth_shibaswap.NewDexModule(ctx),
-		eth_sushiswap.NewDexModule(ctx),
-		eth_uniswapv2.NewDexModule(ctx),
-		eth_uniswapv3.NewDexModule(ctx),
-		polygon_quickswap.NewDexModule(ctx),
-		bsc_pancakeswapv2.NewDexModule(ctx, cfg),
-		xdai_honeyswap.NewDexModule(ctx),
+		eth_shibaswap.NewDexModule(ctx, cfg),
+		eth_sushiswap.NewDexModule(ctx, cfg),
+		eth_uniswap_v2.NewDexModule(ctx, cfg),
+		eth_uniswap_v3.NewDexModule(ctx, cfg),
+		polygon_pos_quickswap_v3.NewDexModule(ctx, cfg),
+		bsc_pancakeswap_v3.NewDexModule(ctx, cfg),
+		xdai_honeyswap.NewDexModule(ctx, cfg),
 	)
 
 	return &OOOApi{
@@ -54,7 +54,8 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 }
 
 func (o *OOOApi) UpdateDexPairs() {
-	o.dexModuleManager.UpdateAllPairsAndTokens()
+	o.dexModuleManager.GetSupportedPairs()
+	o.dexModuleManager.UpdateAllPairsMetaDataFromDexs()
 }
 
 func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
