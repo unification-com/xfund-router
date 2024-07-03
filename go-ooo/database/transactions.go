@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"go-ooo/database/models"
 )
@@ -192,45 +193,16 @@ func (d *DB) InsertNewFailedFulfilment(requestId string, txHash string, gasUsed 
 }
 
 /*
-  DexTokens
-*/
-
-func (d *DB) FindOrInsertNewDexToken(symbol string, tokenContractsId uint, dexName string, chain string) (models.DexTokens, error) {
-
-	token, err := d.FindByDexTokenAll(symbol, dexName, tokenContractsId)
-
-	if token.ID == 0 {
-		return d.InsertNewDexToken(symbol, tokenContractsId, dexName, chain)
-	}
-
-	return token, err
-}
-
-func (d *DB) InsertNewDexToken(symbol string, tokenContractsId uint, dexName string, chain string) (models.DexTokens, error) {
-
-	data := models.DexTokens{
-		DexName:          dexName,
-		TokenSymbol:      symbol,
-		TokenContractsId: tokenContractsId,
-		Chain:            chain,
-	}
-
-	err := d.Create(&data).Error
-
-	return data, err
-}
-
-/*
   DexPairs
 */
 
-func (d *DB) FindOrInsertNewDexPair(t0Symbol string, t1Symbol string,
-	contractAddress string, dexName string, t0DbId uint, t1DbId uint, reserveUsd float64) (models.DexPairs, error) {
+func (d *DB) FindOrInsertNewDexPair(t0Symbol string, t1Symbol string, chain string,
+	contractAddress string, dexName string, t0DbId uint, t1DbId uint, reserveUsd float64, txCount uint64) (models.DexPairs, error) {
 
-	pair, err := d.FindByDexPairName(t0Symbol, t1Symbol, dexName)
+	pair, err := d.FindByDexChainAddress(chain, dexName, contractAddress)
 
 	if pair.ID == 0 {
-		return d.InsertNewDexPair(t0Symbol, t1Symbol, contractAddress, dexName, t0DbId, t1DbId, reserveUsd)
+		return d.InsertNewDexPair(t0Symbol, t1Symbol, chain, contractAddress, dexName, t0DbId, t1DbId, reserveUsd, txCount)
 	} else {
 		// update Reserve value
 		pair.ReserveUsd = reserveUsd
@@ -240,18 +212,21 @@ func (d *DB) FindOrInsertNewDexPair(t0Symbol string, t1Symbol string,
 	return pair, err
 }
 
-func (d *DB) InsertNewDexPair(t0Symbol string, t1Symbol string,
-	contractAddress string, dexName string, t0DbId uint, t1DbId uint, reserveUsd float64) (models.DexPairs, error) {
+func (d *DB) InsertNewDexPair(t0Symbol string, t1Symbol string, chain string,
+	contractAddress string, dexName string, t0DbId uint, t1DbId uint, reserveUsd float64, txCount uint64) (models.DexPairs, error) {
 
 	data := models.DexPairs{
-		DexName:         dexName,
+		Chain:           chain,
+		Dex:             dexName,
 		Pair:            fmt.Sprintf("%s-%s", t0Symbol, t1Symbol),
-		T0DexTokenId:    t0DbId,
-		T1DexTokenId:    t1DbId,
+		T0TokenId:       t0DbId,
+		T1TokenId:       t1DbId,
 		T0Symbol:        t0Symbol,
 		T1Symbol:        t1Symbol,
 		ContractAddress: contractAddress,
 		ReserveUsd:      reserveUsd,
+		TxCount:         txCount,
+		Verified:        true,
 	}
 
 	err := d.Create(&data).Error
@@ -259,33 +234,18 @@ func (d *DB) InsertNewDexPair(t0Symbol string, t1Symbol string,
 	return data, err
 }
 
-func (d *DB) UpdateOrInsertNewDexPair(t0Symbol string, t1Symbol string,
-	contractAddress string, dexName string, t0DbId uint, t1DbId uint) (err error) {
+func (d *DB) UpdateDexPairMetaData(chain string, dex string,
+	contractAddress string, reserveUsd float64, txCount uint64) (err error) {
 
-	pair, err := d.FindByDexPairName(t0Symbol, t1Symbol, dexName)
+	pair, err := d.FindByDexChainAddress(chain, dex, contractAddress)
 
 	if pair.ID == 0 {
-		err = d.Create(&models.DexPairs{
-			DexName:         dexName,
-			Pair:            fmt.Sprintf("%s-%s", t0Symbol, t1Symbol),
-			T0DexTokenId:    t0DbId,
-			T1DexTokenId:    t1DbId,
-			T0Symbol:        t0Symbol,
-			T1Symbol:        t1Symbol,
-			ContractAddress: contractAddress,
-		}).Error
-	} else {
-		pair.ContractAddress = contractAddress
-
-		// t0Symbol and t1Symbol from contract might differ from the default base/target sent
-		// when a pair isn't found on a DEX, so update them also
-		pair.Pair = fmt.Sprintf("%s-%s", t0Symbol, t1Symbol)
-		pair.T0DexTokenId = t0DbId
-		pair.T1DexTokenId = t1DbId
-		err = d.Save(&pair).Error
+		return errors.New(fmt.Sprintf(`%s, %s, %s not found in db`, chain, dex, contractAddress))
 	}
 
-	return
+	pair.ReserveUsd = reserveUsd
+	pair.TxCount = txCount
+	return d.Save(&pair).Error
 }
 
 /*
@@ -293,7 +253,7 @@ func (d *DB) UpdateOrInsertNewDexPair(t0Symbol string, t1Symbol string,
 */
 
 func (d *DB) FindOrInsertNewTokenContract(symbol string, contractAddress string, chain string) (models.TokenContracts, error) {
-	res, err := d.FindByTokenAll(symbol, contractAddress, chain)
+	res, err := d.FindByChainAndAddress(chain, contractAddress)
 	if res.ID == 0 {
 		return d.InsertNewTokenContract(symbol, contractAddress, chain)
 	}
