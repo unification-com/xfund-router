@@ -5,9 +5,12 @@ import (
 )
 
 const (
-	ModuleName  = "eth_shibaswap"
-	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/shibaswaparmy/exchange"
-	Chain       = types.ChainEth
+	ModuleName = "eth_shibaswap"
+	// HostedSubgraphUrl will be deprecated
+	HostedSubgraphUrl      = "https://api.thegraph.com/subgraphs/name/shibaswaparmy/exchange"
+	GraphNetworkSubgraphId = "61LXXvGA1KXkJZbCceYqw9APcwTGefK5MytwnVsdAQpw"
+	Chain                  = types.ChainEth
+	Dex                    = "shibaswap"
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search
 	MinLiquidity = types.MinLiquidity

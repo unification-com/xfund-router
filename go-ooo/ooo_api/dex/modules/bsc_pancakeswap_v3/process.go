@@ -1,4 +1,4 @@
-package eth_uniswapv2
+package bsc_pancakeswap_v3
 
 import (
 	"encoding/json"
@@ -9,23 +9,19 @@ import (
 	"math/big"
 )
 
-func (d DexModule) processPairs(result []byte) ([]types.DexPair, bool, error) {
+func (d DexModule) processPairs(result []byte) ([]types.DexPair, error) {
+
 	var decodedResponse GraphQlPairsResponse
 	var pairs []types.DexPair
-	hasMore := false
 
 	err := json.Unmarshal(result, &decodedResponse)
 
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	if decodedResponse.Errors != nil {
-		return nil, false, errors.New(fmt.Sprintf("Error from GraphQL API: %s", decodedResponse.Errors[0].Message))
-	}
-
-	if len(decodedResponse.Data.Pairs) == 1000 {
-		hasMore = true
+		return nil, errors.New(fmt.Sprintf("Error from GraphQL API: %s", decodedResponse.Errors[0].Message))
 	}
 
 	for _, pair := range decodedResponse.Data.Pairs {
@@ -62,10 +58,10 @@ func (d DexModule) processPairs(result []byte) ([]types.DexPair, bool, error) {
 		pairs = append(pairs, standardPair)
 	}
 
-	return pairs, hasMore, nil
+	return pairs, nil
 }
 
-func (d DexModule) processPrices(base, target string, minutes uint64, result []byte) ([]float64, error) {
+func (d DexModule) processPrices(base, target string, numQueries uint64, result []byte) ([]float64, error) {
 	var decodedResponse map[string]any
 	var prices []float64
 
@@ -84,13 +80,16 @@ func (d DexModule) processPrices(base, target string, minutes uint64, result []b
 	pairPricesRes := decodedResponse["data"].(map[string]any)
 
 	if pairPricesRes != nil {
-		for i := 0; i < int(minutes); i++ {
-			price, err := d.getPrice(base, target, pairPricesRes[fmt.Sprintf(`p%d`, i)].(map[string]any))
-			if err != nil {
-				return prices, err
-			}
-			if price > 0 {
-				prices = append(prices, price)
+		for i := 0; i < int(numQueries); i++ {
+			priceResArray := pairPricesRes[fmt.Sprintf(`p%d`, i)].([]interface{})
+			for _, pInst := range priceResArray {
+				price, err := d.getPrice(base, target, pInst.(map[string]any))
+				if err != nil {
+					return prices, err
+				}
+				if price > 0 {
+					prices = append(prices, price)
+				}
 			}
 		}
 	}

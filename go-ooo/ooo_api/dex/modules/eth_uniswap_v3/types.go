@@ -1,16 +1,19 @@
-package eth_uniswapv3
+package eth_uniswap_v3
 
 import (
 	"go-ooo/ooo_api/dex/types"
 )
 
 const (
-	ModuleName  = "eth_uniswapv3"
-	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3"
-	Chain       = types.ChainEth
+	ModuleName = "eth_uniswap_v3"
+	// HostedSubgraphUrl will be deprecated
+	HostedSubgraphUrl      = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3"
+	GraphNetworkSubgraphId = "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV"
+	Chain                  = types.ChainEth
+	Dex                    = "uniswap_v3"
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search
-	MinLiquidity = types.MinLiquidity
+	MinLiquidity = 75000 // types.MinLiquidity
 
 	// MinTxCount - min tx count a pair should have for the DEX pair search
 	MinTxCount = types.MinTxCount

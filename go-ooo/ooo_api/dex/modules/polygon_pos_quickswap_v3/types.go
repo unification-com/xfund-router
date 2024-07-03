@@ -1,12 +1,16 @@
-package bsc_pancakeswapv2
+package polygon_pos_quickswap_v3
 
 import (
 	"go-ooo/ooo_api/dex/types"
 )
 
 const (
-	ModuleName = "bsc_pancakeswapv2"
-	Chain      = types.ChainBsc
+	ModuleName = "polygon_pos_quickswap_v3"
+	// HostedSubgraphUrl will be deprecated
+	HostedSubgraphUrl      = "https://api.thegraph.com/subgraphs/name/sameepsi/quickswap06"
+	GraphNetworkSubgraphId = "FqsRcH1XqSjqVx9GRTvEJe959aCbKrcyGgDWBrUkG24g"
+	Chain                  = types.ChainPolygon
+	Dex                    = "quickswap_v3"
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search
 	MinLiquidity = types.MinLiquidity
@@ -30,9 +34,9 @@ type GraphQlPairContent struct {
 	Token1             GraphQlToken
 	Token0Price        string `json:"token0Price"`
 	Token1Price        string `json:"token1Price"`
-	ReserveUSD         string `json:"reserveUSD,omitempty"`
+	ReserveUSD         string `json:"totalValueLockedUSD,omitempty"`
 	VolumeUSD          string `json:"volumeUSD,omitempty"`
-	TxCount            string `json:"totalTransactions,omitempty"`
+	TxCount            string `json:"txCount,omitempty"`
 	Typename           string `json:"__typename,omitempty"`
 	UntrackedVolumeUSD string `json:"untrackedVolumeUSD,omitempty"`
 }

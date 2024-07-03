@@ -1,4 +1,4 @@
-package eth_sushiswap
+package eth_uniswap_v2
 
 import (
 	"context"

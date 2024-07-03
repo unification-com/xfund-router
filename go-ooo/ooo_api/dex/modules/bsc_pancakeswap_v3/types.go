@@ -1,14 +1,15 @@
-package eth_uniswapv2
+package bsc_pancakeswap_v3
 
 import (
 	"go-ooo/ooo_api/dex/types"
 )
 
 const (
-	ModuleName = "eth_uniswapv2"
-	//SubGraphUrl = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2"
-	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/ianlapham/uniswap-v2-dev"
-	Chain       = types.ChainEth
+	ModuleName             = "bsc_pancakeswap_v3"
+	HostedSubgraphUrl      = ""
+	GraphNetworkSubgraphId = "A1fvJWQLBeUAggX2WQTMm3FKjXTekNXo77ZySun4YN2m"
+	Chain                  = types.ChainBsc
+	Dex                    = "pancakeswap_v3"
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search
 	MinLiquidity = types.MinLiquidity
@@ -32,7 +33,7 @@ type GraphQlPairContent struct {
 	Token1             GraphQlToken
 	Token0Price        string `json:"token0Price"`
 	Token1Price        string `json:"token1Price"`
-	ReserveUSD         string `json:"reserveUSD,omitempty"`
+	ReserveUSD         string `json:"totalValueLockedUSD,omitempty"`
 	VolumeUSD          string `json:"volumeUSD,omitempty"`
 	TxCount            string `json:"txCount,omitempty"`
 	Typename           string `json:"__typename,omitempty"`

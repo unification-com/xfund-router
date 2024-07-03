@@ -5,9 +5,12 @@ import (
 )
 
 const (
-	ModuleName  = "xdai_honeyswap"
-	SubGraphUrl = "https://api.thegraph.com/subgraphs/name/1hive/honeyswap-xdai"
-	Chain       = types.ChainXdai
+	ModuleName = "xdai_honeyswap"
+	// HostedSubgraphUrl will be deprecated
+	HostedSubgraphUrl      = "https://api.thegraph.com/subgraphs/name/1hive/honeyswap-xdai"
+	GraphNetworkSubgraphId = "HTxWvPGcZ5oqWLYEVtWnVJDfnai2Ud1WaABiAR72JaSJ"
+	Chain                  = types.ChainXdai
+	Dex                    = "honeyswap"
 
 	// MinLiquidity - min liquidity a pair should have for the DEX pair search
 	MinLiquidity = types.MinLiquidity
