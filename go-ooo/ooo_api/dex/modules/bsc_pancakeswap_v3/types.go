@@ -10,12 +10,6 @@ const (
 	GraphNetworkSubgraphId = "A1fvJWQLBeUAggX2WQTMm3FKjXTekNXo77ZySun4YN2m"
 	Chain                  = types.ChainBsc
 	Dex                    = "pancakeswap_v3"
-
-	// MinLiquidity - min liquidity a pair should have for the DEX pair search
-	MinLiquidity = types.MinLiquidity
-
-	// MinTxCount - min tx count a pair should have for the DEX pair search
-	MinTxCount = types.MinTxCount
 )
 
 type GraphQlToken struct {

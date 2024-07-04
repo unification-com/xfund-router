@@ -1,12 +1,10 @@
 package types
 
 const (
-	// MinLiquidity ToDo - make configurable in config.toml
-	// MinLiquidity - min liquidity a pair should have for the DEX pair search
-	MinLiquidity = 30000
-	// MinTxCount ToDo - make configurable in config.toml
-	// MinTxCount - min tx count a pair should have for the DEX pair search
-	MinTxCount = 250
+	// DefaultMinLiquidity - min liquidity a pair should have for the DEX pair search. Can be overridden in config.toml
+	DefaultMinLiquidity = 30000
+	// DefaultMinTxCount - min tx count a pair should have for the DEX pair search. Can be overridden in config.toml
+	DefaultMinTxCount = 250
 
 	ChainEth       = "eth"
 	ChainPolygon   = "polygon_pos"

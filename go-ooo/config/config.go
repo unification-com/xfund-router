@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/spf13/viper"
+	oooapidextypes "go-ooo/ooo_api/dex/types"
 	"os"
 )
 
@@ -64,6 +65,21 @@ type ApiKeysConfig struct {
 	GraphNetwork string `mapstructure:"graph_network_key"`
 }
 
+type DexConfig struct {
+	MinReserveUsd uint64 `mapstructure:"min_reserve_usd"`
+	MinTxCount    uint64 `mapstructure:"min_tx_count"`
+}
+
+type DexList struct {
+	BscPancakeswapV3      DexConfig `mapstructure:"bsc_pancakeswap_v3"`
+	EthShibaswap          DexConfig `mapstructure:"eth_shibaswap"`
+	EthSushiswap          DexConfig `mapstructure:"eth_sushiswap"`
+	EthUniswapV2          DexConfig `mapstructure:"eth_uniswap_v2"`
+	EthUniswapV3          DexConfig `mapstructure:"eth_uniswap_v3"`
+	PolygonPosQuickswapV3 DexConfig `mapstructure:"polygon_pos_quickswap_v3"`
+	XdaiHoneyswap         DexConfig `mapstructure:"xdai_honeyswap"`
+}
+
 type Config struct {
 	Jobs       JobsConfig       `mapstructure:"jobs"`
 	Serve      ServeConfig      `mapstructure:"serve"`
@@ -74,6 +90,7 @@ type Config struct {
 	Log        LogConfig        `mapstructure:"log"`
 	Subchain   SubchainConfig   `mapstructure:"subchain"`
 	ApiKeys    ApiKeysConfig    `mapstructure:"api_keys"`
+	Dexs       DexList          `mapstructure:"dexs"`
 }
 
 // DefaultConfig returns server's default configuration.
@@ -126,6 +143,36 @@ func DefaultConfig() *Config {
 		},
 		ApiKeys: ApiKeysConfig{
 			GraphNetwork: "",
+		},
+		Dexs: DexList{
+			BscPancakeswapV3: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
+			EthShibaswap: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
+			EthSushiswap: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
+			EthUniswapV2: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
+			EthUniswapV3: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
+			PolygonPosQuickswapV3: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
+			XdaiHoneyswap: DexConfig{
+				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
+				MinTxCount:    oooapidextypes.DefaultMinTxCount,
+			},
 		},
 	}
 }
@@ -221,6 +268,8 @@ func GetConfig(v *viper.Viper) Config {
 }
 
 func (c Config) ValidateBasic() error {
+
+	fmt.Println(c)
 
 	if c.Chain.ContractAddress == "" {
 		return errors.New("chain.contract_address not set in config.toml")
