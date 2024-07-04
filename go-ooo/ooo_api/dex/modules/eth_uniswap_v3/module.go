@@ -16,12 +16,16 @@ var (
 type DexModule struct {
 	ctx                context.Context
 	graphNetworkApiKey string
+	minLiquidity       uint64
+	minTxCount         uint64
 }
 
 func NewDexModule(ctx context.Context, cfg *config.Config) DexModule {
 	return DexModule{
 		ctx:                ctx,
 		graphNetworkApiKey: cfg.ApiKeys.GraphNetwork,
+		minLiquidity:       cfg.Dexs.EthUniswapV3.MinReserveUsd,
+		minTxCount:         cfg.Dexs.EthUniswapV3.MinTxCount,
 	}
 }
 
@@ -45,11 +49,11 @@ func (d DexModule) Dex() string {
 }
 
 func (d DexModule) MinLiquidity() uint64 {
-	return MinLiquidity
+	return d.minLiquidity
 }
 
 func (d DexModule) MinTxCount() uint64 {
-	return MinTxCount
+	return d.minTxCount
 }
 
 func (d DexModule) GeneratePairsQuery(contractAddresses string) ([]byte, error) {

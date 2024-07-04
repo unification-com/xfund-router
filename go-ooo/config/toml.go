@@ -16,7 +16,7 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 
 [chain]
 # Address of the Router smart contract
-contract_address = "{{ .Chain.ContractAddresses }}"
+contract_address = "{{ .Chain.ContractAddress }}"
 
 # Network Id, e.g. 1 for mainnet etc.
 network_id = {{ .Chain.NetworkId }}
@@ -140,6 +140,42 @@ shibarium_http_rpc = "{{ .Subchain.ShibariumHttpRpc }}"
 
 [api_keys]
 graph_network_key = "{{ .ApiKeys.GraphNetwork }}"
+
+##########################################
+## DEX Limits                           ##
+##########################################
+
+# Minimum Liquidity (USD) and Tx thresholds, below which
+# a pair is not included in an AdHoc query
+
+[dexs.bsc_pancakeswap_v3]
+min_reserve_usd = "{{ .Dexs.BscPancakeswapV3.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.BscPancakeswapV3.MinTxCount }}"
+
+[dexs.eth_shibaswap]
+min_reserve_usd = "{{ .Dexs.EthShibaswap.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.EthShibaswap.MinTxCount }}"
+
+[dexs.eth_sushiswap]
+min_reserve_usd = "{{ .Dexs.EthSushiswap.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.EthSushiswap.MinTxCount }}"
+
+[dexs.eth_uniswap_v2]
+min_reserve_usd = "{{ .Dexs.EthUniswapV2.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.EthUniswapV2.MinTxCount }}"
+
+[dexs.eth_uniswap_v3]
+min_reserve_usd = "{{ .Dexs.EthUniswapV3.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.EthUniswapV3.MinTxCount }}"
+
+[dexs.polygon_pos_quickswap_v3]
+min_reserve_usd = "{{ .Dexs.PolygonPosQuickswapV3.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.PolygonPosQuickswapV3.MinTxCount }}"
+
+[dexs.xdai_honeyswap]
+min_reserve_usd = "{{ .Dexs.XdaiHoneyswap.MinReserveUsd }}"
+min_tx_count = "{{ .Dexs.XdaiHoneyswap.MinTxCount }}"
+
 `
 
 var configTemplate *template.Template
