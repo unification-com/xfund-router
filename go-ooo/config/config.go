@@ -269,8 +269,6 @@ func GetConfig(v *viper.Viper) Config {
 
 func (c Config) ValidateBasic() error {
 
-	fmt.Println(c)
-
 	if c.Chain.ContractAddress == "" {
 		return errors.New("chain.contract_address not set in config.toml")
 	}
