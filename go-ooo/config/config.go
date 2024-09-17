@@ -197,6 +197,9 @@ func (c *Config) InitForNet(network string) {
 	case "shibarium":
 		c.InitForShibarium()
 		break
+	case "puppynet":
+		c.InitForShibariumPuppynet()
+		break
 	default:
 		c.InitForDevNet()
 		break
@@ -250,6 +253,14 @@ func (c *Config) InitForShibarium() {
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 109
 	c.Chain.FirstBlock = 591096
+}
+
+func (c *Config) InitForShibariumPuppynet() {
+	c.Chain.ContractAddress = "0x7a99f98EfC7C1313E3a8FA4Be36aE2b100a1622F"
+	c.Chain.EthHttpHost = ""
+	c.Chain.EthWsHost = ""
+	c.Chain.NetworkId = 157
+	c.Chain.FirstBlock = 4764990
 }
 
 func (c *Config) SetKeystore(path, account string) {
