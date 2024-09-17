@@ -76,6 +76,16 @@ module.exports = {
       gasPrice: 10000000000, // 10 gwei
       skipDryRun: true,
     },
+    puppynet: {
+      provider: () =>
+        new HDWalletProvider({
+          privateKeys: [ETH_PKEY_TESTNET],
+          providerOrUrl: 'https://puppynet.shibrpc.com',
+        }),
+      network_id: "157",
+      gasPrice: 10000000000, // 10 gwei
+      skipDryRun: true,
+    },
     ...customNetworks,
   },
 

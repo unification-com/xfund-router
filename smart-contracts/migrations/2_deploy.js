@@ -50,5 +50,9 @@ module.exports = function (deployer, network) {
     case "shibarium-fork":
       deployer.deploy(Router, "0x89dc93C6c12CaE47aCAf4aD9305d7A442C30dBB2")
       break
+    case "puppynet":
+    case "puppynet-fork":
+      deployer.deploy(Router, "0x78f022230EaE6E05D8739E83a14b0Cf1D00CfaD5")
+      break
   }
 }
