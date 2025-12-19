@@ -54,5 +54,9 @@ module.exports = function (deployer, network) {
     case "puppynet-fork":
       deployer.deploy(Router, "0x78f022230EaE6E05D8739E83a14b0Cf1D00CfaD5")
       break
+    case "qom":
+    case "qom-fork":
+      deployer.deploy(Router, "0x0d2FDD551199513D89D64d766E053E6fBC838831")
+      break
   }
 }

@@ -86,6 +86,16 @@ module.exports = {
       gasPrice: 10000000000, // 10 gwei
       skipDryRun: true,
     },
+    qom: {
+      provider: () =>
+        new HDWalletProvider({
+          privateKeys: [ETH_PKEY_MAINNET],
+          providerOrUrl: 'https://rpc.qom.one',
+        }),
+      network_id: "766",
+      gasPrice: 1000000000, // 1 gwei
+      skipDryRun: true,
+    },
     ...customNetworks,
   },
 
