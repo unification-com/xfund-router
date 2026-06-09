@@ -2,6 +2,41 @@
 
 The Go implementation of the OoO Provider application, required to be run by providers to serve data
 
+## Query endpoint format
+
+Data requests use a dot-separated endpoint string. The canonical, going-forward form is:
+
+```
+base.target[.minutes]
+```
+
+- `base` / `target` - the pair symbols. These are **case-sensitive** (`xFUND` is not the same
+  as `XFUND`).
+- `minutes` - an optional AdHoc lookback window: an integer clamped to `0`-`60`. `0` (the
+  default) fetches the latest prices; a non-zero value averages over the past `nn` minutes.
+
+Every request is an AdHoc DEX query: the provider looks the pair up across the supported DEX
+subgraphs and returns the mean price (outliers removed via the Chauvenet criterion), scaled to
+`price * 10^18`.
+
+```
+WETH.USDC          latest mean WETH/USDC price
+WETH.USDC.30       mean WETH/USDC price over the last 30 minutes
+```
+
+### Legacy forms (deprecated)
+
+The explicit-qualifier forms `base.target.AD[.minutes]` (AdHoc) and
+`base.target.PR.subtype[...]` (Finchains) are still accepted but **deprecated** - new consumers
+should use the suffix-less form above. Any trailing fields an AdHoc query cannot honour (such
+as leftover Finchains parameters) are ignored and the price is still served from the DEX mean.
+Legacy-form usage is recorded in the structured logs and the `ooo_legacy_endpoint_total`
+Prometheus counter; the legacy parsing will be removed once that counter stays at zero (queries
+are one-shot, so removal cannot break an in-flight request).
+
+See the published [OoO Data API guide](https://docs.unification.io/ooo/guide/ooo_api.html) for
+the full specification.
+
 ## Development and Testing
 
 ### Prerequisites
@@ -27,10 +62,10 @@ make build-testapp
 ./build/testapp api adhoc-update --graphnetapi [GRAPHNET_API_KEY]
 ```
 
-3. Run AdHoc queries
+3. Run AdHoc queries (the canonical suffix-less form; the legacy `WETH.USDC.AD` is also accepted)
 
 ```bash
-./build/testapp api adhoc WETH.USDC.AD --graphnetapi [GRAPHNET_API_KEY]
+./build/testapp api adhoc WETH.USDC --graphnetapi [GRAPHNET_API_KEY]
 ```
 
 ## go-ooo

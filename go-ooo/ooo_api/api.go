@@ -58,22 +58,35 @@ func (o *OOOApi) UpdateDexPairs() {
 	o.dexModuleManager.UpdateAllPairsMetaDataFromDexs()
 }
 
-// Endpoint qualifiers (the 3rd, "qType" field). Both are legacy: AdHoc is the
-// going-forward path, and these are slated for removal once live usage drops to zero
-// (queries are one-shot, so removal is safe - see QUERY_FORMAT_REVIEW).
+// Endpoint qualifiers - the explicit 3rd field in the legacy grammar
+// (base.target.qType...). Both are deprecated: the going-forward form is the suffix-less
+// base.target[.minutes] (always AdHoc), and these are slated for removal once live usage
+// drops to zero (queries are one-shot, so removal is safe - see QUERY_FORMAT_REVIEW).
 const (
 	QTypeAdHoc     = "AD" // AdHoc DEX query
 	QTypeFinchains = "PR" // Finchains price query (removed with Finchains)
 )
 
-// ParsedEndpoint is the structured form of an OoO endpoint string
-// (base.target.qType[.subtype.supp1.supp2.supp3]).
+// ParsedEndpoint is the structured form of an OoO endpoint string. Two positional grammars
+// are accepted:
+//
+//   - canonical (going-forward): base.target[.minutes] - always an AdHoc DEX query.
+//   - legacy (deprecated):       base.target.qType[.subtype.supp1.supp2.supp3] - where
+//     qType is AD (AdHoc) or PR (Finchains). Slated for removal once usage drops to zero.
 type ParsedEndpoint struct {
 	Base   string
 	Target string
 	QType  string
-	// AdHoc: the lookback window in minutes (clamped to 0-60), taken from the 4th field.
+	// Minutes is the AdHoc lookback window (clamped to 0-60), taken from the minutes field
+	// (the 3rd field in the canonical form, the 4th in the legacy .AD form).
 	Minutes int64
+	// Legacy is true when the endpoint used the deprecated explicit-qualifier form
+	// (base.target.AD / base.target.PR...) rather than the canonical suffix-less form.
+	Legacy bool
+	// IgnoredFields holds any trailing fields an AdHoc query cannot honour (e.g. leftover
+	// Finchains subtype/exchange/window params). Per the silent-drop policy the request is
+	// still served; these are surfaced in logs + a metric.
+	IgnoredFields []string
 	// Finchains-only positional fields (legacy; removed with Finchains).
 	Subtype string
 	Supp1   string
@@ -92,9 +105,14 @@ func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
 		return "", err
 	}
 
+	// RouteQuery is the single per-request routing choke point, so deprecation + silent-drop
+	// telemetry is recorded here (not in ParseEndpoint, which is also called at detection time).
+	observeEndpoint(parsed)
+
 	logger.Debug("ooo_api", "RouteQuery", "route", "", logger.Fields{
 		"request_id": requestId,
 		"is_adhoc":   parsed.IsAdHoc(),
+		"legacy":     parsed.Legacy,
 	})
 
 	if parsed.IsAdHoc() {
@@ -104,7 +122,8 @@ func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
 }
 
 // IsAdhoc parses endpoint and reports whether it is an AdHoc DEX query. Used at request
-// detection time (chain) to set the job's adhoc flag.
+// detection time (chain) to set the job's adhoc flag. The canonical suffix-less form
+// (base.target[.minutes]) is always AdHoc.
 func IsAdhoc(endpoint string) (bool, error) {
 	parsed, err := ParseEndpoint(endpoint)
 	if err != nil {
@@ -113,48 +132,95 @@ func IsAdhoc(endpoint string) (bool, error) {
 	return parsed.IsAdHoc(), nil
 }
 
-// ParseEndpoint splits an endpoint string into its fields. The grammar is positional:
-// base.target.qType[.subtype.supp1.supp2.supp3]. For AdHoc, the 4th field is the
-// lookback window in minutes; for Finchains it is the subtype.
+// ParseEndpoint splits an endpoint string into its fields. Two positional grammars are
+// accepted, disambiguated by the third field:
+//
+//   - canonical: base.target[.minutes]           (suffix-less; always AdHoc)
+//   - legacy:    base.target.qType[.subtype...]   (qType AD or PR; deprecated)
+//
+// A third field equal to a known qualifier (AD/PR) selects the legacy grammar; anything
+// else (or no third field) is the canonical AdHoc form with an optional minutes window.
 func ParseEndpoint(endpoint string) (ParsedEndpoint, error) {
 	ep := strings.Split(endpoint, ".")
-	if len(ep) < 3 {
-		return ParsedEndpoint{}, fmt.Errorf("incorrect endpoint format %q: expected at least base.target.qType", endpoint)
+	if len(ep) < 2 {
+		return ParsedEndpoint{}, fmt.Errorf("incorrect endpoint format %q: expected at least base.target", endpoint)
 	}
 
-	p := ParsedEndpoint{Base: ep[0], Target: ep[1], QType: ep[2]}
-	if p.Base == "" || p.Target == "" || p.QType == "" {
-		return ParsedEndpoint{}, fmt.Errorf("incorrect endpoint format %q: empty base, target or qType", endpoint)
+	p := ParsedEndpoint{Base: ep[0], Target: ep[1]}
+	if p.Base == "" || p.Target == "" {
+		return ParsedEndpoint{}, fmt.Errorf("incorrect endpoint format %q: empty base or target", endpoint)
 	}
 
-	if len(ep) > 3 {
-		p.Subtype = ep[3]
+	// Legacy grammar: an explicit qualifier in the third field.
+	if len(ep) >= 3 && isQualifier(ep[2]) {
+		p.Legacy = true
+		p.QType = ep[2]
 		if p.IsAdHoc() {
-			p.Minutes = clampMinutes(ep[3])
+			// base.target.AD[.minutes]
+			if len(ep) > 3 {
+				p.Minutes, p.IgnoredFields = parseAdhocMinutes(ep[3], ep[4:])
+			}
+		} else {
+			// base.target.PR.subtype[.supp1.supp2.supp3] - consumed by the Finchains builder.
+			if len(ep) > 3 {
+				p.Subtype = ep[3]
+			}
+			if len(ep) > 4 {
+				p.Supp1 = ep[4]
+			}
+			if len(ep) > 5 {
+				p.Supp2 = ep[5]
+			}
+			if len(ep) > 6 {
+				p.Supp3 = ep[6]
+			}
 		}
-	}
-	if len(ep) > 4 {
-		p.Supp1 = ep[4]
-	}
-	if len(ep) > 5 {
-		p.Supp2 = ep[5]
-	}
-	if len(ep) > 6 {
-		p.Supp3 = ep[6]
+		return p, nil
 	}
 
+	// Canonical grammar: base.target[.minutes] - always AdHoc.
+	p.QType = QTypeAdHoc
+	if len(ep) >= 3 {
+		p.Minutes, p.IgnoredFields = parseAdhocMinutes(ep[2], ep[3:])
+	}
 	return p, nil
 }
 
-// clampMinutes parses the AdHoc lookback window, clamped to 0-60. A non-numeric or
-// missing value is treated as 0 (latest).
-func clampMinutes(s string) int64 {
-	m, _ := strconv.ParseInt(s, 10, 64)
+// isQualifier reports whether s is one of the legacy explicit endpoint qualifiers.
+func isQualifier(s string) bool {
+	return s == QTypeAdHoc || s == QTypeFinchains
+}
+
+// parseAdhocMinutes interprets the AdHoc lookback-window field (clamped to 0-60) and collects
+// any fields the AdHoc path cannot honour. A non-numeric window value is itself treated as an
+// ignored field (e.g. a leftover Finchains subtype) and the window defaults to 0.
+func parseAdhocMinutes(window string, rest []string) (int64, []string) {
+	var ignored []string
+	minutes, ok := clampMinutes(window)
+	if !ok && window != "" {
+		ignored = append(ignored, window)
+	}
+	for _, f := range rest {
+		if f != "" {
+			ignored = append(ignored, f)
+		}
+	}
+	return minutes, ignored
+}
+
+// clampMinutes parses the AdHoc lookback window, clamped to 0-60. The bool reports whether the
+// input was a valid integer; false for non-numeric input, which callers treat as an ignored
+// field with the window defaulting to 0.
+func clampMinutes(s string) (int64, bool) {
+	m, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
 	if m < 0 {
-		return 0
+		return 0, true
 	}
 	if m > 60 {
-		return 60
+		return 60, true
 	}
-	return m
+	return m, true
 }
