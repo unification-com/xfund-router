@@ -42,9 +42,24 @@ func NewSqliteDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 	db, err := gorm.Open(sqlite.Open(cfg.Database.Storage), &gorm.Config{
 		Logger: logger,
 	})
-	return &DB{
-		db,
-	}, err
+	if err != nil {
+		// Don't hand back a wrapper around a failed/nil handle alongside the error.
+		return nil, err
+	}
+
+	// SQLite allows only one writer. The oracle fans DB writes out across goroutines
+	// (the per-job fetch goroutines + the event watcher), so cap the pool at a single
+	// connection and add a busy timeout to avoid "database is locked" errors.
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err = db.Exec("PRAGMA busy_timeout = 5000").Error; err != nil {
+		return nil, err
+	}
+
+	return &DB{db}, nil
 }
 
 func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
@@ -54,7 +69,9 @@ func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 	dbName := cfg.Database.Database
 	password := cfg.Database.Password
 	if host == "" || port == 0 {
-		return nil, nil
+		// Fail fast with a clear error rather than returning (nil, nil), which a
+		// caller would later dereference as a nil-pointer panic.
+		return nil, errors.New("postgres host and port must be set in config")
 	}
 
 	dsn := fmt.Sprintf("host=%s port=%d user=%s dbname=%s password=%s sslmode=disable",
