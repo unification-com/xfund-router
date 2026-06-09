@@ -40,18 +40,27 @@ func requireHexAddress(arg, label string) (string, error) {
 	return a, nil
 }
 
+// readSecret prompts on stdout and reads a line from stdin without echoing it back
+// to the terminal, returning the trimmed value. Used for passwords and passphrases.
+func readSecret(prompt string) (string, error) {
+	fmt.Print(prompt)
+	b, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println("")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
 // postAuthedTask prompts for the admin password and POSTs the JSON payload to the given
 // path on the local service with the bearer auth header, returning the response status +
 // body. Shared by the admin and analytics senders. It checks the NewRequest and Do errors
 // before touching the response, fixing the previous nil-pointer panic when either failed.
 func postAuthedTask(cfg *config.Config, path string, payload any) (int, []byte, error) {
-	fmt.Print("Enter your password:\t")
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println("")
+	pass, err := readSecret("Enter your password:\t")
 	if err != nil {
 		return 0, nil, err
 	}
-	pass := strings.TrimSpace(string(bytePassword))
 
 	requestJSON, err := json.Marshal(payload)
 	if err != nil {
