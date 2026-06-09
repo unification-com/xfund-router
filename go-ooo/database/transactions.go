@@ -55,7 +55,7 @@ func (d *DB) UpdateFulfillmentSuccess(requestId string, blockNumber uint64,
 	return err
 }
 
-func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber uint64) error {
+func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber uint64, nonce uint64, gasPrice uint64) error {
 
 	req := models.DataRequests{}
 	err := d.Where("request_id = ?", requestId).First(&req).Error
@@ -65,6 +65,8 @@ func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber 
 
 	req.FulfillTxHash = txHash
 	req.LastFulfillSentBlockNumber = blockNumber
+	req.FulfillNonce = nonce
+	req.FulfillGasPrice = gasPrice
 
 	err = d.Save(&req).Error
 

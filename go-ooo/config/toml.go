@@ -36,6 +36,11 @@ gas_limit = {{ .Chain.GasLimit }}
 # Max gas price you are willing to pay to fulfil a request
 max_gas_price = {{ .Chain.MaxGasPrice }}
 
+# Percentage to bump the gas price by when replacing a stuck (still-pending) fulfilment
+# tx at the same nonce. Must be >= 10 - the network requires at least a 10% increase to
+# replace a transaction; values below 10 fall back to a safe default.
+gas_bump_percent = {{ .Chain.GasBumpPercent }}
+
 ##########################################
 ## Database                             ##
 ##########################################

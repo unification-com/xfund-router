@@ -41,6 +41,7 @@ type DataRequests struct {
 	FulfillTxHash               string `gorm:"index"`
 	FulfillGasUsed              uint64
 	FulfillGasPrice             uint64
+	FulfillNonce                uint64
 	FulfillmentAttempts         uint64 `gorm:"default:0"`
 	JobStatus                   int    `gorm:"index"`
 	RequestStatus               int    `gorm:"index"`
@@ -125,6 +126,10 @@ func (d *DataRequests) GetFulfillGasUsed() uint64 {
 
 func (d *DataRequests) GetFulfillGasPrice() uint64 {
 	return d.FulfillGasPrice
+}
+
+func (d *DataRequests) GetFulfillNonce() uint64 {
+	return d.FulfillNonce
 }
 
 func (d *DataRequests) GetFulfillmentAttempts() uint64 {

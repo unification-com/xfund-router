@@ -7,6 +7,7 @@ import (
 	"go-ooo/database/models"
 	"go-ooo/logger"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	solsha3 "github.com/miguelmota/go-solidity-sha3"
@@ -196,14 +197,38 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
+
+	// Initial send: a fresh, chain-anchored nonce + current gas price.
+	opts, err := o.buildTransactOpts()
+	if err != nil {
+		logger.ErrorWithFields("chain", "sendFulfillmentTx", "build transact opts",
+			err.Error(),
+			logger.Fields{
+				"request_id": requestId,
+			})
+
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
+		return
+	}
+
+	o.submitFulfilment(job, opts, currentBlockNum)
+}
+
+// submitFulfilment signs the fulfilment for job and broadcasts it using opts, then
+// records the sent nonce/gas/txHash. Shared by the initial send (sendFulfillmentTx)
+// and the stuck-tx replacement (replaceStuckFulfilmentTx); they differ only in opts -
+// a fresh chain-anchored nonce vs the stuck tx's nonce with a bumped gas price.
+func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.TransactOpts, currentBlockNum uint64) {
+	requestId := job.GetRequestId()
 	price := job.GetPriceResult()
 
-	logger.Debug("chain", "sendFulfillmentTx", "",
+	logger.Debug("chain", "submitFulfilment", "",
 		"begin send fulfillment transaction",
 		logger.Fields{
 			"request_id": requestId,
 			"endpoint":   job.Endpoint,
 			"price":      price,
+			"nonce":      opts.Nonce,
 		})
 
 	// https://ethereum.stackexchange.com/questions/51566/from-golang-sha3-to-solidity-sha3
@@ -226,7 +251,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	signatureBytes, err := crypto.Sign(msgHash.Bytes(), o.oraclePrivateKey)
 
 	if err != nil {
-		logger.ErrorWithFields("chain", "sendFulfillmentTx", "sign message",
+		logger.ErrorWithFields("chain", "submitFulfilment", "sign message",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -239,22 +264,10 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	// grr - https://ethereum.stackexchange.com/questions/45580/validating-go-ethereum-key-signature-with-ecrecover
 	signatureBytes[64] = uint8(int(signatureBytes[64])) + 27
 
-	opts, err := o.buildTransactOpts()
-	if err != nil {
-		logger.ErrorWithFields("chain", "sendFulfillmentTx", "build transact opts",
-			err.Error(),
-			logger.Fields{
-				"request_id": requestId,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
-		return
-	}
-
 	tx, err := o.contractInstance.FulfillRequest(opts, reqIdBytes32, priceBigInt, signatureBytes)
 
 	if err != nil {
-		logger.ErrorWithFields("chain", "sendFulfillmentTx", "send tx",
+		logger.ErrorWithFields("chain", "submitFulfilment", "send tx",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -264,15 +277,46 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 		return
 	}
 
-	logger.InfoWithFields("chain", "sendFulfillmentTx", "send tx",
+	logger.InfoWithFields("chain", "submitFulfilment", "send tx",
 		"fulfill tx sent",
 		logger.Fields{
 			"request_id": requestId,
 			"tx":         tx.Hash().Hex(),
+			"nonce":      tx.Nonce(),
 		})
 
 	_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_SENT, "")
-	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum)
+	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum, tx.Nonce(), tx.GasPrice().Uint64())
+}
+
+// replaceStuckFulfilmentTx rebroadcasts the fulfilment for job at the SAME nonce as the
+// stuck (still-pending) tx, with a higher gas price, so it evicts the stuck tx from the
+// mempool instead of queueing a higher-nonce tx behind it. Respects the attempt and age
+// limits, and counts the retry.
+func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, currentBlockNum uint64) {
+	requestId := job.GetRequestId()
+
+	if job.GetFulfillmentAttempts() >= 3 {
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
+		return
+	}
+	if currentBlockNum-job.RequestBlockNumber > 250 {
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
+		return
+	}
+
+	opts, err := o.buildReplacementTransactOpts(job.GetFulfillNonce(), job.GetFulfillGasPrice())
+	if err != nil {
+		logger.ErrorWithFields("chain", "replaceStuckFulfilmentTx", "build replacement opts",
+			err.Error(),
+			logger.Fields{
+				"request_id": requestId,
+			})
+		return
+	}
+
+	_ = o.db.IncrementFulfillmentAttempts(requestId)
+	o.submitFulfilment(job, opts, currentBlockNum)
 }
 
 func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests, currentBlockNum uint64) {
@@ -414,14 +458,18 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 		return
 	}
 
-	// no point continuing if it's still pending. Log it and move on.
+	// Still pending after the wait above: the tx is stuck (likely under-priced).
+	// Replace it at the SAME nonce with a higher gas price, rather than queueing a
+	// higher-nonce tx behind it (which cannot mine until the stuck one clears).
 	if isPending {
 		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx pending",
-			"tx still pending - ignore",
+			"tx still pending - replacing at the same nonce with a higher gas price",
 			logger.Fields{
 				"request_id": requestId,
 				"tx_hash":    job.GetFulfillTxHash(),
+				"nonce":      job.GetFulfillNonce(),
 			})
+		o.replaceStuckFulfilmentTx(job, currentBlockNum)
 		return
 	}
 

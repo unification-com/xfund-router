@@ -27,6 +27,7 @@ type KeystoreConfig struct {
 type ChainConfig struct {
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
+	GasBumpPercent  uint64 `mapstructure:"gas_bump_percent"`
 	ContractAddress string `mapstructure:"contract_address"`
 	EthHttpHost     string `mapstructure:"eth_http_host"`
 	EthWsHost       string `mapstructure:"eth_ws_host"`
@@ -112,6 +113,7 @@ func DefaultConfig() *Config {
 		Chain: ChainConfig{
 			GasLimit:        500000,
 			MaxGasPrice:     150,
+			GasBumpPercent:  13,
 			ContractAddress: "",
 			EthHttpHost:     "",
 			EthWsHost:       "",
