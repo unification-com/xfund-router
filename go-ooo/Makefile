@@ -48,6 +48,11 @@ test:
 test-verbose:
 	@go test -mod=readonly -v ./...
 
+# End-to-end run against the local dev-env (ganache + Router). Needs the dev-env
+# image built once: docker build -t ooo_dev_env -f ../docker/dev.Dockerfile ..
+integration:
+	@bash scripts/integration/run.sh
+
 lint:
 	@find . -name '*.go' -type f -not -path "./vendor*" -not -path "*.git*" | xargs gofmt -w -s
 
@@ -62,4 +67,4 @@ check-updates:
 	@echo "run:"
 	@echo "go get github.com/user/repo to update."
 
-.PHONY: abigen build install build-release lint test test-verbose goreleaser release snapshot check-updates
+.PHONY: abigen build install build-release lint test test-verbose integration goreleaser release snapshot check-updates
