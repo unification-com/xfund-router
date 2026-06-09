@@ -1,8 +1,14 @@
 package keystore
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	cryptoRand "crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"go-ooo/utils/walletworker"
 
@@ -82,4 +88,87 @@ func DecryptLegacyKeystore(data []byte, token string) ([]LegacyKey, error) {
 		})
 	}
 	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// Legacy AES-256-CFB scheme (key = SHA256(token)). Decrypt is used by the
+// migration above; Encrypt is retained only to build legacy-format fixtures in
+// tests. None of this uses math/rand — the brute-forceable weakness was in how
+// the token was generated, not in this codec. Removed with this file once
+// migration is universal.
+// ---------------------------------------------------------------------------
+
+// Decrypt reverses Encrypt: it base64-decodes cryptoText and AES-256-CFB decrypts
+// it with SHA256(keyString) as the key.
+func Decrypt(cryptoText string, keyString string) (plainTextString string, err error) {
+	encrypted, err := base64.URLEncoding.DecodeString(cryptoText)
+	if err != nil {
+		return "", err
+	}
+	if len(encrypted) < aes.BlockSize {
+		return "", fmt.Errorf("cipherText too short. It decodes to %v bytes but the minimum length is 16", len(encrypted))
+	}
+
+	decrypted, err := decryptAES(hashTo32Bytes(keyString), encrypted)
+	if err != nil {
+		return "", err
+	}
+
+	return string(decrypted), nil
+}
+
+func decryptAES(key, data []byte) ([]byte, error) {
+	// split the input up in to the IV seed and then the actual encrypted data.
+	iv := data[:aes.BlockSize]
+	data = data[aes.BlockSize:]
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	stream := cipher.NewCFBDecrypter(block, iv)
+
+	stream.XORKeyStream(data, data)
+	return data, nil
+}
+
+// Encrypt AES-256-CFB encrypts plainText with SHA256(keyString) as the key and
+// returns base64. Retained only for building legacy-format test fixtures.
+func Encrypt(plainText string, keyString string) (cipherTextString string, err error) {
+	key := hashTo32Bytes(keyString)
+	encrypted, err := encryptAES(key, []byte(plainText))
+	if err != nil {
+		return "", err
+	}
+
+	return base64.URLEncoding.EncodeToString(encrypted), nil
+}
+
+func encryptAES(key, data []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// create two 'windows' in to the output slice.
+	output := make([]byte, aes.BlockSize+len(data))
+	iv := output[:aes.BlockSize]
+	encrypted := output[aes.BlockSize:]
+
+	// populate the IV slice with random data.
+	if _, err = io.ReadFull(cryptoRand.Reader, iv); err != nil {
+		return nil, err
+	}
+
+	stream := cipher.NewCFBEncrypter(block, iv)
+
+	// note that encrypted is still a window in to the output slice
+	stream.XORKeyStream(encrypted, data)
+	return output, nil
+}
+
+// hashTo32Bytes computes a SHA256 digest of input for use as an AES-256 key.
+func hashTo32Bytes(input string) []byte {
+	data := sha256.Sum256([]byte(input))
+	return data[0:]
 }

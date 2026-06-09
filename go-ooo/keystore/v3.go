@@ -7,6 +7,7 @@ import (
 
 	gethkeystore "github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 )
@@ -70,6 +71,19 @@ func DecryptKeyV3(blob []byte, passphrase string) (*ecdsa.PrivateKey, common.Add
 	}
 
 	return key.PrivateKey, derived, nil
+}
+
+// DecryptKeyV3Hex decrypts a v3 keystore blob and returns the private key as a
+// 0x-prefixed hex string and the wallet address as a hex string — the form the
+// rest of go-ooo passes the key around in (see chain.NewOoORouter, which strips
+// the prefix and calls crypto.HexToECDSA). The fulfilment signing path is therefore
+// unchanged: the same private key reaches the same crypto.Sign call.
+func DecryptKeyV3Hex(blob []byte, passphrase string) (privHex string, address string, err error) {
+	priv, addr, err := DecryptKeyV3(blob, passphrase)
+	if err != nil {
+		return "", "", err
+	}
+	return hexutil.Encode(crypto.FromECDSA(priv)), addr.Hex(), nil
 }
 
 // IsV3Keystore reports whether data looks like a go-ethereum v3 JSON keystore
