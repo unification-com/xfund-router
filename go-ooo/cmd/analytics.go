@@ -9,12 +9,9 @@ import (
 	"go-ooo/config"
 	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
-	"golang.org/x/term"
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strings"
-	"syscall"
 )
 
 var (
@@ -115,59 +112,25 @@ func init() {
 }
 
 func processAnalyticsTask(task go_ooo_types.AnalyticsTask, cfg *config.Config) {
-	fmt.Print("Enter your password:	")
-
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
-	pass := strings.TrimSpace(string(bytePassword))
-
 	fmt.Println("")
 	fmt.Println("attempting to send analytics task")
 	fmt.Println("")
 
-	requestJSON, err := json.Marshal(task)
-	if err != nil {
-		fmt.Println("Can't marshal request")
-		return
-	}
-	request := bytes.NewBuffer(requestJSON)
-	url := fmt.Sprintf("http://%s:%s", cfg.Serve.Host, cfg.Serve.Port)
-
-	req, err := http.NewRequest("POST", fmt.Sprint(url, "/analytics"), request)
-
-	bearer := "Bearer " + pass
-	req.Header.Add("Authorization", bearer)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-
+	statusCode, body, err := postAuthedTask(cfg, "/analytics", task)
 	if err != nil {
 		fmt.Println("Something went wrong.")
 		fmt.Println(err.Error())
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		fmt.Println(err.Error())
 		return
 	}
 
-	if resp.StatusCode == 200 {
+	if statusCode == 200 {
 		var decodedResponse go_ooo_types.AnalyticsTaskResponse
-		err = json.Unmarshal(body, &decodedResponse)
-		if err != nil {
+		if err = json.Unmarshal(body, &decodedResponse); err != nil {
 			fmt.Println(err.Error())
 			return
 		}
 		var prettyJSON bytes.Buffer
-		err = json.Indent(&prettyJSON, body, "", "  ")
-		if err != nil {
+		if err = json.Indent(&prettyJSON, body, "", "  "); err != nil {
 			fmt.Println("JSON parse error: ", err)
 			return
 		}
@@ -178,10 +141,10 @@ func processAnalyticsTask(task go_ooo_types.AnalyticsTask, cfg *config.Config) {
 			fmt.Println("Fee in lowest denomination :", fee)
 			fmt.Println("Profit/Loss                :", fmt.Sprintf("%.18f", decodedResponse.Result.Earnings.ProfitLossEth), "ETH")
 		} else {
-			fmt.Println(string(prettyJSON.Bytes()))
+			fmt.Println(prettyJSON.String())
 		}
 	} else {
-		fmt.Println("Error   :", resp.Status)
+		fmt.Println("Error   :", statusCode)
 		fmt.Println("Body :", string(body))
 	}
 }

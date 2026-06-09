@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"fmt"
+
 	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
-	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -24,10 +25,18 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		adminTask := go_ooo_types.AdminTask{}
 
-		amount, _ := strconv.ParseInt(args[0], 10, 64)
-		recipient := args[1]
+		amount, err := parsePositiveUint(args[0], "amount")
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		recipient, err := requireHexAddress(args[1], "recipient address")
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 		adminTask.Task = "withdraw"
-		adminTask.FeeOrAmount = uint64(amount)
+		adminTask.FeeOrAmount = amount
 		adminTask.ToOrConsumer = recipient
 
 		srvCtx := server.GetServerContextFromCmd(cmd)
