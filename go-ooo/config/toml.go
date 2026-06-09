@@ -81,6 +81,11 @@ ooo_api_url = "{{ .Jobs.OooApiUrl }}"
 # Number of blocks to wait before fulfilling a request
 wait_confirmations = {{ .Jobs.WaitConfirmations }}
 
+# How long (seconds) to keep retrying a request before giving up and marking it failed.
+# Wall-clock (chain-agnostic) - the Router has no on-chain expiry, so this is purely
+# go-ooo deciding to stop. 0 disables the age-based give-up. Default 3600 (1 hour).
+max_job_age = {{ .Jobs.MaxJobAge }}
+
 ##########################################
 ## Keystore                             ##
 ##########################################

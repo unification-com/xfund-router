@@ -62,7 +62,7 @@ func (o *OoORouterService) preProcessPendingJob(job models.DataRequests, current
 		return
 	}
 
-	requestBlockDiff := currentBlockNum - requestTxReceipt.BlockNumber.Uint64()
+	requestBlockDiff := blockDiff(currentBlockNum, requestTxReceipt.BlockNumber.Uint64())
 	switch job.GetRequestStatus() {
 	case models.REQUEST_STATUS_INITIALISED:
 		waitConfirmations := o.cfg.Jobs.WaitConfirmations
@@ -296,12 +296,8 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
 
-	if job.GetFulfillmentAttempts() >= 3 {
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
-		return
-	}
-	if currentBlockNum-job.RequestBlockNumber > 250 {
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
@@ -329,44 +325,25 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 		})
 
 	// at some point, we just have to stop trying...
-	if job.GetFulfillmentAttempts() >= 3 {
-		// too many fails
-		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check num attempts",
-			"too many fails",
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "give up", reason,
 			logger.Fields{
 				"request_id":   requestId,
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
-	lastFetchBlockDiff := currentBlockNum - job.LastDataFetchBlockNumber
-
-	// still relatively new - ignore
-	if lastFetchBlockDiff < 5 {
+	// still relatively new - wait for the data fetch to time out
+	if blockDiff(currentBlockNum, job.LastDataFetchBlockNumber) < 5 {
 		logger.InfoWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
-			"request < 5 blocks. Wait for data fetch timeout",
+			"request < 5 blocks since last fetch - wait",
 			logger.Fields{
 				"request_id": requestId,
 			})
 
-		return
-	}
-
-	requestBlockDiff := currentBlockNum - job.RequestBlockNumber
-
-	// is the request > 1 hour old?
-	if requestBlockDiff > 250 {
-		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
-			"request too old",
-			logger.Fields{
-				"request_id": requestId,
-				"age_blocks": requestBlockDiff,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
 		return
 	}
 
@@ -388,31 +365,14 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 	_ = o.db.InsertNewFailedFulfilment(requestId, "", 0, 0, job.GetStatusReason())
 
 	// at some point, we just have to stop trying...
-	if job.GetFulfillmentAttempts() >= 3 {
-		// too many fails
-		logger.WarnWithFields("chain", "processSendFailedJob", "check num attempts",
-			"too many failed attempts",
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		logger.WarnWithFields("chain", "processSendFailedJob", "give up", reason,
 			logger.Fields{
 				"request_id":   requestId,
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
-		return
-	}
-
-	requestBlockDiff := currentBlockNum - job.RequestBlockNumber
-
-	// is the request > 1 hour old?
-	if requestBlockDiff > 250 {
-		logger.WarnWithFields("chain", "processSendFailedJob", "check request age",
-			"request too old",
-			logger.Fields{
-				"request_id": requestId,
-				"age_blocks": requestBlockDiff,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
@@ -429,7 +389,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 			"request_id": requestId,
 		})
 
-	lastFulfillSentBlockDiff := currentBlockNum - job.GetLastFulfillSentBlockNumber()
+	lastFulfillSentBlockDiff := blockDiff(currentBlockNum, job.GetLastFulfillSentBlockNumber())
 	if lastFulfillSentBlockDiff < 3 {
 		// too soon - may take a while for Tx to be broadcast/picked up
 		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check block diff since fulfill tx sent",
@@ -499,9 +459,11 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 		copy(reqIdBytes32[:], reqIdBytes)
 		reqArr := make([][32]byte, 0, 1)
 		reqArr = append(reqArr, reqIdBytes32)
-		opts := o.historicalFilterOpts
+		// Clone: historicalFilterOpts is a shared *bind.FilterOpts; mutating it through
+		// a pointer copy would corrupt the opts GetHistoricalEvents also reads.
+		opts := *o.historicalFilterOpts
 		opts.Start = job.RequestBlockNumber
-		itrFr, err := o.contractInstance.FilterRequestFulfilled(opts, nil, nil, reqArr)
+		itrFr, err := o.contractInstance.FilterRequestFulfilled(&opts, nil, nil, reqArr)
 		if err != nil {
 			logger.Error("chain", "processPossiblyStuckSentTx", "get FilterRequestFulfilled events",
 				err.Error())
@@ -525,36 +487,17 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	_ = o.db.InsertNewFailedFulfilment(requestId, fulfilTxHash.Hex(), failedGasUsed, failedGasPrice, failReason)
 
 	// at some point, we just have to stop trying...
-	if job.GetFulfillmentAttempts() >= 3 {
-		// too many fails
-		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "check num attempts",
-			"too many failed attempts",
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "give up", reason,
 			logger.Fields{
 				"request_id":   requestId,
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
-		return
-	}
-
-	requestBlockDiff := currentBlockNum - job.RequestBlockNumber
-
-	// is the request > 1 hour?
-	if requestBlockDiff > 250 {
-		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "check request age",
-			"request too old",
-			logger.Fields{
-				"request_id": requestId,
-				"age_blocks": requestBlockDiff,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
 	// finally, try to send a new fulfillment
 	o.sendFulfillmentTx(job, currentBlockNum)
-
-	return
 }

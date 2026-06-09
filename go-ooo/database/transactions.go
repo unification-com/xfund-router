@@ -3,7 +3,9 @@ package database
 import (
 	"errors"
 	"fmt"
+
 	"go-ooo/database/models"
+	"go-ooo/logger"
 )
 
 /*
@@ -94,16 +96,29 @@ func (d *DB) UpdateRequestStatus(requestId string, status int, reason string) er
 		return err
 	}
 
-	req.RequestStatus = status
-	req.StatusReason = reason
+	from := req.RequestStatus
 
-	if status == models.REQUEST_STATUS_FULFILMENT_FAILED {
-		req.JobStatus = models.JOB_STATUS_FAIL
+	// Terminal states are inert: never re-drive a SUCCESS / FULFILMENT_FAILED job.
+	if models.IsTerminalRequestStatus(from) && status != from {
+		logger.WarnWithFields("database", "UpdateRequestStatus", "guard",
+			"refusing to move a job out of a terminal status",
+			logger.Fields{"request_id": requestId, "from": from, "to": status})
+		return nil
 	}
 
-	err = d.Save(&req).Error
+	// Observe (but still apply) an unforeseen transition, so an unexpected edge shows
+	// up in the logs without stalling the job.
+	if !models.IsExpectedTransition(from, status) {
+		logger.WarnWithFields("database", "UpdateRequestStatus", "guard",
+			"unexpected status transition (applied)",
+			logger.Fields{"request_id": requestId, "from": from, "to": status})
+	}
 
-	return err
+	req.RequestStatus = status
+	req.StatusReason = reason
+	req.JobStatus = models.JobStatusForRequestStatus(status)
+
+	return d.Save(&req).Error
 }
 
 func (d *DB) UpdateJobStatus(requestId string, status int) error {

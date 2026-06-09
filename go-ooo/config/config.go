@@ -12,6 +12,7 @@ type JobsConfig struct {
 	OooApiUrl         string `mapstructure:"ooo_api_url"`
 	CheckDuration     uint64 `mapstructure:"check_duration"`
 	WaitConfirmations uint64 `mapstructure:"wait_confirmations"`
+	MaxJobAge         uint64 `mapstructure:"max_job_age"`
 }
 
 type ServeConfig struct {
@@ -101,6 +102,7 @@ func DefaultConfig() *Config {
 			OooApiUrl:         "https://crypto.finchains.io/api",
 			CheckDuration:     5,
 			WaitConfirmations: 1,
+			MaxJobAge:         3600,
 		},
 		Serve: ServeConfig{
 			Host: "127.0.0.1",

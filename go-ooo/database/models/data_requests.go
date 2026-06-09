@@ -146,9 +146,6 @@ func (d *DataRequests) GetJobStatus() int {
 
 func (d *DataRequests) GetRequestStatusString() string {
 	switch d.RequestStatus {
-	case REQUEST_STATUS_UNKNOWN:
-	default:
-		return "UNKNOWN"
 	case REQUEST_STATUS_INITIALISED:
 		return "INITIALISED"
 	case REQUEST_STATUS_FETCHING_DATA:
@@ -165,9 +162,9 @@ func (d *DataRequests) GetRequestStatusString() string {
 		return "SUCCESS"
 	case REQUEST_STATUS_FULFILMENT_FAILED:
 		return "FULFILMENT FAILED"
+	default:
+		return "UNKNOWN"
 	}
-
-	return "UNKNOWN"
 }
 
 func (d *DataRequests) GetJobStatusString() string {
