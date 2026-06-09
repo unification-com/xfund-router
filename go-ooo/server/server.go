@@ -51,7 +51,9 @@ func (s *Server) initServer() {
 }
 
 func (s *Server) initSignal() {
-	c := make(chan os.Signal)
+	// Must be buffered (>=1): signal.Notify does not block, so an unbuffered channel
+	// can miss a signal that arrives before the receiver goroutine is ready.
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-c
