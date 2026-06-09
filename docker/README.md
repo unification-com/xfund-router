@@ -17,6 +17,15 @@ This will run a local `ganache-cli` chain, deploy the Router and demo consumer c
 the accounts with some Dev xFUND. The chain's RPC endpoint will be exposed on `http://127.0.0.1:8545`, and can be
 accessed via the `truffle-config`'s `develop` network.
 
+The image (`docker/dev.Dockerfile`) is a multi-stage build on the official `node:12.18.3` image
+(no apt step, so it doesn't depend on an EOL distro's package mirrors), with the deps and the
+contract compile in cached layers and the chain/deploy/seed logic in
+[`assets/entrypoint.sh`](assets/entrypoint.sh). Node 12 + truffle 5 + solc 0.8.3 are pinned by the
+smart-contract toolchain. The first build downloads the solc compiler (needs network).
+
+> For an automated end-to-end run of `go-ooo` against this dev-env (build → init → fulfil → graceful
+> shutdown), see the integration harness in [`go-ooo/scripts/integration`](../go-ooo/scripts/integration).
+
 ## Interaction
 
 **Note**: Both this Docker environment and [`go-ooo`](../go-ooo/README.md) must be running (on this `dev` network) in 

@@ -1,42 +1,34 @@
-FROM ubuntu:bionic
+# syntax=docker/dockerfile:1
+#
+# Local dev-env: a deterministic ganache chain with the Router + demo consumer deployed
+# and the provider oracle (account #3) registered. Used by the smart-contract tests and
+# the go-ooo integration harness (go-ooo/scripts/integration).
+#
+# The smart-contract toolchain (truffle 5 / ganache-cli 6 / solc 0.8.3) is pinned to
+# Node 12 - bumping Node needs a migration off truffle, out of scope here.
+#
+# Build (from the repo root):  docker build -t ooo_dev_env -f docker/dev.Dockerfile .
 
-RUN \
-  apt-get update && \
-  apt-get upgrade -y && \
-  apt-get install -y curl build-essential nano netcat git
-
-ENV NVM_DIR /root/.nvm
-ENV NODE_VERSION 12.18.3
-ENV PATH=$PATH:/usr/local/go/bin:/root/.nvm/versions/node/v$NODE_VERSION/bin
-
-# Install nvm, node, npm and yarn
-RUN curl -sL https://raw.githubusercontent.com/creationix/nvm/v0.35.3/install.sh | bash && \
-  . $NVM_DIR/nvm.sh && \
-  nvm install $NODE_VERSION && \
-  npm install --global yarn
-
-RUN mkdir -p /root/xfund-router
+# --- deps: install node deps + compile native modules -----------------------
+# The full node:12.18.3 image bundles the build toolchain (gcc/g++/make/python/git)
+# the native node modules need, so there is no apt step and no reliance on an EOL
+# distro's package mirrors (the reason the old ubuntu:bionic image is fragile).
+FROM node:12.18.3 AS deps
 WORKDIR /root/xfund-router
+# Only the files needed to resolve deps, so this layer caches across source changes.
+COPY smart-contracts/package.json smart-contracts/yarn.lock smart-contracts/truffle-config.js ./
+RUN yarn install --frozen-lockfile
 
-# first, copy only essential files required for compiling contracts
-COPY ./smart-contracts/contracts ./contracts/
-COPY ./smart-contracts/migrations ./migrations/
-COPY ./smart-contracts/package.json ./smart-contracts/yarn.lock ./smart-contracts/truffle-config.js ./
+# --- build: compile the contracts (downloads the pinned solc once) ----------
+FROM deps AS build
+COPY smart-contracts/contracts ./contracts/
+COPY smart-contracts/migrations ./migrations/
+RUN npx truffle compile
 
-# install node dependencies & compile contracts
-RUN yarn install --frozen-lockfile && \
-    npx truffle compile
-
-COPY ./docker/assets/init-dev-env.js ./docker/assets/request-data.js ./docker/assets/request.sh ./
-
+# --- runtime: the dev chain + deploy/seed scripts ---------------------------
+FROM build AS runtime
+COPY docker/assets/init-dev-env.js docker/assets/request-data.js \
+     docker/assets/request.sh docker/assets/entrypoint.sh ./
+RUN chmod +x request.sh entrypoint.sh
 EXPOSE 8545
-
-# default cmd to set up Ganache, deploy contracts and run go test
-CMD cd /root/xfund-router && \
-    touch /root/xfund-router/log.txt && \
-    npx ganache-cli --deterministic --networkId 696969 --accounts 20 -h 0.0.0.0 --blockTime 5 & \
-    until nc -z 127.0.0.1 8545; do sleep 0.5; echo "wait for ganache"; done && \
-    echo "deploying contracts, please wait..." && \
-    npx truffle deploy --network=develop && \
-    npx truffle exec init-dev-env.js --network=develop && \
-    tail -f /root/xfund-router/log.txt
+ENTRYPOINT ["./entrypoint.sh"]
