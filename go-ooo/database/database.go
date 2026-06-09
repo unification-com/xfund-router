@@ -88,9 +88,10 @@ func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 	return &DB{db}, nil
 }
 
-func (d *DB) Migrate() (err error) {
-	// migrate models
-	err = d.AutoMigrate(
+func (d *DB) Migrate() error {
+	// 1. Sync the schema (additive: tables/columns/indexes). Abort on failure - the
+	//    data migrations below assume the schema is already in shape.
+	if err := d.AutoMigrate(
 		&models.DataRequests{},
 		&models.FailedFulfilment{},
 		&models.ToBlocks{},
@@ -98,14 +99,10 @@ func (d *DB) Migrate() (err error) {
 		&models.DexPairs{},
 		&models.TokenContracts{},
 		&models.VersionInfo{},
-	)
+	); err != nil {
+		return fmt.Errorf("auto-migrate schema: %w", err)
+	}
 
-	// post-model data migration
-	d.MigrateV0ToV1()
-
-	d.MigrateV1ToV2()
-
-	d.MigrateV2ToV3()
-
-	return
+	// 2. Apply ordered, transactional, version-guarded data migrations.
+	return d.runSchemaMigrations(schemaMigrations)
 }

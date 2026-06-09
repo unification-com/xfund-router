@@ -283,22 +283,3 @@ func (d *DB) InsertNewTokenContract(symbol string, contractAddress string, chain
 
 	return data, err
 }
-
-/*
- VersionInfo
-*/
-
-func (d *DB) setDbSchemaVersion(newVersion uint64) error {
-	currVers, err := d.getCurrentDbSchemaVersion()
-	if currVers.ID == 0 {
-		err = d.Create(&models.VersionInfo{
-			VersionType:    models.VERSION_TYPE_DB_SCHEMA,
-			CurrentVersion: newVersion,
-		}).Error
-	} else {
-		currVers.CurrentVersion = newVersion
-		err = d.Save(&currVers).Error
-	}
-
-	return err
-}

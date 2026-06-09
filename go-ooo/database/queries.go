@@ -141,13 +141,3 @@ func (d *DB) FindTokenAddressByRowId(id uint) (string, error) {
 	err := d.Where("id = ?", id).First(&result).Error
 	return result.ContractAddress, err
 }
-
-/*
- VersionInfo queries
-*/
-
-func (d *DB) getCurrentDbSchemaVersion() (models.VersionInfo, error) {
-	result := models.VersionInfo{}
-	err := d.Where("version_type = ?", models.VERSION_TYPE_DB_SCHEMA).First(&result).Error
-	return result, err
-}

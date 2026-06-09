@@ -1,57 +1,145 @@
 package database
 
-import "go-ooo/database/models"
+import (
+	"errors"
+	"fmt"
+
+	"go-ooo/database/models"
+	"go-ooo/logger"
+
+	"gorm.io/gorm"
+)
 
 /*
-  Migrations
+  Migration framework.
+
+  Migrate() first runs AutoMigrate (additive: tables/columns/indexes) and aborts on
+  any error. It then applies the ordered data migrations below. Each step and its
+  version bump run inside ONE transaction, so a failure rolls back atomically and the
+  recorded schema version is never advanced past a half-applied step.
+
+  To add a migration: APPEND a step to schemaMigrations with to = previous+1 and bump
+  latestSchemaVersion. Never edit or reorder existing steps. A plain additive column,
+  table or index needs NO step — AutoMigrate handles it; add a step only for a data
+  transformation or a destructive schema change, and make its run func idempotent.
 */
 
-// Schema V0 to V1
+// latestSchemaVersion is the version a fully-migrated database ends on. It MUST equal
+// the highest migrationStep.to in schemaMigrations.
+const latestSchemaVersion uint64 = 3
 
-func (d *DB) MigrateV0ToV1() {
-	dbVers, _ := d.getCurrentDbSchemaVersion()
-	if dbVers.CurrentVersion == 0 {
-		d.DeleteAdhocTokenData()
-		_ = d.setDbSchemaVersion(1)
-	}
+// migrationStep transforms the database from schema version (to-1) to version `to`.
+type migrationStep struct {
+	to   uint64
+	name string
+	run  func(tx *gorm.DB) error
 }
 
-func (d *DB) MigrateV1ToV2() {
-	dbVers, _ := d.getCurrentDbSchemaVersion()
-	if dbVers.CurrentVersion == 1 {
-		d.DeleteAdhocTokenData()
-		_ = d.setDbSchemaVersion(2)
-	}
+var schemaMigrations = []migrationStep{
+	{to: 1, name: "clear adhoc token data", run: migrateDeleteAdhocTokenData},
+	{to: 2, name: "clear adhoc token data", run: migrateDeleteAdhocTokenData},
+	{to: 3, name: "drop legacy dex_tokens table and columns", run: migrateDropLegacyDexTokens},
 }
 
-func (d *DB) MigrateV2ToV3() {
-	dbVers, _ := d.getCurrentDbSchemaVersion()
-	if dbVers.CurrentVersion == 2 {
-		d.DeleteAdhocTokenData()
+// runSchemaMigrations applies, in order, every step whose target version is ahead of
+// the recorded schema version. Each step plus its version bump run in one transaction.
+func (d *DB) runSchemaMigrations(steps []migrationStep) error {
+	current, err := d.currentSchemaVersion()
+	if err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
 
-		if d.Migrator().HasTable("dex_tokens") {
-			d.Migrator().DropTable("dex_tokens")
+	for _, step := range steps {
+		if current >= step.to {
+			continue // already applied
+		}
+		if current != step.to-1 {
+			// Non-contiguous version: the version table is inconsistent. Refuse to
+			// guess rather than apply a step from the wrong starting point.
+			return fmt.Errorf("cannot apply migration to v%d: schema is at v%d, expected v%d",
+				step.to, current, step.to-1)
 		}
 
-		d.Migrator().DropColumn(&models.DexPairs{}, "t0_dex_token_id")
-		d.Migrator().DropColumn(&models.DexPairs{}, "t1_dex_token_id")
-		d.Migrator().DropColumn(&models.DexPairs{}, "dex_name")
+		logger.InfoWithFields("database", "runSchemaMigrations", "", "applying migration",
+			logger.Fields{"to": step.to, "name": step.name})
 
-		_ = d.setDbSchemaVersion(3)
+		if err := d.Transaction(func(tx *gorm.DB) error {
+			if err := step.run(tx); err != nil {
+				return err
+			}
+			return setSchemaVersionTx(tx, step.to)
+		}); err != nil {
+			return fmt.Errorf("migration to v%d (%s): %w", step.to, step.name, err)
+		}
+		current = step.to
 	}
+	return nil
 }
 
-// DeleteAdhocTokenData is used when migrating from Db v0 to v1
-func (d *DB) DeleteAdhocTokenData() {
-	if d.Migrator().HasTable("dex_pairs") {
-		d.Exec("DELETE FROM dex_pairs")
+// currentSchemaVersion returns the recorded schema version, treating a missing row as
+// version 0 (a fresh database).
+func (d *DB) currentSchemaVersion() (uint64, error) {
+	var v models.VersionInfo
+	err := d.Where("version_type = ?", models.VERSION_TYPE_DB_SCHEMA).First(&v).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return v.CurrentVersion, nil
+}
+
+// setSchemaVersionTx upserts the schema version inside the given transaction.
+func setSchemaVersionTx(tx *gorm.DB, version uint64) error {
+	var v models.VersionInfo
+	err := tx.Where("version_type = ?", models.VERSION_TYPE_DB_SCHEMA).First(&v).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return tx.Create(&models.VersionInfo{
+			VersionType:    models.VERSION_TYPE_DB_SCHEMA,
+			CurrentVersion: version,
+		}).Error
+	}
+	if err != nil {
+		return err
+	}
+	v.CurrentVersion = version
+	return tx.Save(&v).Error
+}
+
+// migrateDeleteAdhocTokenData clears the adhoc DEX/token cache tables. Idempotent:
+// skips any table that does not exist.
+func migrateDeleteAdhocTokenData(tx *gorm.DB) error {
+	for _, table := range []string{"dex_pairs", "dex_tokens", "token_contracts"} {
+		if tx.Migrator().HasTable(table) {
+			if err := tx.Exec("DELETE FROM " + table).Error; err != nil {
+				return fmt.Errorf("clear %s: %w", table, err)
+			}
+		}
+	}
+	return nil
+}
+
+// migrateDropLegacyDexTokens removes the retired dex_tokens table and the legacy
+// DexPairs columns. Idempotent: every drop is guarded by an existence check, so it is
+// a no-op on a fresh database (where AutoMigrate never created them).
+func migrateDropLegacyDexTokens(tx *gorm.DB) error {
+	if err := migrateDeleteAdhocTokenData(tx); err != nil {
+		return err
 	}
 
-	if d.Migrator().HasTable("dex_tokens") {
-		d.Exec("DELETE FROM dex_tokens")
+	m := tx.Migrator()
+	if m.HasTable("dex_tokens") {
+		if err := m.DropTable("dex_tokens"); err != nil {
+			return fmt.Errorf("drop dex_tokens: %w", err)
+		}
 	}
-
-	if d.Migrator().HasTable("token_contracts") {
-		d.Exec("DELETE FROM token_contracts")
+	for _, col := range []string{"t0_dex_token_id", "t1_dex_token_id", "dex_name"} {
+		if m.HasColumn(&models.DexPairs{}, col) {
+			if err := m.DropColumn(&models.DexPairs{}, col); err != nil {
+				return fmt.Errorf("drop dex_pairs.%s: %w", col, err)
+			}
+		}
 	}
+	return nil
 }
