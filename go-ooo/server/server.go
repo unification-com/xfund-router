@@ -18,6 +18,7 @@ import (
 type Server struct {
 	srv         *service.Service
 	ctx         context.Context
+	cancel      context.CancelFunc
 	srvCtx      *Context
 	Vers        version.Info
 	privateKey  string
@@ -26,10 +27,11 @@ type Server struct {
 }
 
 func NewServer(srcCtx *Context, decryptPass string) (*Server, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
 		ctx:         ctx,
+		cancel:      cancel,
 		srvCtx:      srcCtx,
 		Vers:        version.NewInfo(),
 		decryptPass: decryptPass,
@@ -43,6 +45,7 @@ func (s *Server) InitServer() {
 
 func (s *Server) Run() {
 	s.srv.Run()
+	logger.Info("app", "Run", "", "oracle daemon stopped")
 }
 
 func (s *Server) initServer() {
@@ -59,11 +62,17 @@ func (s *Server) initSignal() {
 	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-c
-		s.srv.Stop()
+		logger.Info("app", "initSignal", "",
+			"shutdown signal received - stopping gracefully (interrupt again to force)")
+		// Cancel the root context: the service main loop, the event watchers and
+		// any in-flight RPC calls observe this and unwind cleanly, after which
+		// Run() returns and the process exits.
+		s.cancel()
 
-		logger.Info("app", "initSignal", "", "exiting oracle daemon...")
-
-		os.Exit(0)
+		// A second signal forces an immediate exit if graceful shutdown hangs.
+		<-c
+		logger.Warn("app", "initSignal", "", "second signal received - forcing exit")
+		os.Exit(1)
 	}()
 }
 

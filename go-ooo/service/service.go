@@ -138,6 +138,10 @@ func (s *Service) Run() {
 
 	for {
 		select {
+		case <-s.ctx.Done():
+			logger.Info("service", "Run", "", "context cancelled - shutting down")
+			s.Stop()
+			return
 		case <-s.jobTicker.C:
 			s.oooRouterService.ProcessPendingJobQueue()
 		case <-s.updatePairsTicker.C:
@@ -167,7 +171,11 @@ func (s *Service) Stop() {
 	s.oooRouterService.Shutdown()
 
 	logger.Info("service", "Stop", "", "shutting down echo")
-	err := s.echoService.Shutdown(s.ctx)
+	// s.ctx is already cancelled here, so use a fresh bounded context to let echo
+	// drain in-flight requests rather than aborting immediately.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := s.echoService.Shutdown(shutdownCtx)
 
 	if err != nil {
 		logger.Error("service", "Stop", "shutting down echo", err.Error())

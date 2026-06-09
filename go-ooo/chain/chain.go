@@ -194,7 +194,12 @@ func (o *OoORouterService) setLastBlockNumber(blockNumber uint64) {
 }
 
 func (o *OoORouterService) Shutdown() {
-	currentBlockNum, err := o.client.BlockNumber(o.context)
+	// Use a fresh short-lived context: o.context is already cancelled during a
+	// graceful shutdown, so reusing it here would fail this last block-number read
+	// and lose the resume point for the next start.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	currentBlockNum, err := o.client.BlockNumber(ctx)
 
 	if err != nil {
 		logger.Error("chain", "Shutdown", "get block num", err.Error())
@@ -320,13 +325,16 @@ func (o *OoORouterService) RunEventWatchers() {
 	me = append(me, o.oracleAddress)
 
 	o.subscribeToDataRequested(me)
-	defer o.subscriptionDr.Unsubscribe()
-
 	o.subscribeToRequestFulfilled(me)
-	defer o.subscriptionRf.Unsubscribe()
 
+	// Teardown (Unsubscribe + save resume block) is owned by Shutdown(), which
+	// Stop() calls on the same cancellation — so there is a single unsubscribe
+	// path and no race here.
 	for {
 		select {
+		case <-o.context.Done():
+			logger.Info("chain", "RunEventWatchers", "", "context cancelled - stopping event watchers")
+			return
 		case ev := <-o.chanDataRequests:
 			o.processIncomingRequests(ev)
 		case ev := <-o.chanRequestFulfilled:

@@ -25,7 +25,12 @@ func (s *Service) initEcho() {
 	s.echoService.POST("/admin", s.AddAdminTask)
 	s.echoService.POST("/analytics", s.AddAnalyticsTask)
 
-	s.echoService.Logger.Fatal(s.echoService.Start(fmt.Sprintf("%s:%s", s.cfg.Serve.Host, s.cfg.Serve.Port)))
+	addr := fmt.Sprintf("%s:%s", s.cfg.Serve.Host, s.cfg.Serve.Port)
+	// A genuine bind/serve failure is fatal; a graceful Shutdown returns
+	// http.ErrServerClosed, which is expected and must not exit the process.
+	if err := s.echoService.Start(addr); err != nil && err != http.ErrServerClosed {
+		s.echoService.Logger.Fatal(err)
+	}
 }
 
 func (s *Service) AddAdminTask(c echo.Context) error {
