@@ -136,21 +136,23 @@ func (o *OOOApi) UpdateSupportedPairs() {
 
 func (o *OOOApi) buildQuery(endpoint string) (string, error) {
 
-	base, target, qType, subtype, supp1, supp2, supp3, err := ParseEndpoint(endpoint)
+	parsed, err := ParseEndpoint(endpoint)
 
 	if err != nil {
 		return "", err
 	}
 
+	base, target := parsed.Base, parsed.Target
+
 	logger.Debug("ooo_api", "buildQuery", "", "build finchains api query", logger.Fields{
 		"endpoint": endpoint,
 		"base":     base,
 		"target":   target,
-		"type":     qType,
-		"subtype":  subtype,
-		"supp1":    supp1,
-		"supp2":    supp2,
-		"supp3":    supp3,
+		"type":     parsed.QType,
+		"subtype":  parsed.Subtype,
+		"supp1":    parsed.Supp1,
+		"supp2":    parsed.Supp2,
+		"supp3":    parsed.Supp3,
 	})
 
 	// check supported
@@ -163,14 +165,13 @@ func (o *OOOApi) buildQuery(endpoint string) (string, error) {
 	var apiEndpont string
 	var dataType string
 
-	switch qType {
-	case "PR":
+	switch parsed.QType {
+	case QTypeFinchains:
 		apiEndpont = "currency"
-		dataType, err = getPriceSubType(subtype, supp1, supp2)
+		dataType, err = getPriceSubType(parsed.Subtype, parsed.Supp1, parsed.Supp2)
 		if err != nil {
 			return "", err
 		}
-		break
 	default:
 		return "", errors.New("query type not currently supported")
 	}

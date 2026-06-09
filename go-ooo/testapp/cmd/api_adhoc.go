@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"go-ooo/ooo_api"
 	"go-ooo/utils"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,15 +17,17 @@ var apiAdhocCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		endpoint := args[0]
-		ep := strings.Split(endpoint, ".")
-		base := ep[0] // BTC etc
-		target := ep[1]
+		parsed, err := ooo_api.ParseEndpoint(endpoint)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 
 		oooApi := createApi()
 
 		start := time.Now()
 
-		res, err := oooApi.QueryAdhoc(endpoint, "1234")
+		res, err := oooApi.QueryAdhoc(parsed, "1234")
 
 		elapsed := time.Since(start)
 
@@ -38,7 +40,7 @@ var apiAdhocCmd = &cobra.Command{
 		resBf := utils.WeiToEther(resBi)
 
 		fmt.Printf("\n\nEndpoint: %s\nRes: %s\n\n", endpoint, res)
-		fmt.Printf("1 %s = %s %s\n\n", base, resBf.String(), target)
+		fmt.Printf("1 %s = %s %s\n\n", parsed.Base, resBf.String(), parsed.Target)
 		fmt.Println("Query took:", elapsed)
 	},
 }

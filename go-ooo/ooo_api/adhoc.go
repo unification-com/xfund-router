@@ -7,30 +7,13 @@ import (
 	"go-ooo/utils"
 	"math"
 	"math/big"
-	"strconv"
 )
 
-func (o *OOOApi) QueryAdhoc(endpoint string, requestId string) (string, error) {
-	base, target, _, mins, _, _, _, err := ParseEndpoint(endpoint)
-
-	minutes, _ := strconv.ParseInt(mins, 10, 64)
-
-	if minutes < 0 {
-		minutes = 0
-	}
-
-	// no more than 60 minutes
-	if minutes > 60 {
-		minutes = 60
-	}
-
-	if err != nil {
-		return "", err
-	}
+func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, error) {
+	base, target, minutes := parsed.Base, parsed.Target, parsed.Minutes
 
 	logger.Debug("ooo_api", "QueryAdhoc", "ParseEndpoint", "AdHoc endpoint parsed", logger.Fields{
 		"requestId": requestId,
-		"endpoint":  endpoint,
 		"base":      base,
 		"target":    target,
 		"minutes":   minutes,
