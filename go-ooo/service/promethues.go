@@ -28,13 +28,24 @@ func (s *Service) initPrometheus() {
 
 	srvUp.Set(1)
 
-	http.Handle("/metrics", promhttp.Handler())
+	// Serve metrics on a DEDICATED mux + server, not the global http.DefaultServeMux,
+	// so nothing else can be co-mounted onto the metrics listener by accident — in
+	// particular the net/http/pprof handlers in the comment above, which register on
+	// DefaultServeMux and would otherwise expose process internals on this port.
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
 
+	// NB: this binds to all interfaces (:port). Operators should firewall the metrics
+	// port or restrict it to the scraper's network; it is unauthenticated by design
+	// (low-sensitivity gauges/counters).
 	promListen := fmt.Sprintf(":%s", s.cfg.Prometheus.Port)
 
 	logger.InfoWithFields("service", "initPrometheus", "", "initialise prometheus", logger.Fields{
 		"listen": promListen,
 	})
 
-	http.ListenAndServe(promListen, nil)
+	srv := &http.Server{Addr: promListen, Handler: mux}
+	if err := srv.ListenAndServe(); err != nil {
+		logger.Error("service", "initPrometheus", "prometheus server stopped", err.Error())
+	}
 }
