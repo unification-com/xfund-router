@@ -166,6 +166,26 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 }
 
 func getPrices(module Module, base, target string, minutes uint64, dexInfo DexInfo, resCh chan<- DexResult, errCh chan<- error) {
+	// A malformed/partial subgraph response can make a module's query parsing panic
+	// (e.g. an unchecked type assertion). As this runs in its own goroutine, an
+	// un-recovered panic would crash the whole oracle; and because the caller reads
+	// exactly one (result, error) pair per module, a panicking goroutine that never
+	// sends would deadlock the caller. Recover here and send the empty result + error
+	// so one bad DEX degrades to "no data" instead of taking the process down. The
+	// recover runs before any of the normal sends below, so it sends exactly once.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.ErrorWithFields("dex", "getPrices", "recovered from panic", fmt.Sprintf("%v", r), logger.Fields{
+				"chain":  module.Chain(),
+				"dex":    module.Dex(),
+				"base":   base,
+				"target": target,
+			})
+			resCh <- DexResult{}
+			errCh <- fmt.Errorf("%s, %s, %s, %s. getPrices recovered from panic: %v", module.Chain(), module.Dex(), base, target, r)
+		}
+	}()
+
 	query, numQueries, err := module.GenerateDexPricesQuery(dexInfo.ContractAddresses, minutes, dexInfo.CurrentBlock, dexInfo.BlockPerMin)
 	if err != nil {
 		errMsg := fmt.Sprintf(`%s, %s, %s, %s. getPrices generate query error: %s`, module.Chain(), module.Dex(), base, target, err.Error())
