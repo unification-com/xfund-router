@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +17,16 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/term"
 )
+
+// readValueOrFile returns the trimmed contents of s when s names a readable file,
+// otherwise the trimmed value of s itself. Used for non-interactive flags (a key or
+// passphrase) that may be supplied as a file path or a literal value.
+func readValueOrFile(s string) string {
+	if data, err := os.ReadFile(s); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return strings.TrimSpace(s)
+}
 
 // issueAdminToken generates a new admin HTTP bearer, persists its bcrypt hash in
 // the sidecar next to the keystore, and returns the raw token for one-time display

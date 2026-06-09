@@ -66,7 +66,11 @@ Examples:
 			conf := config.DefaultConfig()
 			conf.InitForNet(network)
 
-			account, err := runKeystoreInit(ksFile)
+			account, err := runKeystoreInit(ksFile, initOpts{
+				account:   initAccount,
+				importKey: initImportKey,
+				pass:      initPass,
+			})
 			if err != nil {
 				fmt.Println("keystore initialisation failed:", err.Error())
 				return
@@ -89,6 +93,18 @@ Examples:
 	},
 }
 
+var (
+	initAccount   string
+	initImportKey string
+	initPass      string
+)
+
 func init() {
+	// Non-interactive inputs (mainly for automation / integration tests). When unset,
+	// init prompts as normal. Prefer a file over a literal value for the key/passphrase
+	// so secrets don't land in the shell history or process list.
+	initCmd.Flags().StringVar(&initAccount, "account", "", "account name for the key (skips the prompt)")
+	initCmd.Flags().StringVar(&initImportKey, "import-key", "", "private key to import: a file path or 0x hex value (skips the prompt)")
+	initCmd.Flags().StringVar(&initPass, "pass", "", "keystore passphrase: a file path or value (skips the prompt)")
 	rootCmd.AddCommand(initCmd)
 }
