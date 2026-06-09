@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go-ooo/auth"
 	"go-ooo/database"
 	"go-ooo/keystore"
 	"go-ooo/logger"
@@ -119,8 +120,23 @@ func (s *Server) initDatabase() {
 func (s *Server) initService() {
 	logger.Info("app", "initService", "", "initialise service")
 
-	srv, err := service.NewService(s.ctx, s.srvCtx.Config, []byte(s.keystore.GetSelectedPrivateKey()),
-		s.db, s.keystore.KeyStore.GetToken())
+	cfg := s.srvCtx.Config
+
+	// The admin HTTP bearer is decoupled from the keystore: its bcrypt hash lives
+	// in a sidecar next to the keystore (written by `keystore migrate` / `init`).
+	// A missing sidecar leaves the admin API disabled rather than failing start.
+	adminTokenHash, err := auth.ReadHashFile(cfg.Keystore.File)
+	if err != nil {
+		panic(err)
+	}
+	if adminTokenHash == "" {
+		logger.Warn("app", "initService", "",
+			"no admin token configured - the admin HTTP API is disabled; run "+
+				"'go-ooo keystore set-admin-token' to create one")
+	}
+
+	srv, err := service.NewService(s.ctx, cfg, []byte(s.keystore.GetSelectedPrivateKey()),
+		s.db, adminTokenHash)
 	if err != nil {
 		panic(err)
 	}

@@ -38,11 +38,11 @@ type Service struct {
 	analyticsTasks     chan go_ooo_types.AnalyticsTask
 	analyticsTasksResp chan go_ooo_types.AnalyticsTaskResponse
 
-	authToken string
+	adminTokenHash string
 }
 
 func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
-	db *database.DB, authToken string) (*Service, error) {
+	db *database.DB, adminTokenHash string) (*Service, error) {
 
 	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
 	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
@@ -106,7 +106,7 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		analyticsTasksResp: make(chan go_ooo_types.AnalyticsTaskResponse),
 		echoService:        echo.New(),
 		oooApi:             oooApi,
-		authToken:          authToken,
+		adminTokenHash:     adminTokenHash,
 	}, nil
 }
 

@@ -10,11 +10,26 @@ import (
 	"strings"
 	"syscall"
 
+	"go-ooo/auth"
 	"go-ooo/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/term"
 )
+
+// issueAdminToken generates a new admin HTTP bearer, persists its bcrypt hash in
+// the sidecar next to the keystore, and returns the raw token for one-time display
+// to the operator. Shared by `keystore migrate`, `keystore set-admin-token` and init.
+func issueAdminToken(keystoreFile string) (string, error) {
+	raw, hash, err := auth.GenerateAdminToken()
+	if err != nil {
+		return "", err
+	}
+	if err := auth.WriteHashFile(keystoreFile, hash); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
 
 // parsePositiveUint parses a positive uint64 CLI argument (a fee or amount). It rejects
 // non-numeric, negative and zero input — all of which the on-chain calls reject anyway,

@@ -103,14 +103,25 @@ func runKeystoreMigrate(ksFile, account string) error {
 			"(go-ooo uses a single key).\n", o)
 	}
 
+	// The legacy keystore token doubled as the admin HTTP bearer and has just been
+	// destroyed with the old file, so issue a fresh, decoupled admin token.
+	adminToken, err := issueAdminToken(ksFile)
+	if err != nil {
+		return fmt.Errorf("the keystore was migrated successfully, but generating a new admin "+
+			"token failed - run 'go-ooo keystore set-admin-token' to create one: %w", err)
+	}
+
 	fmt.Println("")
 	fmt.Println("Migration complete.")
 	fmt.Println("  Wallet address:", addr.Hex())
 	fmt.Println("  Keystore file: ", ksFile)
 	fmt.Println("")
-	fmt.Println("The old keystore file has been removed. BACK UP the new keystore file and")
-	fmt.Println("REMEMBER your new passphrase — without them you cannot run the oracle or")
-	fmt.Println("recover the key.")
+	fmt.Println("Your NEW admin HTTP API token (the old keystore token no longer works):")
+	fmt.Println(" ", adminToken)
+	fmt.Println("")
+	fmt.Println("The old keystore file has been removed. BACK UP the new keystore file, SAVE")
+	fmt.Println("your new admin token, and REMEMBER your new passphrase — without them you")
+	fmt.Println("cannot run the oracle, use the admin API, or recover the key.")
 	return nil
 }
 
