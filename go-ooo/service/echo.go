@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo/v4"
@@ -15,7 +16,15 @@ func (s *Service) initEcho() {
 
 	s.echoService.Use(middleware.Recover())
 	s.echoService.Use(middleware.KeyAuth(func(key string, c echo.Context) (bool, error) {
-		return key == s.authToken, nil
+		// Reject empty credentials outright (a blank authToken must never accept a
+		// blank key), and compare in constant time to avoid leaking the token via
+		// response timing. NB: the admin bearer is decoupled from the keystore key
+		// and moved to a bcrypt-hashed secret as part of the keystore migration (#106);
+		// this is the interim hardening of the existing == compare.
+		if s.authToken == "" || key == "" {
+			return false, nil
+		}
+		return subtle.ConstantTimeCompare([]byte(key), []byte(s.authToken)) == 1, nil
 	}))
 
 	s.echoService.POST("/admin", s.AddAdminTask)
