@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"go-ooo/config"
-	"go-ooo/keystore"
 	"os"
 	"path/filepath"
 
@@ -57,7 +56,8 @@ Examples:
 			fmt.Println(cfgFile, "does not exist. Creating with defaults")
 
 			if _, err := os.Stat(appHomePath); errors.Is(err, os.ErrNotExist) {
-				err := os.MkdirAll(appHomePath, os.ModePerm)
+				// 0700 - the home directory holds the keystore and admin-token hash.
+				err := os.MkdirAll(appHomePath, 0700)
 				if err != nil {
 					panic(err)
 				}
@@ -66,14 +66,13 @@ Examples:
 			conf := config.DefaultConfig()
 			conf.InitForNet(network)
 
-			ks, _ := keystore.NewKeyStorageNoLogger(ksFile)
-
-			err, ksUser := ks.InitNewKeystore(ksFile)
+			account, err := runKeystoreInit(ksFile)
 			if err != nil {
-				panic(err)
+				fmt.Println("keystore initialisation failed:", err.Error())
+				return
 			}
 
-			conf.SetKeystore(ksFile, ksUser)
+			conf.SetKeystore(ksFile, account)
 
 			conf.SetSqliteDb(dbFile)
 

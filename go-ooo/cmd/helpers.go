@@ -45,6 +45,21 @@ func parsePositiveUint(arg, label string) (uint64, error) {
 	return v, nil
 }
 
+// promptRequired prints a prompt and reads a single whitespace-delimited token from
+// stdin, repeating until a non-empty value is entered. Safe to interleave with the
+// no-echo readSecret (neither buffers stdin ahead).
+func promptRequired(prompt string) string {
+	for {
+		fmt.Print(prompt)
+		var s string
+		_, _ = fmt.Scanln(&s)
+		if s = strings.TrimSpace(s); s != "" {
+			return s
+		}
+		fmt.Println("This value is required.")
+	}
+}
+
 // requireHexAddress validates that arg is a 0x-prefixed Ethereum address before it is
 // sent to a chain operation (e.g. a withdraw recipient).
 func requireHexAddress(arg, label string) (string, error) {

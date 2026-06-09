@@ -206,7 +206,8 @@ func WriteConfigFile(configFilePath string, config *Config) {
 		panic(err)
 	}
 
-	err := os.WriteFile(configFilePath, buffer.Bytes(), 0o644)
+	// 0600 - config.toml can hold secrets (e.g. the database password).
+	err := os.WriteFile(configFilePath, buffer.Bytes(), 0o600)
 
 	if err != nil {
 		panic(err)
