@@ -32,8 +32,8 @@ type OoORouterService struct {
 	context          context.Context
 	cfg              *config.Config
 
-	transactOpts *bind.TransactOpts
-	callOpts     *bind.CallOpts
+	baseTransactOpts *bind.TransactOpts
+	callOpts         *bind.CallOpts
 
 	logDataRequestedHash    common.Hash
 	logRequestFulfilledHash common.Hash
@@ -57,8 +57,6 @@ type OoORouterService struct {
 
 	subscriptionDr event.Subscription
 	subscriptionRf event.Subscription
-
-	prevTxNonce uint64
 }
 
 func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Client,
@@ -96,15 +94,9 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		return nil, err
 	}
 
-	nonce, err := client.PendingNonceAt(ctx, oracleAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	transactOpts.Nonce = big.NewInt(int64(nonce))
+	// Base template only: the per-send Nonce and GasPrice are set by buildTransactOpts
+	// (chain-anchored), so this struct is never mutated after construction.
 	transactOpts.Value = big.NewInt(0)
-
-	transactOpts.GasPrice = nil
 	transactOpts.GasLimit = cfg.Chain.GasLimit // in units
 	transactOpts.Context = ctx
 
@@ -149,7 +141,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		logRequestFulfilledHash: logRequestFulfilledHash,
 		contractAbi:             contractAbi,
 		oracleAddress:           oracleAddress,
-		transactOpts:            transactOpts,
+		baseTransactOpts:        transactOpts,
 		callOpts:                callOpts,
 		db:                      db,
 		oooApi:                  oooApi,
@@ -159,16 +151,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		chanRequestFulfilled:    chanRequestFulfilled,
 		historicalFilterOpts:    historicalFilterOpts,
 		lastBlockNumber:         initialFromBlock,
-		prevTxNonce:             nonce,
 	}, nil
-}
-
-func (o *OoORouterService) GetPrevTxNonce() uint64 {
-	return o.prevTxNonce
-}
-
-func (o *OoORouterService) GetNonceFromTransactOpts() uint64 {
-	return o.transactOpts.Nonce.Uint64()
 }
 
 func (o *OoORouterService) GetProviderAddress() common.Address {

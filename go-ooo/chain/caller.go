@@ -1,59 +1,48 @@
 package chain
 
 import (
-	"github.com/ethereum/go-ethereum/params"
-	"go-ooo/logger"
+	"fmt"
 	"math/big"
+
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/params"
 )
 
-func (o *OoORouterService) setNextTxNonce(nonce uint64, isFromPending bool) {
-	nextNonce := nonce
-	if !isFromPending {
-		nextNonce += 1
-	}
-
-	// only set if it's + 1
-	if nextNonce-o.prevTxNonce == 1 {
-
-		logger.Debug("chain", "setNextTxNonce", "", "", logger.Fields{
-			"prev_nonce": o.prevTxNonce,
-			"nonce_in":   nonce,
-			"next_nonce": nextNonce,
-			"is_pending": isFromPending,
-		})
-
-		o.prevTxNonce = nextNonce
-		o.transactOpts.Nonce = big.NewInt(int64(nextNonce))
-	}
-}
-
-func (o *OoORouterService) GetOnChainPendingNonce() (uint64, error) {
-	return o.client.PendingNonceAt(o.context, o.oracleAddress)
-}
-
-func (o *OoORouterService) RenewTransactOpts() error {
-
+// buildTransactOpts returns a fresh *bind.TransactOpts for a single transaction.
+// The nonce is read from the chain (PendingNonceAt) on every call, so it is always
+// anchored to reality and self-heals after any divergence (an out-of-band tx, a
+// dropped tx, a reorg). The base options (signer, from, gas limit, context, value)
+// are cloned, so concurrent callers never share mutable transaction state.
+func (o *OoORouterService) buildTransactOpts() (*bind.TransactOpts, error) {
 	nonce, err := o.client.PendingNonceAt(o.context, o.oracleAddress)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("get pending nonce: %w", err)
 	}
 
-	o.setNextTxNonce(nonce, true)
+	gasPrice, err := o.suggestGasPrice()
+	if err != nil {
+		return nil, err
+	}
 
+	opts := *o.baseTransactOpts
+	opts.Nonce = new(big.Int).SetUint64(nonce)
+	opts.GasPrice = gasPrice
+	return &opts, nil
+}
+
+// suggestGasPrice asks the node for a gas price, capped at cfg.Chain.MaxGasPrice
+// (in gwei) when that is configured.
+func (o *OoORouterService) suggestGasPrice() (*big.Int, error) {
 	gasPrice, err := o.client.SuggestGasPrice(o.context)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("suggest gas price: %w", err)
 	}
-	o.transactOpts.GasPrice = gasPrice
 
-	maxGasPriceConf := o.cfg.Chain.MaxGasPrice
-
-	if maxGasPriceConf > 0 {
-		maxGasPrice := big.NewInt(0).Mul(big.NewInt(maxGasPriceConf), big.NewInt(params.GWei))
+	if maxConf := o.cfg.Chain.MaxGasPrice; maxConf > 0 {
+		maxGasPrice := new(big.Int).Mul(big.NewInt(maxConf), big.NewInt(params.GWei))
 		if gasPrice.Cmp(maxGasPrice) > 0 {
-			o.transactOpts.GasPrice = maxGasPrice
+			gasPrice = maxGasPrice
 		}
 	}
-
-	return nil
+	return gasPrice, nil
 }

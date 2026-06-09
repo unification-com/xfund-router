@@ -112,18 +112,11 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 			"request_id": requestId,
 		})
 
-	err := o.RenewTransactOpts()
-	if err != nil {
-		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "RenewTransactOpts",
-			err.Error(),
-			logger.Fields{
-				"request_id": requestId,
-			})
-
-		return
-	}
-
-	err = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FETCHING_DATA, "")
+	// NB: the fulfilment tx is built and sent later, in the serialised sendFulfillmentTx
+	// (via the DATA_READY_TO_SEND state). This fetch goroutine intentionally does NOT
+	// touch the transaction options - doing so here raced concurrent fetch goroutines on
+	// shared mutable state for no benefit.
+	err := o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FETCHING_DATA, "")
 
 	if err != nil {
 		// possibly not in Tx pool yet
@@ -246,7 +239,19 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	// grr - https://ethereum.stackexchange.com/questions/45580/validating-go-ethereum-key-signature-with-ecrecover
 	signatureBytes[64] = uint8(int(signatureBytes[64])) + 27
 
-	tx, err := o.contractInstance.FulfillRequest(o.transactOpts, reqIdBytes32, priceBigInt, signatureBytes)
+	opts, err := o.buildTransactOpts()
+	if err != nil {
+		logger.ErrorWithFields("chain", "sendFulfillmentTx", "build transact opts",
+			err.Error(),
+			logger.Fields{
+				"request_id": requestId,
+			})
+
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
+		return
+	}
+
+	tx, err := o.contractInstance.FulfillRequest(opts, reqIdBytes32, priceBigInt, signatureBytes)
 
 	if err != nil {
 		logger.ErrorWithFields("chain", "sendFulfillmentTx", "send tx",
@@ -268,10 +273,6 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 
 	_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_SENT, "")
 	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum)
-
-	o.setNextTxNonce(tx.Nonce(), false)
-
-	_ = o.RenewTransactOpts()
 }
 
 func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests, currentBlockNum uint64) {
