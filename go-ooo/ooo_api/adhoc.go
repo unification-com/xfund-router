@@ -19,9 +19,6 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		"minutes":   minutes,
 	})
 
-	priceCount := 0
-	total := big.NewInt(0)
-
 	rawPrices := finitePrices(o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes)))
 
 	if len(rawPrices) == 0 {
@@ -33,55 +30,42 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		return "0", errors.New("no prices found on DEXs for pair")
 	}
 
-	dMax := float64(1)
-
-	outliersRemoved, mean, stdDev, chauvenetUsed := removeOutliersFromData(rawPrices, dMax)
-
-	if len(outliersRemoved) == 0 {
-		for len(outliersRemoved) == 0 {
-			dMax += 1
-			if dMax >= 4 {
-				break
-			}
-			outliersRemoved, mean, stdDev, chauvenetUsed = removeOutliersFromData(rawPrices, dMax)
-		}
+	// Robustly reject outliers (median + MAD) then take the mean of the survivors. MAD has a
+	// 50% breakdown point, so a single manipulated or garbage reading cannot inflate the scale
+	// and mask itself - unlike the previous fixed mean±1σ clip, which both discarded ~32% of a
+	// clean sample and let one extreme swamp the test. Liquidity-weighting of the survivors is
+	// a later step (needs the per-pool restructure); S1 here is the unweighted mean-of-survivors.
+	kept, median, scale := filterOutliersMAD(rawPrices)
+	if len(kept) == 0 {
+		// The median sample always survives the filter, so this is defensive only.
+		kept = rawPrices
 	}
 
-	if len(outliersRemoved) == 0 {
-		outliersRemoved = rawPrices
+	meanPrice, err := stats.Mean(kept)
+	if err != nil {
+		return "0", errors.New("cannot calculate mean price for pair")
 	}
 
-	// calculate mean from data set with outliers removed
-	for _, oR := range outliersRemoved {
-		p := big.NewFloat(oR)
-		wei := utils.EtherToWei(p)
-		if wei.Cmp(big.NewInt(0)) > 0 {
-			total = new(big.Int).Add(total, wei)
-			priceCount++
-		}
+	wei := utils.EtherToWei(big.NewFloat(meanPrice))
+	if wei.Cmp(big.NewInt(0)) <= 0 {
+		// The mean is positive but rounds below 1 wei (price < 1e-18 of the target); the
+		// uint256 ×1e18 callback interface cannot represent it.
+		return "", errors.New("calculated price rounds below one wei for pair")
 	}
-
-	if total.Cmp(big.NewInt(0)) <= 0 {
-		return "", errors.New("cannot calculate mean, price is zero")
-	}
-
-	meanPrice := new(big.Int).Div(total, big.NewInt(int64(priceCount)))
 
 	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
 		"base":               base,
 		"target":             target,
 		"minutes":            minutes,
 		"num_prices_raw":     len(rawPrices),
-		"num_prices_chauv":   len(outliersRemoved),
-		"num_prices_removed": len(rawPrices) - len(outliersRemoved),
-		"raw_prices_mean":    mean,
-		"raw_std_dev":        stdDev,
-		"final_wei_mean":     meanPrice.String(),
-		"chauvenet_used":     chauvenetUsed,
-		"d_max":              dMax,
+		"num_prices_kept":    len(kept),
+		"num_prices_removed": len(rawPrices) - len(kept),
+		"median":             median,
+		"mad_scale":          scale,
+		"final_wei_mean":     wei.String(),
 	})
 
-	return meanPrice.String(), nil
+	return wei.String(), nil
 }
 
 // finitePrices drops NaN / ±Inf values. strconv.ParseFloat accepts "NaN"/"Inf", so a
@@ -97,37 +81,56 @@ func finitePrices(prices []float64) []float64 {
 	return out
 }
 
-func removeOutliersFromData(rawPrices []float64, dMax float64) ([]float64, float64, float64, bool) {
-	var outliersRemoved []float64
+// madRejectThreshold is the modified z-score cut-off (Iglewicz & Hoaglin): a sample is an
+// outlier when |x - median| / (1.4826·MAD) > 3.5.
+const madRejectThreshold = 3.5
 
-	mean, err := stats.Mean(rawPrices)
+// madScaleFactor (1.4826 = 1/0.6745) makes the median absolute deviation a consistent
+// estimator of the standard deviation for normally-distributed data.
+const madScaleFactor = 1.4826
 
-	if err != nil {
-		return rawPrices, 0, 0, false
+// meanADScaleFactor (1.253314 = sqrt(π/2)) is the analogous consistency factor for the mean
+// absolute deviation, used as a fallback when the MAD is zero (≥half the samples identical).
+const meanADScaleFactor = 1.253314
+
+// filterOutliersMAD removes outliers using a median + Median-Absolute-Deviation modified
+// z-score. Unlike a fixed mean±σ clip, MAD has a 50% breakdown point, so a single (or up to
+// half) manipulated/garbage reading cannot inflate the scale and mask itself. It returns the
+// surviving prices plus the median and the scale used (for telemetry). When the sample has no
+// usable spread (≥half identical → MAD 0, and the mean-absolute-deviation fallback also 0) it
+// rejects nothing. Inputs are assumed finite (see finitePrices) and non-empty.
+func filterOutliersMAD(prices []float64) (kept []float64, median, scale float64) {
+	if len(prices) == 0 {
+		return nil, 0, 0
 	}
 
-	stdDev, err := stats.StandardDeviation(rawPrices)
+	median, _ = stats.Median(prices) // only errors on empty input, guarded above
 
-	if err != nil {
-		return rawPrices, 0, 0, false
+	deviations := make([]float64, len(prices))
+	for i, p := range prices {
+		deviations[i] = math.Abs(p - median)
 	}
 
-	chauvenetUsed := false
+	mad, _ := stats.Median(deviations)
+	scale = madScaleFactor * mad
 
-	// remove outliers with Chauvenet Criterion, but only if stdDev > 0
-	// as some pair prices are too small to calculate stdDev
-	for _, p := range rawPrices {
-		if stdDev > 0 {
-			chauvenetUsed = true
-			d := math.Abs(p-mean) / stdDev
-			if dMax > d {
-				outliersRemoved = append(outliersRemoved, p)
-			}
-		} else {
-			// prices are too small to use Chauvenet Criterion
-			outliersRemoved = append(outliersRemoved, p)
+	if scale == 0 {
+		// ≥half the samples equal the median → MAD is 0. Fall back to the mean absolute
+		// deviation so a lone outlier among many identical readings is still caught.
+		meanAD, _ := stats.Mean(deviations)
+		scale = meanADScaleFactor * meanAD
+	}
+
+	if scale == 0 {
+		// All samples identical - nothing to reject.
+		return append([]float64(nil), prices...), median, 0
+	}
+
+	for _, p := range prices {
+		if math.Abs(p-median)/scale <= madRejectThreshold {
+			kept = append(kept, p)
 		}
 	}
 
-	return outliersRemoved, mean, stdDev, chauvenetUsed
+	return kept, median, scale
 }
