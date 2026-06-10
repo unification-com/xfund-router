@@ -36,7 +36,10 @@ func (s *Service) initEcho() {
 func (s *Service) AddAdminTask(c echo.Context) error {
 	var request go_ooo_types.AdminTask
 
-	json.NewDecoder(c.Request().Body).Decode(&request)
+	if err := json.NewDecoder(c.Request().Body).Decode(&request); err != nil {
+		logger.Error("service", "AddAdminTask", "decode request body", err.Error())
+		return c.JSON(http.StatusBadRequest, "invalid request body")
+	}
 
 	logger.InfoWithFields("service", "AddAdminTask", "", "admin task received", logger.Fields{
 		"task":           request.Task,
@@ -62,7 +65,10 @@ func (s *Service) AddAdminTask(c echo.Context) error {
 
 func (s *Service) AddAnalyticsTask(c echo.Context) error {
 	var request go_ooo_types.AnalyticsTask
-	json.NewDecoder(c.Request().Body).Decode(&request)
+	if err := json.NewDecoder(c.Request().Body).Decode(&request); err != nil {
+		logger.Error("service", "AddAnalyticsTask", "decode request body", err.Error())
+		return c.JSON(http.StatusBadRequest, "invalid request body")
+	}
 
 	logger.Info("service", "AddAnalyticsTask", "", "analytics task received")
 

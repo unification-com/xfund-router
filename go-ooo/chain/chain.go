@@ -3,6 +3,7 @@ package chain
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"math/big"
 	"strings"
 	"time"
@@ -79,8 +80,12 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 	oraclePublicKey := oraclePrivateKeyECDSA.Public()
 
 	ECDSAoraclePublicKey, err := crypto.UnmarshalPubkey(crypto.FromECDSAPub(oraclePublicKey.(*ecdsa.PublicKey)))
-	if err != nil || ECDSAoraclePublicKey == nil {
+	if err != nil {
 		return nil, err
+	}
+	if ECDSAoraclePublicKey == nil {
+		// Never return (nil, nil): the caller only checks err and would proceed with a nil service.
+		return nil, errors.New("could not derive the oracle public key")
 	}
 	_, oracleAddressStr := walletworker.GenerateAddress(ECDSAoraclePublicKey)
 	oracleAddress := common.HexToAddress(oracleAddressStr)

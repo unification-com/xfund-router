@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"github.com/labstack/echo/v4"
+	"sync/atomic"
 	"time"
 
 	"go-ooo/chain"
@@ -39,6 +40,10 @@ type Service struct {
 	analyticsTasksResp chan go_ooo_types.AnalyticsTaskResponse
 
 	adminTokenHash string
+
+	// pairsRefreshing guards the periodic pair refresh so a slow run can't pile up a
+	// new goroutine on every tick.
+	pairsRefreshing atomic.Bool
 }
 
 func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
@@ -120,11 +125,8 @@ func (s *Service) Run() {
 		s.initPrometheus()
 	}(s)
 
-	// update supported pairs from the Finchains API
-	go func(s *Service) {
-		s.oooApi.UpdateSupportedPairs()
-		s.oooApi.UpdateDexPairs()
-	}(s)
+	// update supported (Finchains) + DEX pairs - initial refresh at startup
+	go s.refreshPairs()
 
 	// pick up from the last block we know about to process
 	// any historical events missed. This will run and complete
@@ -145,10 +147,7 @@ func (s *Service) Run() {
 		case <-s.jobTicker.C:
 			s.oooRouterService.ProcessPendingJobQueue()
 		case <-s.updatePairsTicker.C:
-			go func(s *Service) {
-				s.oooApi.UpdateSupportedPairs()
-				s.oooApi.UpdateDexPairs()
-			}(s)
+			go s.refreshPairs()
 		case t := <-s.analyticsTasks:
 			s.analyticsTasksResp <- s.ProcessAnalyticsTask(t)
 		case t := <-s.adminTasks:
@@ -157,6 +156,20 @@ func (s *Service) Run() {
 			s.adminTasksResp <- s.oooRouterService.ProcessAdminTask(t)
 		}
 	}
+}
+
+// refreshPairs updates the supported (Finchains) + DEX pairs, skipping the run if a
+// previous refresh is still in progress - so a slow refresh can't pile up a goroutine
+// on every updatePairsTicker tick. Shared by the initial refresh + the ticker (DRY).
+func (s *Service) refreshPairs() {
+	if !s.pairsRefreshing.CompareAndSwap(false, true) {
+		logger.Info("service", "refreshPairs", "", "skipping pair refresh - previous run still in progress")
+		return
+	}
+	defer s.pairsRefreshing.Store(false)
+
+	s.oooApi.UpdateSupportedPairs()
+	s.oooApi.UpdateDexPairs()
 }
 
 func (s *Service) Stop() {
