@@ -25,6 +25,16 @@ const (
 
 	xdaiHoneyswapHostedSubgraphUrl = "https://api.thegraph.com/subgraphs/name/1hive/honeyswap-xdai"
 	xdaiHoneyswapSubgraphId        = "HTxWvPGcZ5oqWLYEVtWnVJDfnai2Ud1WaABiAR72JaSJ"
+
+	ethUniswapV3HostedSubgraphUrl = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3"
+	ethUniswapV3SubgraphId        = "5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV"
+
+	polygonQuickswapV3HostedSubgraphUrl = "https://api.thegraph.com/subgraphs/name/sameepsi/quickswap06"
+	polygonQuickswapV3SubgraphId        = "FqsRcH1XqSjqVx9GRTvEJe959aCbKrcyGgDWBrUkG24g"
+
+	// pancakeswap_v3 has no hosted-endpoint fallback; it is gateway-only.
+	bscPancakeswapV3HostedSubgraphUrl = ""
+	bscPancakeswapV3SubgraphId        = "A1fvJWQLBeUAggX2WQTMm3FKjXTekNXo77ZySun4YN2m"
 )
 
 // newUniswapModule builds a FamilyModule for a Uniswap-style source from its metadata and
@@ -64,4 +74,22 @@ func NewShibaswapModule(cfg *config.Config) FamilyModule {
 func NewHoneyswapModule(cfg *config.Config) FamilyModule {
 	return newUniswapModule(types.ChainXdai, "honeyswap", xdaiHoneyswapSubgraphId, xdaiHoneyswapHostedSubgraphUrl,
 		cfg.ApiKeys.GraphNetwork, cfg.Dexs.XdaiHoneyswap, uniswap.V2)
+}
+
+// NewUniswapV3Module builds the eth/uniswap_v3 source as a FamilyModule (UniV3Like family).
+func NewUniswapV3Module(cfg *config.Config) FamilyModule {
+	return newUniswapModule(types.ChainEth, "uniswap_v3", ethUniswapV3SubgraphId, ethUniswapV3HostedSubgraphUrl,
+		cfg.ApiKeys.GraphNetwork, cfg.Dexs.EthUniswapV3, uniswap.V3)
+}
+
+// NewQuickswapV3Module builds the polygon/quickswap_v3 source as a FamilyModule (UniV3Like family).
+func NewQuickswapV3Module(cfg *config.Config) FamilyModule {
+	return newUniswapModule(types.ChainPolygon, "quickswap_v3", polygonQuickswapV3SubgraphId, polygonQuickswapV3HostedSubgraphUrl,
+		cfg.ApiKeys.GraphNetwork, cfg.Dexs.PolygonPosQuickswapV3, uniswap.V3)
+}
+
+// NewPancakeswapV3Module builds the bsc/pancakeswap_v3 source as a FamilyModule (UniV3Like family).
+func NewPancakeswapV3Module(cfg *config.Config) FamilyModule {
+	return newUniswapModule(types.ChainBsc, "pancakeswap_v3", bscPancakeswapV3SubgraphId, bscPancakeswapV3HostedSubgraphUrl,
+		cfg.ApiKeys.GraphNetwork, cfg.Dexs.BscPancakeswapV3, uniswap.V3)
 }
