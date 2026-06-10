@@ -20,7 +20,7 @@ type SchemaFamily interface {
 	GeneratePairsQuery(contractAddresses string) ([]byte, error)
 	ProcessPairsQueryResult(result []byte) ([]types.DexPair, error)
 	GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error)
-	ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]float64, error)
+	ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error)
 }
 
 // FamilyModule is a generic Module built from per-source metadata plus a SchemaFamily
@@ -81,7 +81,7 @@ func (m FamilyModule) GenerateDexPricesQuery(pairContractAddress string, minutes
 	return m.family.GenerateDexPricesQuery(pairContractAddress, minutes, currentBlock, blocksPerMin)
 }
 
-func (m FamilyModule) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]float64, error) {
+func (m FamilyModule) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error) {
 	return m.family.ProcessDexPricesResult(base, target, numQueries, result)
 }
 

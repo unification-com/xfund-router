@@ -52,9 +52,10 @@ func toDexToken(t inputToken) types.DexToken {
 	}
 }
 
-// ProcessDexPricesResult walks the p0..p{numQueries-1} aliases and returns every price that
-// could be derived for the requested pair.
-func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]float64, error) {
+// ProcessDexPricesResult walks the p0..p{numQueries-1} aliases and returns the prices that
+// could be derived for the requested pair, grouped by pool so each pool's snapshot series can
+// be reduced and weighted independently.
+func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error) {
 	var decoded response
 	if err := json.Unmarshal(result, &decoded); err != nil {
 		return nil, err
@@ -63,16 +64,25 @@ func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, r
 		return nil, errors.New(decoded.Errors[0].Message)
 	}
 
-	var prices []float64
+	byPool := make(map[string][]float64)
+	var order []string // preserve first-seen pool order for deterministic output
 	for i := uint64(0); i < numQueries; i++ {
 		for _, pool := range decoded.Data[fmt.Sprintf("p%d", i)] {
 			if price, ok := priceFor(base, target, pool); ok && price > 0 {
-				prices = append(prices, price)
+				if _, seen := byPool[pool.Id]; !seen {
+					order = append(order, pool.Id)
+				}
+				byPool[pool.Id] = append(byPool[pool.Id], price)
 			}
 		}
 	}
 
-	return prices, nil
+	pools := make([]types.PoolPrices, 0, len(order))
+	for _, id := range order {
+		pools = append(pools, types.PoolPrices{Contract: id, Prices: byPool[id]})
+	}
+
+	return pools, nil
 }
 
 // priceFor derives base/target as the ratio of the two tokens' lastPriceUSD within the pool:

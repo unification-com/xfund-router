@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"go-ooo/logger"
+	"go-ooo/ooo_api/dex/types"
 )
 
 type DexInfo struct {
@@ -14,21 +15,43 @@ type DexInfo struct {
 	ContractAddresses string
 }
 
-type DexResult struct {
-	Chain  string
-	Dex    string
-	Prices []float64
+// PoolSample is one pool's contribution to a price query: its identity, its backing
+// liquidity (ReserveUsd, for weighting) and its snapshot prices across the queried blocks.
+// GetPricesFromDexModules returns these per-pool rather than a flat price list so the
+// aggregator can reduce and liquidity-weight each pool independently.
+type PoolSample struct {
+	Chain     string
+	Dex       string
+	Contract  string
+	Liquidity float64
+	Prices    []float64
 }
 
-func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) []float64 {
-	var prices []float64
+// DexResult carries one DEX's per-pool price groups back from a fetch goroutine.
+type DexResult struct {
+	Chain string
+	Dex   string
+	Pools []types.PoolPrices
+}
+
+func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) []PoolSample {
+	var samples []PoolSample
 
 	resCh := make(chan DexResult)
 	errCh := make(chan error)
 	validMods := make(map[string]DexInfo)
+	// liquidity per module, keyed "chain|dex" -> lower(contract) -> reserveUsd, to join onto
+	// the per-pool prices the family returns in the receive loop.
+	liquidityByMod := make(map[string]map[string]float64)
 	dexSuccess := 0
 	dexFail := 0
 	dexNoData := 0
+
+	// Cache each chain's current block number for this query: several modules share a chain,
+	// so querying once avoids N identical RPC round-trips, and a chain whose RPC is down is
+	// recorded once (chainRpcFailed) and its modules skipped, rather than re-failing per module.
+	blockByChain := make(map[string]uint64)
+	chainRpcFailed := make(map[string]bool)
 
 	// get a list of valid modules to send query to
 	for _, module := range dm.modules {
@@ -41,25 +64,38 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			"minutes": minutes,
 		})
 
-		currentBlock, err := dm.chains[module.Chain()].EthClient.BlockNumber(dm.ctx)
-		blocksPerMin := uint64(dm.chains[module.Chain()].BlocksPerMin)
+		chain := module.Chain()
 
-		if err != nil {
-			logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-
+		if chainRpcFailed[chain] {
 			continue
 		}
 
-		dbPairRes, _ := dm.db.FindByDexPairName(base, target, module.Chain(), module.Dex())
+		currentBlock, cached := blockByChain[chain]
+		if !cached {
+			cb, err := dm.chains[chain].EthClient.BlockNumber(dm.ctx)
+			if err != nil {
+				logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
+					"chain": chain,
+					"dex":   module.Dex(),
+				})
+
+				// Mark the chain failed so its other modules are skipped without re-querying.
+				chainRpcFailed[chain] = true
+				continue
+			}
+			blockByChain[chain] = cb
+			currentBlock = cb
+		}
+
+		blocksPerMin := uint64(dm.chains[chain].BlocksPerMin)
+
+		dbPairRes, _ := dm.db.FindByDexPairName(base, target, chain, module.Dex())
 
 		if len(dbPairRes) == 0 {
 			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check pair exists in db",
 				"pair not found in database for this dex",
 				logger.Fields{
-					"chain":  module.Chain(),
+					"chain":  chain,
 					"dex":    module.Dex(),
 					"base":   base,
 					"target": target,
@@ -68,13 +104,14 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			continue
 		}
 
+		liq := make(map[string]float64)
 		var contractAddresses []string
 		for _, p := range dbPairRes {
 			if p.ReserveUsd < float64(module.MinLiquidity()) {
 				logger.WarnWithFields("dex", "GetPricesFromDexModules", "check liquidity",
 					"liquidity too low. Skipping",
 					logger.Fields{
-						"chain":         module.Chain(),
+						"chain":         chain,
 						"dex":           module.Dex(),
 						"base":          base,
 						"target":        target,
@@ -86,13 +123,14 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			}
 
 			contractAddresses = append(contractAddresses, p.ContractAddress)
+			liq[strings.ToLower(p.ContractAddress)] = p.ReserveUsd
 		}
 
 		if len(contractAddresses) == 0 {
 			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check contract address array",
 				"no contract addresses to query",
 				logger.Fields{
-					"chain":  module.Chain(),
+					"chain":  chain,
 					"dex":    module.Dex(),
 					"base":   base,
 					"target": target,
@@ -103,7 +141,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 
 		logger.Debug("dex", "GetPricesFromDexModules", "number contracts", "",
 			logger.Fields{
-				"chain":                  module.Chain(),
+				"chain":                  chain,
 				"dex":                    module.Dex(),
 				"base":                   base,
 				"target":                 target,
@@ -119,11 +157,12 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 
 		validMods[module.Name()] = dexInfo
+		liquidityByMod[chain+"|"+module.Dex()] = liq
 
 		go getPrices(module, base, target, minutes, dexInfo, resCh, errCh)
 	}
 
-	for _ = range validMods {
+	for range validMods {
 		r := <-resCh // receive result from channel resCh
 		err := <-errCh
 
@@ -132,22 +171,32 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 				err.Error(),
 			)
 			dexFail++
-		} else {
-			logger.Debug("dex", "GetPricesFromDexModules", "getPrices", "prices result",
-				logger.Fields{
-					"chain":      r.Chain,
-					"dex":        r.Dex,
-					"base":       base,
-					"target":     target,
-					"num_prices": len(r.Prices),
-				})
+			continue
+		}
 
-			if len(r.Prices) > 0 {
-				prices = append(prices, r.Prices...)
-				dexSuccess++
-			} else {
-				dexNoData++
+		logger.Debug("dex", "GetPricesFromDexModules", "getPrices", "prices result",
+			logger.Fields{
+				"chain":     r.Chain,
+				"dex":       r.Dex,
+				"base":      base,
+				"target":    target,
+				"num_pools": len(r.Pools),
+			})
+
+		if len(r.Pools) > 0 {
+			liq := liquidityByMod[r.Chain+"|"+r.Dex]
+			for _, pool := range r.Pools {
+				samples = append(samples, PoolSample{
+					Chain:     r.Chain,
+					Dex:       r.Dex,
+					Contract:  pool.Contract,
+					Liquidity: liq[strings.ToLower(pool.Contract)],
+					Prices:    pool.Prices,
+				})
 			}
+			dexSuccess++
+		} else {
+			dexNoData++
 		}
 	}
 
@@ -159,10 +208,10 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			"dex_fail":    dexFail,
 			"dex_no_data": dexNoData,
 			"num_dexes":   len(validMods),
-			"num_prices":  len(prices),
+			"num_pools":   len(samples),
 		})
 
-	return prices
+	return samples
 }
 
 func getPrices(module Module, base, target string, minutes uint64, dexInfo DexInfo, resCh chan<- DexResult, errCh chan<- error) {
@@ -202,7 +251,7 @@ func getPrices(module Module, base, target string, minutes uint64, dexInfo DexIn
 		return
 	}
 
-	dexPrices, err := module.ProcessDexPricesResult(base, target, numQueries, dexResult)
+	dexPools, err := module.ProcessDexPricesResult(base, target, numQueries, dexResult)
 
 	if err != nil {
 		errMsg := fmt.Sprintf(`%s, %s, %s, %s. getPrices process query results error: %s`, module.Chain(), module.Dex(), base, target, err.Error())
@@ -212,9 +261,9 @@ func getPrices(module Module, base, target string, minutes uint64, dexInfo DexIn
 	}
 
 	resCh <- DexResult{
-		Chain:  module.Chain(),
-		Dex:    module.Dex(),
-		Prices: dexPrices,
+		Chain: module.Chain(),
+		Dex:   module.Dex(),
+		Pools: dexPools,
 	}
 	errCh <- nil
 

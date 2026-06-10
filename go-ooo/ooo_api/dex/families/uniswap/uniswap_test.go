@@ -159,9 +159,10 @@ func TestGenerateDexPricesQuery_V3Entity(t *testing.T) {
 }
 
 func TestProcessDexPricesResult_Ordering(t *testing.T) {
-	// token0=WETH, token1=USDC: token0Price is USDC-per... convention - base==token0 &&
-	// target==token1 uses token1Price (WETH priced in USDC), otherwise token0Price.
+	// token0=WETH, token1=USDC: base==token0 && target==token1 uses token1Price (WETH priced
+	// in USDC), otherwise token0Price. Prices come back grouped by pool.
 	fixture := []byte(`{"data":{"p0":[{
+		"id":"0xpool",
 		"token0":{"symbol":"WETH"},"token1":{"symbol":"USDC"},
 		"token0Price":"0.0006","token1Price":"1636.81"
 	}]}}`)
@@ -170,31 +171,32 @@ func TestProcessDexPricesResult_Ordering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessDexPricesResult: %v", err)
 	}
-	if len(got) != 1 || got[0] != 1636.81 {
-		t.Errorf("WETH/USDC price = %v, want [1636.81]", got)
+	if len(got) != 1 || got[0].Contract != "0xpool" || len(got[0].Prices) != 1 || got[0].Prices[0] != 1636.81 {
+		t.Errorf("WETH/USDC = %+v, want pool 0xpool [1636.81]", got)
 	}
 
 	got, err = New(V2).ProcessDexPricesResult("USDC", "WETH", 1, fixture)
 	if err != nil {
 		t.Fatalf("ProcessDexPricesResult: %v", err)
 	}
-	if len(got) != 1 || got[0] != 0.0006 {
-		t.Errorf("USDC/WETH price = %v, want [0.0006]", got)
+	if len(got) != 1 || len(got[0].Prices) != 1 || got[0].Prices[0] != 0.0006 {
+		t.Errorf("USDC/WETH = %+v, want [0.0006]", got)
 	}
 }
 
-func TestProcessDexPricesResult_MultiBlock(t *testing.T) {
+func TestProcessDexPricesResult_MultiBlockGroupsByPool(t *testing.T) {
+	// The same pool across two blocks groups into one pool with two snapshot prices.
 	fixture := []byte(`{"data":{
-		"p0":[{"token0":{"symbol":"WETH"},"token1":{"symbol":"USDC"},"token0Price":"0.0006","token1Price":"1600"}],
-		"p1":[{"token0":{"symbol":"WETH"},"token1":{"symbol":"USDC"},"token0Price":"0.0006","token1Price":"1650"}]
+		"p0":[{"id":"0xpool","token0":{"symbol":"WETH"},"token1":{"symbol":"USDC"},"token0Price":"0.0006","token1Price":"1600"}],
+		"p1":[{"id":"0xpool","token0":{"symbol":"WETH"},"token1":{"symbol":"USDC"},"token0Price":"0.0006","token1Price":"1650"}]
 	}}`)
 
 	got, err := New(V2).ProcessDexPricesResult("WETH", "USDC", 2, fixture)
 	if err != nil {
 		t.Fatalf("ProcessDexPricesResult: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 prices, got %v", got)
+	if len(got) != 1 || len(got[0].Prices) != 2 {
+		t.Fatalf("expected 1 pool with 2 prices, got %+v", got)
 	}
 }
 

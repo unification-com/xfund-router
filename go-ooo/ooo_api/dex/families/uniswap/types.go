@@ -49,6 +49,7 @@ type priceToken struct {
 }
 
 type pricePair struct {
+	Id          string     `json:"id"`
 	Token0      priceToken `json:"token0"`
 	Token1      priceToken `json:"token1"`
 	Token0Price string     `json:"token0Price"`

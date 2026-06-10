@@ -22,7 +22,7 @@ type Module interface {
 	GeneratePairsQuery(contractAddresses string) ([]byte, error)
 	ProcessPairsQueryResult(result []byte) ([]types.DexPair, error)
 	GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error)
-	ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]float64, error)
+	ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error)
 }
 
 type Manager struct {

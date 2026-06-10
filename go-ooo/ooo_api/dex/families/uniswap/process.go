@@ -58,10 +58,11 @@ func toDexToken(t token) types.DexToken {
 	}
 }
 
-// ProcessDexPricesResult walks the p0..p{numQueries-1} aliases and returns every positive
-// price found. Typed decoding means a malformed or partial reply yields an error here
+// ProcessDexPricesResult walks the p0..p{numQueries-1} aliases and returns the positive
+// prices grouped by pool (so each pool's snapshot series can be reduced and weighted
+// independently). Typed decoding means a malformed or partial reply yields an error here
 // rather than a panic in the price goroutine.
-func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]float64, error) {
+func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error) {
 	var decoded pricesResponse
 	if err := json.Unmarshal(result, &decoded); err != nil {
 		return nil, err
@@ -70,20 +71,29 @@ func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, r
 		return nil, errors.New(decoded.Errors[0].Message)
 	}
 
-	var prices []float64
+	byPool := make(map[string][]float64)
+	var order []string // preserve first-seen pool order for deterministic output
 	for i := uint64(0); i < numQueries; i++ {
 		for _, pair := range decoded.Data[fmt.Sprintf("p%d", i)] {
 			price, err := priceFor(base, target, pair)
 			if err != nil {
-				return prices, err
+				return nil, err
 			}
 			if price > 0 {
-				prices = append(prices, price)
+				if _, seen := byPool[pair.Id]; !seen {
+					order = append(order, pair.Id)
+				}
+				byPool[pair.Id] = append(byPool[pair.Id], price)
 			}
 		}
 	}
 
-	return prices, nil
+	pools := make([]types.PoolPrices, 0, len(order))
+	for _, id := range order {
+		pools = append(pools, types.PoolPrices{Contract: id, Prices: byPool[id]})
+	}
+
+	return pools, nil
 }
 
 // priceFor picks token1Price when (base,target) matches (token0,token1) and token0Price

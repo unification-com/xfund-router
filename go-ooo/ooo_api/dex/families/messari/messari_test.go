@@ -117,16 +117,16 @@ func TestProcessDexPricesResult_FormulaAndConvention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessDexPricesResult: %v", err)
 	}
-	if len(got) != 1 || math.Abs(got[0]-1638.12) > 1e-6 {
-		t.Errorf("WETH/USDC = %v, want [1638.12]", got)
+	if len(got) != 1 || len(got[0].Prices) != 1 || math.Abs(got[0].Prices[0]-1638.12) > 1e-6 {
+		t.Errorf("WETH/USDC = %+v, want [1638.12]", got)
 	}
 
 	got, err = New().ProcessDexPricesResult("USDC", "WETH", 1, fixture)
 	if err != nil {
 		t.Fatalf("ProcessDexPricesResult: %v", err)
 	}
-	if len(got) != 1 || math.Abs(got[0]-(1.0/1638.12)) > 1e-9 {
-		t.Errorf("USDC/WETH = %v, want [%v]", got, 1.0/1638.12)
+	if len(got) != 1 || len(got[0].Prices) != 1 || math.Abs(got[0].Prices[0]-(1.0/1638.12)) > 1e-9 {
+		t.Errorf("USDC/WETH = %+v, want [%v]", got, 1.0/1638.12)
 	}
 }
 
@@ -141,12 +141,12 @@ func TestProcessDexPricesResult_RealRatio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessDexPricesResult: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 price, got %v", got)
+	if len(got) != 1 || len(got[0].Prices) != 1 {
+		t.Fatalf("expected 1 pool with 1 price, got %+v", got)
 	}
 	// 1638.1176.../0.0065044... ≈ 251,846
-	if got[0] < 251000 || got[0] > 253000 {
-		t.Errorf("WETH/FTD = %v, want ~251846", got[0])
+	if got[0].Prices[0] < 251000 || got[0].Prices[0] > 253000 {
+		t.Errorf("WETH/FTD = %v, want ~251846", got[0].Prices[0])
 	}
 }
 

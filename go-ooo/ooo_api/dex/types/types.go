@@ -23,6 +23,15 @@ type DexToken struct {
 	Typename       string
 }
 
+// PoolPrices is the per-pool price series a SchemaFamily extracts from a prices response:
+// one entry per pool (keyed by its contract address), holding that pool's snapshot prices
+// across the queried blocks. Grouping by pool - rather than flattening every pool's snapshots
+// into one bag - lets the aggregator reduce and liquidity-weight each pool independently.
+type PoolPrices struct {
+	Contract string
+	Prices   []float64
+}
+
 type DexPair struct {
 	Id                 string
 	Contract           string
