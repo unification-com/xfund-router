@@ -77,6 +77,9 @@ func (s *Service) ProcessAnalyticsTask(task go_ooo_types.AnalyticsTask) go_ooo_t
 }
 
 func runSuggestFee(rows []models.DataRequests, task go_ooo_types.AnalyticsTask) (float64, float64) {
+	if len(rows) == 0 {
+		return 0, 0 // no data to average - avoid a divide-by-zero below
+	}
 	numRows := float64(len(rows))
 
 	costSum := big.NewFloat(0)
@@ -120,6 +123,10 @@ func runSuggestFee(rows []models.DataRequests, task go_ooo_types.AnalyticsTask) 
 }
 
 func runAnalytics(rows []models.DataRequests, task go_ooo_types.AnalyticsTask) go_ooo_types.AnalyticsData {
+
+	if len(rows) == 0 {
+		return go_ooo_types.AnalyticsData{} // no data to average - avoid a divide-by-zero below
+	}
 
 	numRows := uint64(len(rows))
 
