@@ -13,11 +13,8 @@ import (
 	"go-ooo/logger"
 	"go-ooo/ooo_api/dex"
 	"go-ooo/ooo_api/dex/modules/bsc_pancakeswap_v3"
-	"go-ooo/ooo_api/dex/modules/eth_shibaswap"
-	"go-ooo/ooo_api/dex/modules/eth_sushiswap"
 	"go-ooo/ooo_api/dex/modules/eth_uniswap_v3"
 	"go-ooo/ooo_api/dex/modules/polygon_pos_quickswap_v3"
-	"go-ooo/ooo_api/dex/modules/xdai_honeyswap"
 )
 
 type OOOApi struct {
@@ -32,13 +29,13 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 
 	dexModuleManager := dex.NewDexManager(
 		ctx, cfg, db,
-		eth_shibaswap.NewDexModule(ctx, cfg),
-		eth_sushiswap.NewDexModule(ctx, cfg),
+		dex.NewShibaswapModule(cfg),
+		dex.NewSushiswapModule(cfg),
 		dex.NewUniswapV2Module(cfg),
+		dex.NewHoneyswapModule(cfg),
 		eth_uniswap_v3.NewDexModule(ctx, cfg),
 		polygon_pos_quickswap_v3.NewDexModule(ctx, cfg),
 		bsc_pancakeswap_v3.NewDexModule(ctx, cfg),
-		xdai_honeyswap.NewDexModule(ctx, cfg),
 	)
 
 	return &OOOApi{
