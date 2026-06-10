@@ -47,20 +47,16 @@ func (s *Service) AddAdminTask(c echo.Context) error {
 		"to_or_consumer": request.ToOrConsumer,
 	})
 
-	// send received task to chanel for processing
+	// Per-request reply channel (buffered so the worker never blocks if the client has
+	// already gone) - so two concurrent admin requests can't read each other's response.
+	request.Resp = make(chan go_ooo_types.AdminTaskResponse, 1)
 	s.adminTasks <- request
 
-	// listen for result and send HTTP response back
-	for {
-		select {
-		case tr := <-s.adminTasksResp:
-			if tr.Success {
-				return c.JSON(http.StatusOK, tr)
-			}
-			return c.JSON(http.StatusInternalServerError, tr.Error)
-		}
+	tr := <-request.Resp
+	if tr.Success {
+		return c.JSON(http.StatusOK, tr)
 	}
-
+	return c.JSON(http.StatusInternalServerError, tr.Error)
 }
 
 func (s *Service) AddAnalyticsTask(c echo.Context) error {
@@ -72,17 +68,13 @@ func (s *Service) AddAnalyticsTask(c echo.Context) error {
 
 	logger.Info("service", "AddAnalyticsTask", "", "analytics task received")
 
-	// send received task to chanel for processing
+	// Per-request reply channel (see AddAdminTask).
+	request.Resp = make(chan go_ooo_types.AnalyticsTaskResponse, 1)
 	s.analyticsTasks <- request
 
-	// listen for result and send HTTP response back
-	for {
-		select {
-		case tr := <-s.analyticsTasksResp:
-			if tr.Success {
-				return c.JSON(http.StatusOK, tr)
-			}
-			return c.JSON(http.StatusInternalServerError, tr.Error)
-		}
+	tr := <-request.Resp
+	if tr.Success {
+		return c.JSON(http.StatusOK, tr)
 	}
+	return c.JSON(http.StatusInternalServerError, tr.Error)
 }

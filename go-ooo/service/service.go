@@ -32,12 +32,10 @@ type Service struct {
 	echoService *echo.Echo
 	oooApi      *ooo_api.OOOApi
 
+	// Each task carries its own reply channel (Resp), so concurrent requests can't read
+	// each other's responses - no shared response channel.
 	adminTasks     chan go_ooo_types.AdminTask
-	adminTasksResp chan go_ooo_types.AdminTaskResponse
-
-	// todo - analytics channels, functions and echo endpoint
-	analyticsTasks     chan go_ooo_types.AnalyticsTask
-	analyticsTasksResp chan go_ooo_types.AnalyticsTaskResponse
+	analyticsTasks chan go_ooo_types.AnalyticsTask
 
 	adminTokenHash string
 
@@ -102,16 +100,14 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		contractInstance: oooRouterInstance,
 		db:               db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
-		jobTicker:          time.NewTicker(time.Second * pollInterval),
-		updatePairsTicker:  time.NewTicker(time.Minute * 30),
-		oooRouterService:   oooRouterService,
-		adminTasks:         make(chan go_ooo_types.AdminTask),
-		adminTasksResp:     make(chan go_ooo_types.AdminTaskResponse),
-		analyticsTasks:     make(chan go_ooo_types.AnalyticsTask),
-		analyticsTasksResp: make(chan go_ooo_types.AnalyticsTaskResponse),
-		echoService:        echo.New(),
-		oooApi:             oooApi,
-		adminTokenHash:     adminTokenHash,
+		jobTicker:         time.NewTicker(time.Second * pollInterval),
+		updatePairsTicker: time.NewTicker(time.Minute * 30),
+		oooRouterService:  oooRouterService,
+		adminTasks:        make(chan go_ooo_types.AdminTask),
+		analyticsTasks:    make(chan go_ooo_types.AnalyticsTask),
+		echoService:       echo.New(),
+		oooApi:            oooApi,
+		adminTokenHash:    adminTokenHash,
 	}, nil
 }
 
@@ -149,11 +145,11 @@ func (s *Service) Run() {
 		case <-s.updatePairsTicker.C:
 			go s.refreshPairs()
 		case t := <-s.analyticsTasks:
-			s.analyticsTasksResp <- s.ProcessAnalyticsTask(t)
+			t.Resp <- s.ProcessAnalyticsTask(t)
 		case t := <-s.adminTasks:
 			// At any time we can process a request to add a new admin task
 			// such as changing fees etc.
-			s.adminTasksResp <- s.oooRouterService.ProcessAdminTask(t)
+			t.Resp <- s.oooRouterService.ProcessAdminTask(t)
 		}
 	}
 }
