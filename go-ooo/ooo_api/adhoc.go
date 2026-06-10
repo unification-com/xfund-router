@@ -22,7 +22,7 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	priceCount := 0
 	total := big.NewInt(0)
 
-	rawPrices := o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes))
+	rawPrices := finitePrices(o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes)))
 
 	if len(rawPrices) == 0 {
 		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "no prices found on DEXs for pair", logger.Fields{
@@ -82,6 +82,19 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	})
 
 	return meanPrice.String(), nil
+}
+
+// finitePrices drops NaN / ±Inf values. strconv.ParseFloat accepts "NaN"/"Inf", so a
+// malformed subgraph reply can otherwise reach big.NewFloat (panics on NaN) / EtherToWei
+// (nil-panics on Inf) on the fulfilment path and crash an un-recovered goroutine.
+func finitePrices(prices []float64) []float64 {
+	out := make([]float64, 0, len(prices))
+	for _, p := range prices {
+		if !math.IsNaN(p) && !math.IsInf(p, 0) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func removeOutliersFromData(rawPrices []float64, dMax float64) ([]float64, float64, float64, bool) {

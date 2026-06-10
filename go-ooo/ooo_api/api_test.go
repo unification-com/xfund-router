@@ -1,6 +1,22 @@
 package ooo_api
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
+
+func TestFinitePrices(t *testing.T) {
+	got := finitePrices([]float64{1.5, math.NaN(), 2.0, math.Inf(1), math.Inf(-1), 3.0})
+	want := []float64{1.5, 2.0, 3.0}
+	if len(got) != len(want) {
+		t.Fatalf("finitePrices len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("finitePrices[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
 
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
