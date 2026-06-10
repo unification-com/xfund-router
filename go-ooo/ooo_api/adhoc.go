@@ -22,9 +22,11 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	samples := o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes))
 
 	// Stage A: reduce each pool's snapshot series to one robust estimate (median), carrying
-	// its backing liquidity as the weight. Reducing per-pool first stops a trending series
-	// being read as i.i.d. noise and stops a busy multi-pool DEX out-voting a single-pool one.
+	// its backing liquidity as the weight and its source venue (chain|dex) for the quality
+	// signals. Reducing per-pool first stops a trending series being read as i.i.d. noise and
+	// stops a busy multi-pool DEX out-voting a single-pool one.
 	var values, weights []float64
+	var sources []string
 	for _, s := range samples {
 		fp := finitePrices(s.Prices)
 		if len(fp) == 0 {
@@ -36,6 +38,7 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		}
 		values = append(values, est)
 		weights = append(weights, s.Liquidity)
+		sources = append(sources, s.Chain+"|"+s.Dex)
 	}
 
 	if len(values) == 0 {
@@ -54,15 +57,17 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	// survives, low-weighted. (Trust-score weighting is XR1, pending the dex-pair-verify export.)
 	median, scale := madCentreAndScale(values)
 	var keptVals, keptWeights []float64
+	var keptSources []string
 	for i, v := range values {
 		if scale == 0 || math.Abs(v-median)/scale <= madRejectThreshold {
 			keptVals = append(keptVals, v)
 			keptWeights = append(keptWeights, weights[i])
+			keptSources = append(keptSources, sources[i])
 		}
 	}
 	if len(keptVals) == 0 {
 		// The median estimate always survives the filter, so this is defensive only.
-		keptVals, keptWeights = values, weights
+		keptVals, keptWeights, keptSources = values, weights, sources
 	}
 
 	priceFloat := weightedMean(keptVals, keptWeights)
@@ -74,6 +79,16 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		return "", errors.New("calculated price rounds below one wei for pair")
 	}
 
+	// Quality signals: how many independent venues and how much liquidity back this price, and
+	// how dispersed the surviving estimates are (robust coefficient of variation). These make a
+	// thin, easily-manipulated sample visible rather than returning a confident-looking number
+	// from a single source. (A configurable refuse/flag gate on these is a later step.)
+	numVenues, totalLiquidity := venueCountAndLiquidity(keptSources, keptWeights)
+	dispersion := 0.0
+	if median > 0 {
+		dispersion = scale / median
+	}
+
 	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
 		"base":              base,
 		"target":            target,
@@ -82,12 +97,39 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		"num_pools_used":    len(values),
 		"num_pools_kept":    len(keptVals),
 		"num_pools_removed": len(values) - len(keptVals),
+		"num_venues":        numVenues,
+		"backing_liquidity": totalLiquidity,
+		"dispersion":        dispersion,
 		"median":            median,
 		"mad_scale":         scale,
 		"final_wei_mean":    wei.String(),
 	})
 
+	if len(keptVals) < 2 || numVenues < 2 {
+		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "thin price sample - low manipulation resistance", logger.Fields{
+			"base":              base,
+			"target":            target,
+			"num_pools":         len(keptVals),
+			"num_venues":        numVenues,
+			"backing_liquidity": totalLiquidity,
+		})
+	}
+
 	return wei.String(), nil
+}
+
+// venueCountAndLiquidity reports how many distinct venues (chain|dex) and how much total
+// backing liquidity stand behind the surviving pool estimates.
+func venueCountAndLiquidity(sources []string, weights []float64) (int, float64) {
+	venues := make(map[string]struct{})
+	var total float64
+	for i, s := range sources {
+		venues[s] = struct{}{}
+		if weights[i] > 0 {
+			total += weights[i]
+		}
+	}
+	return len(venues), total
 }
 
 // finitePrices drops NaN / ±Inf values. strconv.ParseFloat accepts "NaN"/"Inf", so a
