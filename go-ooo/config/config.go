@@ -139,7 +139,7 @@ func DefaultConfig() *Config {
 		},
 		Subchain: SubchainConfig{
 			EthHttpRpc:       "https://rpc.mevblocker.io",
-			PolygonHttpRpc:   "https://polygon-rpc.com",
+			PolygonHttpRpc:   "https://polygon-bor-rpc.publicnode.com",
 			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
 			XdaiHttpRpc:      "https://rpc.gnosischain.com",
 			FantomHttpRpc:    "https://finchains.io/api",
