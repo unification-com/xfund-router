@@ -6,6 +6,8 @@ import (
 
 	"go-ooo/database/models"
 	"go-ooo/logger"
+
+	"gorm.io/gorm"
 )
 
 /*
@@ -76,17 +78,11 @@ func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber 
 }
 
 func (d *DB) IncrementFulfillmentAttempts(requestId string) error {
-	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
-	if err != nil {
-		return err
-	}
-
-	req.FulfillmentAttempts = req.FulfillmentAttempts + 1
-
-	err = d.Save(&req).Error
-
-	return err
+	// Atomic increment in one statement, rather than read-modify-write (Save), so the
+	// counter can't lose an update and it's a single round-trip.
+	return d.Model(&models.DataRequests{}).
+		Where("request_id = ?", requestId).
+		Update("fulfillment_attempts", gorm.Expr("fulfillment_attempts + ?", 1)).Error
 }
 
 func (d *DB) UpdateRequestStatus(requestId string, status int, reason string) error {
@@ -168,17 +164,19 @@ func (d *DB) UpdateLastDataFetchBlockNumber(requestId string, blockNum uint64) e
   ToBlocks table
 */
 
-func (d *DB) InsertNewToBlock(toBlock uint64) (err error) {
-
-	last, _ := d.GetLastBlockNumQueried()
-
-	if last.GetBlockNum() < toBlock {
-		err = d.Create(&models.ToBlocks{
-			BlockNum: toBlock,
-		}).Error
+func (d *DB) InsertNewToBlock(toBlock uint64) error {
+	last, err := d.GetLastBlockNumQueried()
+	// An empty table (no rows yet) is fine - that's the first insert. Any other error
+	// means we don't know the current head, so don't write a resume point on top of it.
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 
-	return
+	if last.GetBlockNum() < toBlock {
+		return d.Create(&models.ToBlocks{BlockNum: toBlock}).Error
+	}
+
+	return nil
 }
 
 /*
