@@ -184,8 +184,6 @@ func (c *Config) InitForNet(network string) error {
 	switch network {
 	case "sepolia":
 		c.InitForSepolia()
-	case "goerli":
-		c.InitForGoerli()
 	case "mainnet":
 		c.InitForMainnet()
 	case "polygon":
@@ -218,15 +216,6 @@ func (c *Config) InitForSepolia() {
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 11155111
 	c.Chain.FirstBlock = 3647468
-}
-
-// InitForGoerli will be deprecated and removed soon
-func (c *Config) InitForGoerli() {
-	c.Chain.ContractAddress = "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31"
-	c.Chain.EthHttpHost = ""
-	c.Chain.EthWsHost = ""
-	c.Chain.NetworkId = 5
-	c.Chain.FirstBlock = 7345730
 }
 
 func (c *Config) InitForMainnet() {

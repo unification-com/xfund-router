@@ -229,6 +229,11 @@ func (o *OoORouterService) queryWithdrawable(task go_ooo_types.AdminTask) go_ooo
 	return resp
 }
 
+// gweiString formats a wei amount as a human-readable gwei value.
+func gweiString(wei *big.Int) string {
+	return new(big.Float).Quo(new(big.Float).SetInt(wei), big.NewFloat(params.GWei)).String()
+}
+
 func (o *OoORouterService) queryFees(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
 	var resp go_ooo_types.AdminTaskResponse
 	resp.AdminTask = task
@@ -241,9 +246,7 @@ func (o *OoORouterService) queryFees(task go_ooo_types.AdminTask) go_ooo_types.A
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		feeAsBigFloat, _ := new(big.Float).SetString(fee.String())
-		humanFee := new(big.Float).Quo(feeAsBigFloat, big.NewFloat(params.GWei))
-		resp.Result = fmt.Sprintf("global fee: %s (%s)", fee.String(), humanFee.String())
+		resp.Result = fmt.Sprintf("global fee: %s (%s)", fee.String(), gweiString(fee))
 		resp.Success = true
 	}
 
@@ -261,9 +264,7 @@ func (o *OoORouterService) queryGranularFees(task go_ooo_types.AdminTask) go_ooo
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		feeAsBigFloat, _ := new(big.Float).SetString(fee.String())
-		humanFee := new(big.Float).Quo(feeAsBigFloat, big.NewFloat(params.GWei))
-		resp.Result = fmt.Sprintf("granular fee for %s: %s (%s)", task.ToOrConsumer, fee.String(), humanFee.String())
+		resp.Result = fmt.Sprintf("granular fee for %s: %s (%s)", task.ToOrConsumer, fee.String(), gweiString(fee))
 		resp.Success = true
 	}
 

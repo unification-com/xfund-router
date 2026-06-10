@@ -446,7 +446,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	}
 
 	if fulfillReceipt.Status == 1 {
-		// Tx was successful. double check for RandomnessRequestFulfilled event
+		// Tx was successful. double check for RequestFulfilled event
 		// in case it was missed
 		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx status",
 			"tx was successful. check for RequestFulfilled event",

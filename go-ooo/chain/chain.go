@@ -460,7 +460,7 @@ func (o *OoORouterService) processGasUsage(evLog types.Log) (uint64, uint64) {
 		// todo - need to clean up and gather any missing data if Tx query above fails
 		gasUsed = txRec.GasUsed
 	} else {
-		logger.ErrorWithFields("chain", "processEventLog", "get TransactionReceipt", err.Error(), logger.Fields{
+		logger.ErrorWithFields("chain", "processGasUsage", "get TransactionReceipt", err.Error(), logger.Fields{
 			"tx_hash": evLog.TxHash,
 		})
 	}
@@ -470,7 +470,7 @@ func (o *OoORouterService) processGasUsage(evLog types.Log) (uint64, uint64) {
 		// todo - need to clean up and gather any missing data if Tx query above fails
 		gasPrice = tx.GasPrice().Uint64()
 	} else {
-		logger.ErrorWithFields("chain", "processEventLog", "get TransactionByHash", err.Error(), logger.Fields{
+		logger.ErrorWithFields("chain", "processGasUsage", "get TransactionByHash", err.Error(), logger.Fields{
 			"tx_hash": evLog.TxHash,
 		})
 	}
