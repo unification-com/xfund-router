@@ -38,43 +38,37 @@ func (d *DB) InsertNewRequest(provider string,
 	return
 }
 
-func (d *DB) UpdateFulfillmentSuccess(requestId string, blockNumber uint64,
-	txHash string, gasUsed uint64, gasPrice uint64) error {
-
+// updateRequest loads a request by id, applies mutate, and saves it - factoring the
+// load + save boilerplate the simple Update* methods share. The read-modify-write is fine
+// here: fulfilment runs on the single serialised job ticker, so there's no concurrent writer.
+func (d *DB) updateRequest(requestId string, mutate func(*models.DataRequests)) error {
 	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
-	if err != nil {
+	if err := d.Where("request_id = ?", requestId).First(&req).Error; err != nil {
 		return err
 	}
+	mutate(&req)
+	return d.Save(&req).Error
+}
 
-	req.RequestStatus = models.REQUEST_STATUS_SUCCESS
-	req.JobStatus = models.JOB_STATUS_SUCCESS
-	req.FulfillConfirmedBlockNumber = blockNumber
-	req.FulfillTxHash = txHash
-	req.FulfillGasUsed = gasUsed
-	req.FulfillGasPrice = gasPrice
-
-	err = d.Save(&req).Error
-
-	return err
+func (d *DB) UpdateFulfillmentSuccess(requestId string, blockNumber uint64,
+	txHash string, gasUsed uint64, gasPrice uint64) error {
+	return d.updateRequest(requestId, func(req *models.DataRequests) {
+		req.RequestStatus = models.REQUEST_STATUS_SUCCESS
+		req.JobStatus = models.JOB_STATUS_SUCCESS
+		req.FulfillConfirmedBlockNumber = blockNumber
+		req.FulfillTxHash = txHash
+		req.FulfillGasUsed = gasUsed
+		req.FulfillGasPrice = gasPrice
+	})
 }
 
 func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber uint64, nonce uint64, gasPrice uint64) error {
-
-	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
-	if err != nil {
-		return err
-	}
-
-	req.FulfillTxHash = txHash
-	req.LastFulfillSentBlockNumber = blockNumber
-	req.FulfillNonce = nonce
-	req.FulfillGasPrice = gasPrice
-
-	err = d.Save(&req).Error
-
-	return err
+	return d.updateRequest(requestId, func(req *models.DataRequests) {
+		req.FulfillTxHash = txHash
+		req.LastFulfillSentBlockNumber = blockNumber
+		req.FulfillNonce = nonce
+		req.FulfillGasPrice = gasPrice
+	})
 }
 
 func (d *DB) IncrementFulfillmentAttempts(requestId string) error {
@@ -118,46 +112,22 @@ func (d *DB) UpdateRequestStatus(requestId string, status int, reason string) er
 }
 
 func (d *DB) UpdateJobStatus(requestId string, status int) error {
-	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
-	if err != nil {
-		return err
-	}
-
-	req.JobStatus = status
-
-	err = d.Save(&req).Error
-
-	return err
+	return d.updateRequest(requestId, func(req *models.DataRequests) {
+		req.JobStatus = status
+	})
 }
 
 func (d *DB) UpdateDataFetched(requestId string, price string) error {
-	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
-	if err != nil {
-		return err
-	}
-
-	req.RequestStatus = models.REQUEST_STATUS_DATA_READY_TO_SEND
-	req.PriceResult = price
-
-	err = d.Save(&req).Error
-
-	return err
+	return d.updateRequest(requestId, func(req *models.DataRequests) {
+		req.RequestStatus = models.REQUEST_STATUS_DATA_READY_TO_SEND
+		req.PriceResult = price
+	})
 }
 
 func (d *DB) UpdateLastDataFetchBlockNumber(requestId string, blockNum uint64) error {
-	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
-	if err != nil {
-		return err
-	}
-
-	req.LastDataFetchBlockNumber = blockNum
-
-	err = d.Save(&req).Error
-
-	return err
+	return d.updateRequest(requestId, func(req *models.DataRequests) {
+		req.LastDataFetchBlockNumber = blockNum
+	})
 }
 
 /*
