@@ -9,7 +9,7 @@ import (
 	"go-ooo/config"
 	"go-ooo/server"
 	go_ooo_types "go-ooo/types"
-	"io/ioutil"
+	"io"
 	"math/big"
 	"net/http"
 )
@@ -167,7 +167,7 @@ func getXfundPrice() *go_ooo_types.CoinGeckoResponse {
 		defer res.Body.Close()
 	}
 
-	body, readErr := ioutil.ReadAll(res.Body)
+	body, readErr := io.ReadAll(res.Body)
 	if readErr != nil {
 		fmt.Println(readErr)
 		return &go_ooo_types.CoinGeckoResponse{}

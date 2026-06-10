@@ -338,7 +338,7 @@ func (c Config) ValidateBasic() error {
 	}
 
 	if _, err := os.Stat(c.Keystore.File); errors.Is(err, os.ErrNotExist) {
-		return errors.New(fmt.Sprintf(`cannot find %s - check keystorage.file in config.toml`, c.Keystore.File))
+		return fmt.Errorf(`cannot find %s - check keystorage.file in config.toml`, c.Keystore.File)
 	}
 
 	return nil

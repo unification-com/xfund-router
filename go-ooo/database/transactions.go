@@ -255,7 +255,7 @@ func (d *DB) UpdateDexPairMetaData(chain string, dex string,
 	pair, err := d.FindByDexChainAddress(chain, dex, contractAddress)
 
 	if pair.ID == 0 {
-		return errors.New(fmt.Sprintf(`%s, %s, %s not found in db`, chain, dex, contractAddress))
+		return fmt.Errorf(`%s, %s, %s not found in db`, chain, dex, contractAddress)
 	}
 
 	pair.ReserveUsd = reserveUsd
