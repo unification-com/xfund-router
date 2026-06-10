@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
 	oooapidextypes "go-ooo/ooo_api/dex/types"
 	"os"
 )
@@ -181,33 +180,28 @@ func DefaultConfig() *Config {
 	}
 }
 
-func (c *Config) InitForNet(network string) {
+func (c *Config) InitForNet(network string) error {
 	switch network {
 	case "sepolia":
 		c.InitForSepolia()
-		break
 	case "goerli":
 		c.InitForGoerli()
-		break
 	case "mainnet":
 		c.InitForMainnet()
-		break
 	case "polygon":
 		c.InitForPolygon()
-		break
 	case "dev":
 		c.InitForDevNet()
-		break
 	case "shibarium":
 		c.InitForShibarium()
-		break
 	case "puppynet":
 		c.InitForShibariumPuppynet()
-		break
 	default:
-		c.InitForDevNet()
-		break
+		// Don't silently configure DevNet (127.0.0.1) for a typo'd network - the
+		// operator would get a config quietly pointing at localhost.
+		return fmt.Errorf("unknown network %q (expected one of: dev, sepolia, mainnet, polygon, shibarium, puppynet)", network)
 	}
+	return nil
 }
 
 func (c *Config) InitForDevNet() {
@@ -274,12 +268,6 @@ func (c *Config) SetKeystore(path, account string) {
 
 func (c *Config) SetSqliteDb(path string) {
 	c.Database.Storage = path
-}
-
-// GetConfig returns a fully parsed Config object.
-func GetConfig(v *viper.Viper) Config {
-
-	return Config{}
 }
 
 func (c Config) ValidateBasic() error {

@@ -64,7 +64,10 @@ Examples:
 			}
 
 			conf := config.DefaultConfig()
-			conf.InitForNet(network)
+			if err := conf.InitForNet(network); err != nil {
+				fmt.Println(err.Error())
+				return
+			}
 
 			account, err := runKeystoreInit(ksFile, initOpts{
 				account:   initAccount,
