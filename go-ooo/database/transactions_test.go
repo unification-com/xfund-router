@@ -18,9 +18,27 @@ func TestIncrementFulfillmentAttempts(t *testing.T) {
 	require.NoError(t, d.IncrementFulfillmentAttempts(reqId))
 	require.NoError(t, d.IncrementFulfillmentAttempts(reqId))
 
-	req, err := d.FindByRequestId(reqId)
+	req, found, err := d.FindByRequestId(reqId)
 	require.NoError(t, err)
+	require.True(t, found)
 	require.EqualValues(t, 2, req.FulfillmentAttempts)
+}
+
+// TestFindByRequestId locks the not-found contract: a missing id returns found=false with
+// no error (distinct from a real DB failure), and a present id returns found=true.
+func TestFindByRequestId(t *testing.T) {
+	d := newTestDB(t)
+	require.NoError(t, d.Migrate())
+
+	_, found, err := d.FindByRequestId("0xmissing")
+	require.NoError(t, err)
+	require.False(t, found)
+
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xreqX", "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 1, true))
+	row, found, err := d.FindByRequestId("0xreqX")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "0xreqX", row.RequestId)
 }
 
 // TestInsertNewToBlock checks the resume-point guard: the first insert on an empty

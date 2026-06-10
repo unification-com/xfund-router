@@ -354,10 +354,17 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
 
-	// check status and if requests already exists
-	reqDbRes, _ := o.db.FindByRequestId(requestId)
+	// check status and if request already exists
+	reqDbRes, found, err := o.db.FindByRequestId(requestId)
+	if err != nil {
+		// A real DB error (not just not-found): don't risk a duplicate insert by treating it
+		// as new - log + skip. The block number isn't advanced, so the event is re-seen.
+		logger.ErrorWithFields("chain", "processIncomingRequests", "find request in db", err.Error(),
+			logger.Fields{"requestId": requestId})
+		return
+	}
 
-	if reqDbRes.ID == 0 {
+	if !found {
 		logger.InfoWithFields("chain", "processIncomingRequests", "add job to db", "new request", logger.Fields{
 			"requestId": requestId,
 		})
@@ -407,10 +414,17 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 		})
 
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
-	// check status and if requests already exists
-	reqDbRes, _ := o.db.FindByRequestId(requestId)
+	// check status and if request already exists
+	_, found, err := o.db.FindByRequestId(requestId)
+	if err != nil {
+		// A real DB error (not just not-found): log + skip so the block isn't advanced and the
+		// confirmation is retried, rather than the fulfilment being silently lost.
+		logger.ErrorWithFields("chain", "processIncomingFulfilments", "find request in db", err.Error(),
+			logger.Fields{"request_id": requestId})
+		return
+	}
 
-	if reqDbRes.ID != 0 {
+	if found {
 		logger.InfoWithFields("chain", "processIncomingFulfilments", "confirm fulfillment",
 			"confirmed request fulfilment for request",
 			logger.Fields{

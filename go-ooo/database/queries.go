@@ -1,9 +1,13 @@
 package database
 
 import (
+	"errors"
 	"fmt"
-	"go-ooo/database/models"
 	"time"
+
+	"go-ooo/database/models"
+
+	"gorm.io/gorm"
 )
 
 /*
@@ -20,10 +24,16 @@ func (d DB) GetLastBlockNumQueried() (models.ToBlocks, error) {
   DataRequests Queries
 */
 
-func (d *DB) FindByRequestId(requestId string) (models.DataRequests, error) {
+// FindByRequestId looks up a request. The bool reports whether a row was found, so callers
+// can tell "not found" apart from a real DB error (GORM's First conflates them via the zero
+// struct) and not treat a transient failure as a brand-new request.
+func (d *DB) FindByRequestId(requestId string) (models.DataRequests, bool, error) {
 	result := models.DataRequests{}
 	err := d.Where("request_id = ?", requestId).First(&result).Error
-	return result, err
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return result, false, nil
+	}
+	return result, err == nil, err
 }
 
 func (d *DB) GetPendingJobs() ([]models.DataRequests, error) {
