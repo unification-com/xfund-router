@@ -51,6 +51,11 @@ type OoORouterService struct {
 	chanDataRequests     chan *ooo_router.OooRouterDataRequested
 	chanRequestFulfilled chan *ooo_router.OooRouterRequestFulfilled
 
+	// jobNudge signals the service's job loop to process the pending queue immediately when a
+	// new request is detected, instead of waiting for the periodic ticker. Buffered (cap 1) +
+	// non-blocking send, so it coalesces bursts and never blocks the event watcher.
+	jobNudge chan struct{}
+
 	// historical data
 	historicalFilterOpts *bind.FilterOpts
 
@@ -154,9 +159,26 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		watchOpts:               watchOpts,
 		chanDataRequests:        chanDataRequests,
 		chanRequestFulfilled:    chanRequestFulfilled,
+		jobNudge:                make(chan struct{}, 1),
 		historicalFilterOpts:    historicalFilterOpts,
 		lastBlockNumber:         initialFromBlock,
 	}, nil
+}
+
+// JobNudge returns the channel the service's job loop selects on to process the pending queue
+// as soon as a new request arrives, rather than waiting for the periodic ticker.
+func (o *OoORouterService) JobNudge() <-chan struct{} {
+	return o.jobNudge
+}
+
+// nudgeJobQueue asks the job loop to run ProcessPendingJobQueue now. The send is non-blocking
+// onto a cap-1 buffer, so a burst of new requests coalesces into a single pending nudge (one
+// run picks up every just-inserted request) and a busy job loop never blocks the event watcher.
+func (o *OoORouterService) nudgeJobQueue() {
+	select {
+	case o.jobNudge <- struct{}{}:
+	default:
+	}
 }
 
 func (o *OoORouterService) GetProviderAddress() common.Address {
@@ -379,7 +401,7 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 				})
 		}
 
-		_ = o.db.InsertNewRequest(
+		err = o.db.InsertNewRequest(
 			provider.Hex(),
 			consumer.Hex(),
 			requestId,
@@ -392,6 +414,15 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 			event.Raw.BlockNumber,
 			isAdHoc,
 		)
+
+		if err != nil {
+			logger.ErrorWithFields("chain", "processIncomingRequests", "insert new request", err.Error(),
+				logger.Fields{"requestId": requestId})
+		} else {
+			// Process the new request immediately rather than waiting up to a full ticker
+			// interval for the periodic sweep to pick it up.
+			o.nudgeJobQueue()
+		}
 	} else {
 		logger.InfoWithFields("chain", "processIncomingRequests", "check db for request", "request already in db",
 			logger.Fields{

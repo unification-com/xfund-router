@@ -13,7 +13,13 @@ import (
 	solsha3 "github.com/miguelmota/go-solidity-sha3"
 )
 
-func (o *OoORouterService) ProcessPendingJobQueue() {
+// ProcessPendingJobQueue works through every pending request in one serialised pass. trigger
+// records what kicked it off ('event' for the immediate new-request nudge, 'ticker' for the
+// periodic sweep) and feeds the ooo_job_queue_run_total metric. It is only ever called from the
+// service's single select loop, so fulfilment stays serialised - never call it concurrently.
+func (o *OoORouterService) ProcessPendingJobQueue(trigger string) {
+
+	jobQueueRunTotal.WithLabelValues(trigger).Inc()
 
 	logger.Info("chain", "ProcessPendingJobQueue", "check job queue", "")
 

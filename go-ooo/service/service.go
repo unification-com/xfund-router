@@ -138,6 +138,12 @@ func (s *Service) Run() {
 		s.oooRouterService.RunEventWatchers()
 	}(s)
 
+	// The event watcher signals this channel when it detects a new request, so we process it
+	// immediately instead of waiting for the next jobTicker tick. A nudge buffered during the
+	// historical-event catch-up above is drained on the first iteration, so startup backlog is
+	// processed at once too.
+	jobNudge := s.oooRouterService.JobNudge()
+
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -145,7 +151,9 @@ func (s *Service) Run() {
 			s.Stop()
 			return
 		case <-s.jobTicker.C:
-			s.oooRouterService.ProcessPendingJobQueue()
+			s.oooRouterService.ProcessPendingJobQueue("ticker")
+		case <-jobNudge:
+			s.oooRouterService.ProcessPendingJobQueue("event")
 		case <-s.updatePairsTicker.C:
 			go s.refreshPairs()
 		case t := <-s.analyticsTasks:

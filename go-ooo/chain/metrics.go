@@ -44,6 +44,11 @@ var (
 		Help:    "Blocks elapsed from request to fulfilment confirmation.",
 		Buckets: []float64{1, 2, 3, 5, 8, 13, 21, 50, 100},
 	})
+
+	jobQueueRunTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ooo_job_queue_run_total",
+		Help: "Pending-job-queue processing runs, by trigger: 'event' is the immediate nudge on a newly-detected request, 'ticker' the periodic sweep.",
+	}, []string{"trigger"})
 )
 
 // weiToGwei converts a wei gas price to gwei for the gas-price histogram.
