@@ -43,20 +43,19 @@ for requesting and waiting for data. This script can be called using `docker exe
 docker exec -it ooo_dev_env /root/xfund-router/request.sh <BASE> <TARGET> <TYPE> [SUBTYPE] [SUPP1] [SUPP2]
 ```
 
-For example querying Finchains tracked data:
-
-```bash
-docker exec -it ooo_dev_env /root/xfund-router/request.sh BTC GBP PR AVC 1H
-```
-
-This will request data using the OoO endpoint `BTC.GBP.PR.AVC.1H`, which is the mean GBP price of Bitcoin for the
-past hour, using the Chauvenet Criterion to remove statistical outliers.
-
-Or and Ad-Hoc request:
+For example, an AdHoc DEX price query:
 
 ```bash
 docker exec -it ooo_dev_env /root/xfund-router/request.sh BONE WETH AD
 ```
+
+This requests the OoO endpoint `BONE.WETH.AD` - the liquidity-weighted mean BONE/WETH price across the
+supported DEXs (per-pool outliers removed with a median + MAD filter). An optional trailing minutes
+window (`0`-`60`) averages over that lookback.
+
+> **Legacy Finchains endpoints (`BASE.TARGET.PR...`) are deprecated.** Finchains has been removed;
+> go-ooo now lossily redirects a `.PR` request to the DEX path on `BASE.TARGET`, and returns a clear
+> error if that pair is not on any supported DEX. Migrate consumers to the AdHoc form above.
 
 See the [OoO API Guide](https://docs.unification.io/ooo/guide/ooo_api.html) for more information on endpoint 
 construction.
