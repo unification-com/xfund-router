@@ -20,7 +20,7 @@ type OOOApi struct {
 	db               *database.DB
 	ctx              context.Context
 	dexModuleManager *dex.Manager
-	quality          config.AdhocQualityConfig
+	quality          config.PriceQualityConfig
 }
 
 func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, error) {
@@ -44,7 +44,7 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 		db:               db,
 		ctx:              ctx,
 		dexModuleManager: dexModuleManager,
-		quality:          cfg.AdhocQuality,
+		quality:          cfg.PriceQuality,
 	}, nil
 }
 
@@ -111,7 +111,7 @@ func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
 	})
 
 	if parsed.IsAdHoc() {
-		return o.QueryAdhoc(parsed, requestId)
+		return o.QueryDexPrice(parsed, requestId)
 	}
 	return o.QueryFinchainsEndpoint(endpoint, requestId)
 }

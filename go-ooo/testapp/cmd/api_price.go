@@ -11,9 +11,9 @@ import (
 )
 
 // apiCmd represents the query command
-var apiAdhocCmd = &cobra.Command{
-	Use:   "adhoc <endpoint>",
-	Short: "adhoc query tests",
+var apiPriceCmd = &cobra.Command{
+	Use:   "price <endpoint>",
+	Short: "DEX price query tests",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		endpoint := args[0]
@@ -27,7 +27,7 @@ var apiAdhocCmd = &cobra.Command{
 
 		start := time.Now()
 
-		res, err := oooApi.QueryAdhoc(parsed, "1234")
+		res, err := oooApi.QueryDexPrice(parsed, "1234")
 
 		elapsed := time.Since(start)
 
@@ -46,5 +46,5 @@ var apiAdhocCmd = &cobra.Command{
 }
 
 func init() {
-	apiCmd.AddCommand(apiAdhocCmd)
+	apiCmd.AddCommand(apiPriceCmd)
 }

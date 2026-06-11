@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// keptByMAD reproduces QueryAdhoc's Stage-B filter so the estimator math can be asserted
+// keptByMAD reproduces QueryDexPrice's Stage-B filter so the estimator math can be asserted
 // directly: a value survives when there is no usable spread (scale 0) or its modified z-score
 // is within the threshold.
 func keptByMAD(values []float64) []float64 {

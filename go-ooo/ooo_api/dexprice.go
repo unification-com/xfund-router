@@ -10,10 +10,10 @@ import (
 	"math/big"
 )
 
-func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, error) {
+func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string, error) {
 	base, target, minutes := parsed.Base, parsed.Target, parsed.Minutes
 
-	logger.Debug("ooo_api", "QueryAdhoc", "ParseEndpoint", "AdHoc endpoint parsed", logger.Fields{
+	logger.Debug("ooo_api", "QueryDexPrice", "ParseEndpoint", "endpoint parsed", logger.Fields{
 		"requestId": requestId,
 		"base":      base,
 		"target":    target,
@@ -43,7 +43,7 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	}
 
 	if len(values) == 0 {
-		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "no prices found on DEXs for pair", logger.Fields{
+		logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "no prices found on DEXs for pair", logger.Fields{
 			"base":   base,
 			"target": target,
 		})
@@ -90,7 +90,7 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	// on-chain. The existing zero-prices refusal (above) always applies regardless.
 	if reason := qualityShortfall(o.quality.RefuseMinPools, o.quality.RefuseMinVenues, o.quality.RefuseMinLiquidityUsd, o.quality.RefuseMaxDispersion,
 		numPools, numVenues, totalLiquidity, dispersion); reason != "" {
-		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "refusing price - sample below quality floor", logger.Fields{
+		logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "refusing price - sample below quality floor", logger.Fields{
 			"base":              base,
 			"target":            target,
 			"reason":            reason,
@@ -110,7 +110,7 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		return "", errors.New("calculated price rounds below one wei for pair")
 	}
 
-	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
+	logger.Debug("ooo_api", "QueryDexPrice", "", "price stats", logger.Fields{
 		"base":              base,
 		"target":            target,
 		"minutes":           minutes,
@@ -130,7 +130,7 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 	// visible to the operator without declining the request.
 	if reason := qualityShortfall(o.quality.FlagMinPools, o.quality.FlagMinVenues, o.quality.FlagMinLiquidityUsd, o.quality.FlagMaxDispersion,
 		numPools, numVenues, totalLiquidity, dispersion); reason != "" {
-		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "thin price sample - low manipulation resistance", logger.Fields{
+		logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "thin price sample - low manipulation resistance", logger.Fields{
 			"base":              base,
 			"target":            target,
 			"reason":            reason,

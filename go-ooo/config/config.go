@@ -81,12 +81,12 @@ type DexList struct {
 	XdaiHoneyswap         DexConfig `mapstructure:"xdai_honeyswap"`
 }
 
-// AdhocQualityConfig gates AdHoc DEX prices on the quality of the live sample backing them.
+// PriceQualityConfig gates DEX prices on the quality of the live sample backing them.
 // flag_* are soft bars that log a warning but still fulfil (sensible defaults). refuse_* are a
 // conservative backstop that declines to publish (the request stays unfulfilled); each refuse
 // check is disabled at its zero value, and all default to 0 so refusal is opt-in - only the
 // existing zero-prices refusal applies until an operator sets them.
-type AdhocQualityConfig struct {
+type PriceQualityConfig struct {
 	FlagMinPools        uint64  `mapstructure:"flag_min_pools"`
 	FlagMinVenues       uint64  `mapstructure:"flag_min_venues"`
 	FlagMinLiquidityUsd uint64  `mapstructure:"flag_min_liquidity_usd"`
@@ -109,7 +109,7 @@ type Config struct {
 	Subchain     SubchainConfig     `mapstructure:"subchain"`
 	ApiKeys      ApiKeysConfig      `mapstructure:"api_keys"`
 	Dexs         DexList            `mapstructure:"dexs"`
-	AdhocQuality AdhocQualityConfig `mapstructure:"adhoc_quality"`
+	PriceQuality PriceQualityConfig `mapstructure:"price_quality"`
 }
 
 // DefaultConfig returns server's default configuration.
@@ -195,7 +195,7 @@ func DefaultConfig() *Config {
 				MinTxCount:    oooapidextypes.DefaultMinTxCount,
 			},
 		},
-		AdhocQuality: AdhocQualityConfig{
+		PriceQuality: PriceQualityConfig{
 			// Sensible flag defaults: warn (but still answer) on a single-venue, thinly-backed
 			// or widely-dispersed sample.
 			FlagMinPools:        2,

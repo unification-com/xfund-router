@@ -130,7 +130,7 @@ port = "{{ .Serve.Port }}"
 
 # RPC nodes for each chain the DEX modules are dependent on. This is
 # only used by the DEX modules to get simple data for each price request.
-# The AdHoc querier will query the DEX's parent chain to get the latest block
+# The price querier will query the DEX's parent chain to get the latest block
 # number. This allows the DEX module to query GraphQL to get data based on
 # block numbers
 
@@ -156,7 +156,7 @@ graph_network_key = "{{ .ApiKeys.GraphNetwork }}"
 ##########################################
 
 # Minimum Liquidity (USD) and Tx thresholds, below which
-# a pair is not included in an AdHoc query
+# a pair is not included in a price query
 
 [dexs.bsc_pancakeswap_v3]
 min_reserve_usd = {{ .Dexs.BscPancakeswapV3.MinReserveUsd }}
@@ -187,12 +187,12 @@ min_reserve_usd = {{ .Dexs.XdaiHoneyswap.MinReserveUsd }}
 min_tx_count = {{ .Dexs.XdaiHoneyswap.MinTxCount }}
 
 ##########################################
-## AdHoc price-quality gate             ##
+## Price-quality gate                   ##
 ##########################################
 
-# Each AdHoc DEX price is scored on its live sample: number of surviving pools, distinct
-# venues (chain+dex), total backing liquidity (whole USD) and dispersion (robust coefficient
-# of variation = MAD scale / median).
+# Each DEX price is scored on its live sample: number of surviving pools, distinct venues
+# (chain+dex), total backing liquidity (whole USD) and dispersion (robust coefficient of
+# variation = MAD scale / median).
 #
 # flag_*   - log a "thin price sample" warning but STILL fulfil. Soft bars; sensible defaults.
 # refuse_* - refuse to publish (the request stays unfulfilled) when a sample is degenerate. A
@@ -200,15 +200,15 @@ min_tx_count = {{ .Dexs.XdaiHoneyswap.MinTxCount }}
 #            refuse path is opt-in. Calibrate against real queries before enabling, and note a
 #            liquidity floor will also refuse pairs whose ReserveUsd metadata is stale/zero.
 
-[adhoc_quality]
-flag_min_pools = {{ .AdhocQuality.FlagMinPools }}
-flag_min_venues = {{ .AdhocQuality.FlagMinVenues }}
-flag_min_liquidity_usd = {{ .AdhocQuality.FlagMinLiquidityUsd }}
-flag_max_dispersion = {{ .AdhocQuality.FlagMaxDispersion }}
-refuse_min_pools = {{ .AdhocQuality.RefuseMinPools }}
-refuse_min_venues = {{ .AdhocQuality.RefuseMinVenues }}
-refuse_min_liquidity_usd = {{ .AdhocQuality.RefuseMinLiquidityUsd }}
-refuse_max_dispersion = {{ .AdhocQuality.RefuseMaxDispersion }}
+[price_quality]
+flag_min_pools = {{ .PriceQuality.FlagMinPools }}
+flag_min_venues = {{ .PriceQuality.FlagMinVenues }}
+flag_min_liquidity_usd = {{ .PriceQuality.FlagMinLiquidityUsd }}
+flag_max_dispersion = {{ .PriceQuality.FlagMaxDispersion }}
+refuse_min_pools = {{ .PriceQuality.RefuseMinPools }}
+refuse_min_venues = {{ .PriceQuality.RefuseMinVenues }}
+refuse_min_liquidity_usd = {{ .PriceQuality.RefuseMinLiquidityUsd }}
+refuse_max_dispersion = {{ .PriceQuality.RefuseMaxDispersion }}
 
 `
 
