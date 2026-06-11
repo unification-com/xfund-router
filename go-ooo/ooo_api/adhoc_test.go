@@ -120,3 +120,47 @@ func TestWeightedMean_NegativeWeightClamped(t *testing.T) {
 		t.Errorf("negative weight should be clamped to 0 (→ 10), got %v", got)
 	}
 }
+
+func TestQualityShortfall(t *testing.T) {
+	// Healthy sample: 5 pools, 3 venues, $1M backing, 0.1% dispersion.
+	const (
+		nPools = 5
+		nVen   = 3
+		liq    = 1_000_000.0
+		disp   = 0.001
+	)
+
+	// All bars disabled (the default) → never a shortfall, however thin the sample.
+	if r := qualityShortfall(0, 0, 0, 0, 1, 1, 0, 0.99); r != "" {
+		t.Errorf("all-disabled bars should never report a shortfall, got %q", r)
+	}
+
+	// Healthy sample passes sensible flag bars.
+	if r := qualityShortfall(2, 2, 100_000, 0.02, nPools, nVen, liq, disp); r != "" {
+		t.Errorf("healthy sample should pass, got shortfall %q", r)
+	}
+
+	cases := []struct {
+		name                        string
+		minPools, minVenues, minLiq uint64
+		maxDisp                     float64
+		nPools, nVenues             int
+		liq, disp                   float64
+		wantHit                     bool
+	}{
+		{"too few pools", 2, 0, 0, 0, 1, 1, 5_000, 0.5, true},
+		{"single venue", 0, 2, 0, 0, 3, 1, 5e6, 0.001, true},
+		{"thin liquidity", 0, 0, 25_000, 0, 4, 2, 10_000, 0.001, true},
+		{"wild dispersion", 0, 0, 0, 0.2, 4, 2, 5e6, 0.35, true},
+		{"liquidity exactly at floor passes", 0, 0, 25_000, 0, 4, 2, 25_000, 0.001, false},
+		{"dispersion exactly at bound passes", 0, 0, 0, 0.2, 4, 2, 5e6, 0.2, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := qualityShortfall(c.minPools, c.minVenues, c.minLiq, c.maxDisp, c.nPools, c.nVenues, c.liq, c.disp)
+			if (r != "") != c.wantHit {
+				t.Errorf("shortfall=%q, wantHit=%v", r, c.wantHit)
+			}
+		})
+	}
+}

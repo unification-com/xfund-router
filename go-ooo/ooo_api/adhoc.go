@@ -2,6 +2,7 @@ package ooo_api
 
 import (
 	"errors"
+	"fmt"
 	"github.com/montanaflynn/stats"
 	"go-ooo/logger"
 	"go-ooo/utils"
@@ -72,21 +73,41 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 
 	priceFloat := weightedMean(keptVals, keptWeights)
 
+	// Quality signals: how many independent venues and how much liquidity back this price, and
+	// how dispersed the surviving estimates are (robust coefficient of variation). These gate
+	// the price (refuse/flag below) and make a thin, easily-manipulated sample visible rather
+	// than returning a confident-looking number from a single source.
+	numPools := len(keptVals)
+	numVenues, totalLiquidity := venueCountAndLiquidity(keptSources, keptWeights)
+	dispersion := 0.0
+	if median > 0 {
+		dispersion = scale / median
+	}
+
+	// Refuse backstop (opt-in; every bar disabled at its zero value, all default to 0). A
+	// sample too thin/shallow to price safely is declined rather than published - the request
+	// then stays unfulfilled (REQUEST_STATUS_API_ERROR) instead of putting a manipulable price
+	// on-chain. The existing zero-prices refusal (above) always applies regardless.
+	if reason := qualityShortfall(o.quality.RefuseMinPools, o.quality.RefuseMinVenues, o.quality.RefuseMinLiquidityUsd, o.quality.RefuseMaxDispersion,
+		numPools, numVenues, totalLiquidity, dispersion); reason != "" {
+		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "refusing price - sample below quality floor", logger.Fields{
+			"base":              base,
+			"target":            target,
+			"reason":            reason,
+			"num_pools":         numPools,
+			"num_venues":        numVenues,
+			"backing_liquidity": totalLiquidity,
+			"dispersion":        dispersion,
+		})
+
+		return "0", fmt.Errorf("price sample below quality floor: %s", reason)
+	}
+
 	wei := utils.EtherToWei(big.NewFloat(priceFloat))
 	if wei.Cmp(big.NewInt(0)) <= 0 {
 		// The estimate is positive but rounds below 1 wei (price < 1e-18 of the target); the
 		// uint256 ×1e18 callback interface cannot represent it.
 		return "", errors.New("calculated price rounds below one wei for pair")
-	}
-
-	// Quality signals: how many independent venues and how much liquidity back this price, and
-	// how dispersed the surviving estimates are (robust coefficient of variation). These make a
-	// thin, easily-manipulated sample visible rather than returning a confident-looking number
-	// from a single source. (A configurable refuse/flag gate on these is a later step.)
-	numVenues, totalLiquidity := venueCountAndLiquidity(keptSources, keptWeights)
-	dispersion := 0.0
-	if median > 0 {
-		dispersion = scale / median
 	}
 
 	logger.Debug("ooo_api", "QueryAdhoc", "", "price stats", logger.Fields{
@@ -95,8 +116,8 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		"minutes":           minutes,
 		"num_pools_raw":     len(samples),
 		"num_pools_used":    len(values),
-		"num_pools_kept":    len(keptVals),
-		"num_pools_removed": len(values) - len(keptVals),
+		"num_pools_kept":    numPools,
+		"num_pools_removed": len(values) - numPools,
 		"num_venues":        numVenues,
 		"backing_liquidity": totalLiquidity,
 		"dispersion":        dispersion,
@@ -105,11 +126,15 @@ func (o *OOOApi) QueryAdhoc(parsed ParsedEndpoint, requestId string) (string, er
 		"final_wei_mean":    wei.String(),
 	})
 
-	if len(keptVals) < 2 || numVenues < 2 {
+	// Flag (off-chain): still answers, but warns when below the soft bars so a thin sample is
+	// visible to the operator without declining the request.
+	if reason := qualityShortfall(o.quality.FlagMinPools, o.quality.FlagMinVenues, o.quality.FlagMinLiquidityUsd, o.quality.FlagMaxDispersion,
+		numPools, numVenues, totalLiquidity, dispersion); reason != "" {
 		logger.WarnWithFields("ooo_api", "QueryAdhoc", "", "thin price sample - low manipulation resistance", logger.Fields{
 			"base":              base,
 			"target":            target,
-			"num_pools":         len(keptVals),
+			"reason":            reason,
+			"num_pools":         numPools,
 			"num_venues":        numVenues,
 			"backing_liquidity": totalLiquidity,
 		})
@@ -130,6 +155,25 @@ func venueCountAndLiquidity(sources []string, weights []float64) (int, float64) 
 		}
 	}
 	return len(venues), total
+}
+
+// qualityShortfall returns a non-empty reason when a sample falls below any enabled bar (each
+// bar is disabled at its zero value). It drives both the refuse and the flag checks - the only
+// difference between them is which set of bars (RefuseMin* vs FlagMin*) is passed in.
+func qualityShortfall(minPools, minVenues, minLiquidityUsd uint64, maxDispersion float64, numPools, numVenues int, liquidity, dispersion float64) string {
+	if minPools > 0 && uint64(numPools) < minPools {
+		return fmt.Sprintf("pools %d < %d", numPools, minPools)
+	}
+	if minVenues > 0 && uint64(numVenues) < minVenues {
+		return fmt.Sprintf("venues %d < %d", numVenues, minVenues)
+	}
+	if minLiquidityUsd > 0 && liquidity < float64(minLiquidityUsd) {
+		return fmt.Sprintf("backing liquidity %.0f < %d", liquidity, minLiquidityUsd)
+	}
+	if maxDispersion > 0 && dispersion > maxDispersion {
+		return fmt.Sprintf("dispersion %.4f > %.4f", dispersion, maxDispersion)
+	}
+	return ""
 }
 
 // finitePrices drops NaN / ±Inf values. strconv.ParseFloat accepts "NaN"/"Inf", so a

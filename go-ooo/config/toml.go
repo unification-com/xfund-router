@@ -186,6 +186,30 @@ min_tx_count = {{ .Dexs.PolygonPosQuickswapV3.MinTxCount }}
 min_reserve_usd = {{ .Dexs.XdaiHoneyswap.MinReserveUsd }}
 min_tx_count = {{ .Dexs.XdaiHoneyswap.MinTxCount }}
 
+##########################################
+## AdHoc price-quality gate             ##
+##########################################
+
+# Each AdHoc DEX price is scored on its live sample: number of surviving pools, distinct
+# venues (chain+dex), total backing liquidity (whole USD) and dispersion (robust coefficient
+# of variation = MAD scale / median).
+#
+# flag_*   - log a "thin price sample" warning but STILL fulfil. Soft bars; sensible defaults.
+# refuse_* - refuse to publish (the request stays unfulfilled) when a sample is degenerate. A
+#            conservative backstop: each check is disabled at 0, and all default to 0 so the
+#            refuse path is opt-in. Calibrate against real queries before enabling, and note a
+#            liquidity floor will also refuse pairs whose ReserveUsd metadata is stale/zero.
+
+[adhoc_quality]
+flag_min_pools = {{ .AdhocQuality.FlagMinPools }}
+flag_min_venues = {{ .AdhocQuality.FlagMinVenues }}
+flag_min_liquidity_usd = {{ .AdhocQuality.FlagMinLiquidityUsd }}
+flag_max_dispersion = {{ .AdhocQuality.FlagMaxDispersion }}
+refuse_min_pools = {{ .AdhocQuality.RefuseMinPools }}
+refuse_min_venues = {{ .AdhocQuality.RefuseMinVenues }}
+refuse_min_liquidity_usd = {{ .AdhocQuality.RefuseMinLiquidityUsd }}
+refuse_max_dispersion = {{ .AdhocQuality.RefuseMaxDispersion }}
+
 `
 
 var configTemplate *template.Template

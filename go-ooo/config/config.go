@@ -81,17 +81,35 @@ type DexList struct {
 	XdaiHoneyswap         DexConfig `mapstructure:"xdai_honeyswap"`
 }
 
+// AdhocQualityConfig gates AdHoc DEX prices on the quality of the live sample backing them.
+// flag_* are soft bars that log a warning but still fulfil (sensible defaults). refuse_* are a
+// conservative backstop that declines to publish (the request stays unfulfilled); each refuse
+// check is disabled at its zero value, and all default to 0 so refusal is opt-in - only the
+// existing zero-prices refusal applies until an operator sets them.
+type AdhocQualityConfig struct {
+	FlagMinPools        uint64  `mapstructure:"flag_min_pools"`
+	FlagMinVenues       uint64  `mapstructure:"flag_min_venues"`
+	FlagMinLiquidityUsd uint64  `mapstructure:"flag_min_liquidity_usd"`
+	FlagMaxDispersion   float64 `mapstructure:"flag_max_dispersion"`
+
+	RefuseMinPools        uint64  `mapstructure:"refuse_min_pools"`
+	RefuseMinVenues       uint64  `mapstructure:"refuse_min_venues"`
+	RefuseMinLiquidityUsd uint64  `mapstructure:"refuse_min_liquidity_usd"`
+	RefuseMaxDispersion   float64 `mapstructure:"refuse_max_dispersion"`
+}
+
 type Config struct {
-	Jobs       JobsConfig       `mapstructure:"jobs"`
-	Serve      ServeConfig      `mapstructure:"serve"`
-	Keystore   KeystoreConfig   `mapstructure:"keystorage"`
-	Chain      ChainConfig      `mapstructure:"chain"`
-	Database   DatabaseConfig   `mapstructure:"database"`
-	Prometheus PrometheusConfig `mapstructure:"prometheus"`
-	Log        LogConfig        `mapstructure:"log"`
-	Subchain   SubchainConfig   `mapstructure:"subchain"`
-	ApiKeys    ApiKeysConfig    `mapstructure:"api_keys"`
-	Dexs       DexList          `mapstructure:"dexs"`
+	Jobs         JobsConfig         `mapstructure:"jobs"`
+	Serve        ServeConfig        `mapstructure:"serve"`
+	Keystore     KeystoreConfig     `mapstructure:"keystorage"`
+	Chain        ChainConfig        `mapstructure:"chain"`
+	Database     DatabaseConfig     `mapstructure:"database"`
+	Prometheus   PrometheusConfig   `mapstructure:"prometheus"`
+	Log          LogConfig          `mapstructure:"log"`
+	Subchain     SubchainConfig     `mapstructure:"subchain"`
+	ApiKeys      ApiKeysConfig      `mapstructure:"api_keys"`
+	Dexs         DexList            `mapstructure:"dexs"`
+	AdhocQuality AdhocQualityConfig `mapstructure:"adhoc_quality"`
 }
 
 // DefaultConfig returns server's default configuration.
@@ -176,6 +194,19 @@ func DefaultConfig() *Config {
 				MinReserveUsd: oooapidextypes.DefaultMinLiquidity,
 				MinTxCount:    oooapidextypes.DefaultMinTxCount,
 			},
+		},
+		AdhocQuality: AdhocQualityConfig{
+			// Sensible flag defaults: warn (but still answer) on a single-venue, thinly-backed
+			// or widely-dispersed sample.
+			FlagMinPools:        2,
+			FlagMinVenues:       2,
+			FlagMinLiquidityUsd: 100000,
+			FlagMaxDispersion:   0.02,
+			// Refuse backstop disabled by default - calibrate against real queries before enabling.
+			RefuseMinPools:        0,
+			RefuseMinVenues:       0,
+			RefuseMinLiquidityUsd: 0,
+			RefuseMaxDispersion:   0,
 		},
 	}
 }

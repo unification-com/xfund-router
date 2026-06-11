@@ -20,6 +20,7 @@ type OOOApi struct {
 	db               *database.DB
 	ctx              context.Context
 	dexModuleManager *dex.Manager
+	quality          config.AdhocQualityConfig
 }
 
 func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, error) {
@@ -43,6 +44,7 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 		db:               db,
 		ctx:              ctx,
 		dexModuleManager: dexModuleManager,
+		quality:          cfg.AdhocQuality,
 	}, nil
 }
 
