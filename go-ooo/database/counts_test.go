@@ -1,0 +1,39 @@
+package database
+
+import (
+	"testing"
+
+	"go-ooo/database/models"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestFulfilmentCounts(t *testing.T) {
+	d := newTestDB(t)
+	require.NoError(t, d.Migrate())
+
+	// Three requests; r1 sent + success, r2 sent only, r3 never sent.
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr1", "WETH.USDC", "WETH.USDC", "0xtx1", 0, 0, 1, 100, true))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr2", "WETH.USDC", "WETH.USDC", "0xtx2", 0, 0, 1, 100, true))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr3", "WETH.USDC", "WETH.USDC", "0xtx3", 0, 0, 1, 100, true))
+
+	require.NoError(t, d.UpdateFulfillmentSent("0xr1", "0xfh1", 101, 1, 1_000_000_000))
+	require.NoError(t, d.UpdateRequestStatus("0xr1", models.REQUEST_STATUS_SUCCESS, ""))
+	require.NoError(t, d.UpdateFulfillmentSent("0xr2", "0xfh2", 102, 2, 2_000_000_000))
+
+	// Two reverted attempts recorded for r2.
+	require.NoError(t, d.InsertNewFailedFulfilment("0xr2", "0xfh2a", 100000, 1_000_000_000, "reverted"))
+	require.NoError(t, d.InsertNewFailedFulfilment("0xr2", "0xfh2b", 100000, 2_000_000_000, "reverted"))
+
+	sent, err := d.CountFulfilmentsSent()
+	require.NoError(t, err)
+	require.EqualValues(t, 2, sent, "r1 and r2 have a fulfil tx hash")
+
+	success, err := d.CountRequestsByStatus(models.REQUEST_STATUS_SUCCESS)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, success)
+
+	reverted, err := d.CountFailedFulfilments()
+	require.NoError(t, err)
+	require.EqualValues(t, 2, reverted)
+}

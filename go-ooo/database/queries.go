@@ -43,6 +43,28 @@ func (d *DB) GetPendingJobs() ([]models.DataRequests, error) {
 	return jobs, err
 }
 
+// CountFulfilmentsSent counts requests that have been broadcast at least once (have a fulfil tx
+// hash). Used to warm-start the fulfilment metrics from history.
+func (d *DB) CountFulfilmentsSent() (int64, error) {
+	var n int64
+	err := d.Model(&models.DataRequests{}).Where("fulfill_tx_hash <> ''").Count(&n).Error
+	return n, err
+}
+
+// CountRequestsByStatus counts requests in a given RequestStatus.
+func (d *DB) CountRequestsByStatus(status int) (int64, error) {
+	var n int64
+	err := d.Model(&models.DataRequests{}).Where("request_status = ?", status).Count(&n).Error
+	return n, err
+}
+
+// CountFailedFulfilments counts failed (reverted) fulfilment-tx attempts recorded in history.
+func (d *DB) CountFailedFulfilments() (int64, error) {
+	var n int64
+	err := d.Model(&models.FailedFulfilment{}).Count(&n).Error
+	return n, err
+}
+
 func (d *DB) GetLastXSuccessfulRequests(limit int, consumer string) ([]models.DataRequests, error) {
 	var requests = []models.DataRequests{}
 	var err error

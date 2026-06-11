@@ -415,7 +415,7 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
 	// check status and if request already exists
-	_, found, err := o.db.FindByRequestId(requestId)
+	request, found, err := o.db.FindByRequestId(requestId)
 	if err != nil {
 		// A real DB error (not just not-found): log + skip so the block isn't advanced and the
 		// confirmation is retried, rather than the fulfilment being silently lost.
@@ -444,6 +444,14 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 				logger.Fields{
 					"request_id": requestId,
 				})
+		}
+
+		fulfilmentResultTotal.WithLabelValues("success").Inc()
+		if gasUsed > 0 {
+			fulfilmentGasUsed.Observe(float64(gasUsed))
+		}
+		if request.RequestBlockNumber > 0 && event.Raw.BlockNumber >= request.RequestBlockNumber {
+			fulfilmentBlocks.Observe(float64(event.Raw.BlockNumber - request.RequestBlockNumber))
 		}
 	}
 

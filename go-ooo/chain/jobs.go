@@ -201,6 +201,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	// Initial send: a fresh, chain-anchored nonce + current gas price.
 	opts, err := o.buildTransactOpts()
 	if err != nil {
+		fulfilmentErrorTotal.WithLabelValues("build_opts").Inc()
 		logger.ErrorWithFields("chain", "sendFulfillmentTx", "build transact opts",
 			err.Error(),
 			logger.Fields{
@@ -251,6 +252,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 	signatureBytes, err := crypto.Sign(msgHash.Bytes(), o.oraclePrivateKey)
 
 	if err != nil {
+		fulfilmentErrorTotal.WithLabelValues("sign").Inc()
 		logger.ErrorWithFields("chain", "submitFulfilment", "sign message",
 			err.Error(),
 			logger.Fields{
@@ -267,6 +269,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 	tx, err := o.contractInstance.FulfillRequest(opts, reqIdBytes32, priceBigInt, signatureBytes)
 
 	if err != nil {
+		fulfilmentErrorTotal.WithLabelValues("send").Inc()
 		logger.ErrorWithFields("chain", "submitFulfilment", "send tx",
 			err.Error(),
 			logger.Fields{
@@ -276,6 +279,9 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
 		return
 	}
+
+	fulfilmentSentTotal.Inc()
+	fulfilmentGasPriceGwei.Observe(weiToGwei(tx.GasPrice().Uint64()))
 
 	logger.InfoWithFields("chain", "submitFulfilment", "send tx",
 		"fulfill tx sent",
@@ -482,6 +488,11 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	failedGasUsed := job.GetFulfillGasUsed()
 	failedGasPrice := job.GetFulfillGasPrice()
 	failReason := "tx reverted" // todo - try to get revert reason from receipt
+
+	fulfilmentResultTotal.WithLabelValues("reverted").Inc()
+	if failedGasUsed > 0 {
+		fulfilmentGasUsed.Observe(float64(failedGasUsed))
+	}
 
 	// Add fail info to failed Tx history table
 	_ = o.db.InsertNewFailedFulfilment(requestId, fulfilTxHash.Hex(), failedGasUsed, failedGasPrice, failReason)

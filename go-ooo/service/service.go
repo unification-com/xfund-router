@@ -117,6 +117,10 @@ func (s *Service) Run() {
 		s.initEcho()
 	}(s)
 
+	// Seed the cumulative fulfilment counters from DB history BEFORE /metrics starts serving,
+	// so the all-time totals (and forward rates) are correct from the first scrape.
+	chain.WarmStartFulfilmentMetrics(s.db)
+
 	go func(s *Service) {
 		s.initPrometheus()
 	}(s)
