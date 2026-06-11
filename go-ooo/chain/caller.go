@@ -64,8 +64,8 @@ const (
 // determineEip1559 decides whether to send EIP-1559 dynamic-fee txs: the operator must enable
 // it in config AND the chain must be post-London (its latest header carries a base fee). If the
 // support probe fails, fall back to legacy pricing - legacy txs are valid on every chain, so an
-// uncertain probe (or a pre-London chain like the dev ganache) never blocks startup and never
-// produces a tx the chain will reject.
+// uncertain probe (or a pre-London chain) never blocks startup and never produces a tx the chain
+// will reject.
 func determineEip1559(ctx context.Context, client *ethclient.Client, enabled bool) bool {
 	if !enabled {
 		logger.Info("chain", "determineEip1559", "", "eip1559 disabled in config - using legacy gas pricing")

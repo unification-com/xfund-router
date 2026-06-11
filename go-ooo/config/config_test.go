@@ -16,10 +16,10 @@ func TestInitForNet(t *testing.T) {
 	// Post-London chains default to EIP-1559 pricing.
 	require.True(t, c.Chain.Eip1559)
 
-	// The dev env runs pre-London ganache, so it must default to legacy pricing.
+	// The dev env runs anvil (London+), so it also uses EIP-1559 pricing.
 	dev := DefaultConfig()
 	require.NoError(t, dev.InitForNet("dev"))
-	require.False(t, dev.Chain.Eip1559)
+	require.True(t, dev.Chain.Eip1559)
 
 	// A typo must error, not silently configure DevNet (127.0.0.1).
 	typo := DefaultConfig()

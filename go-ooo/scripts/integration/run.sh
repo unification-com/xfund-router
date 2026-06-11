@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# End-to-end integration harness: run go-ooo against the local dev-env (ganache +
+# End-to-end integration harness: run go-ooo against the local dev-env (anvil +
 # Router + a registered provider) and assert it fulfils a request on-chain. This
 # exercises the real keystore signing, nonce management, job state machine and
 # graceful shutdown paths.
 #
 # Prereq: the dev-env image must be built once -> `make dev-env` (or
 # `docker build -t ooo_dev_env -f docker/dev.Dockerfile .` from the repo root).
-# The harness starts/stops a dev-env container itself if ganache isn't already up.
+# The harness starts/stops a dev-env container itself if the chain isn't already up.
 #
 # Usage:   go-ooo/scripts/integration/run.sh
 #          KEEP=1 go-ooo/scripts/integration/run.sh        # leave env up for debugging
@@ -18,7 +18,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO_OOO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# ganache deterministic account #3 = the provider registered by init-dev-env.js
+# deterministic account #3 (from the shared dev mnemonic) = the provider registered by init-dev-env.js
 DEV_KEY="${DEV_KEY:-0x646f1ce2fdad0e6deeeb5c7e8e5543bdde65e86029e2fd9fc169899c440a7913}"
 PASSPHRASE="${PASSPHRASE:-integration-test-pass}"
 RPC_HOST="${RPC_HOST:-127.0.0.1}"
@@ -52,13 +52,13 @@ cleanup() {
 }
 [ "$KEEP" = "1" ] || trap cleanup EXIT
 
-ganache_up() { (exec 3<>"/dev/tcp/$RPC_HOST/$RPC_PORT") 2>/dev/null; }
+chain_up() { (exec 3<>"/dev/tcp/$RPC_HOST/$RPC_PORT") 2>/dev/null; }
 
 # 1. dev-env -----------------------------------------------------------------
-if ganache_up; then
-  log "ganache already up on $RPC_HOST:$RPC_PORT - using it"
+if chain_up; then
+  log "dev chain already up on $RPC_HOST:$RPC_PORT - using it"
 else
-  command -v docker >/dev/null || fail "docker not found and ganache is not running"
+  command -v docker >/dev/null || fail "docker not found and the dev chain is not running"
   docker image inspect ooo_dev_env >/dev/null 2>&1 || fail "image 'ooo_dev_env' not built - run 'make dev-env' image build first"
   log "starting dev-env detached..."
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true

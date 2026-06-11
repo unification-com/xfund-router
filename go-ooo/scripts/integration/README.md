@@ -1,6 +1,6 @@
 # go-ooo integration harness
 
-End-to-end validation of `go-ooo` against the local dev-env (ganache + Router +
+End-to-end validation of `go-ooo` against the local dev-env (anvil + Router +
 a registered provider). It exercises the real paths the unit tests can't:
 
 - **keystore signing** — a v3-keystore-signed fulfilment the Router accepts;
@@ -27,7 +27,7 @@ or directly:
 
     scripts/integration/run.sh
 
-The harness starts a dev-env container if ganache isn't already on `:8545`, builds
+The harness starts a dev-env container if the chain isn't already on `:8545`, builds
 go-ooo, inits a throwaway home with the dev provider key (non-interactively), starts
 go-ooo, issues a request, waits for the on-chain fulfilment, then `SIGINT`s go-ooo and
 checks it stopped cleanly. It tears everything down on exit and exits non-zero if the

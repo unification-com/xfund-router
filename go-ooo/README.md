@@ -108,7 +108,7 @@ This config location can be changed using the `--home` flag to specify a custom 
 
 This initialisation script will ask whether you want to import an exisitng private key, or generate a new one.
 You can enter anything for the account name. For the purposes of quick testing, the Docker development environment
-initialises by pre-registering account #3 on the `ganache-cli` chain as a Provider Oracle. The private key to import is:
+initialises by pre-registering account #3 on the `anvil` chain as a Provider Oracle. The private key to import is:
 
 `0x646f1ce2fdad0e6deeeb5c7e8e5543bdde65e86029e2fd9fc169899c440a7913`
 

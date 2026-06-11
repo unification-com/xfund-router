@@ -135,7 +135,7 @@ func DefaultConfig() *Config {
 			MaxGasPrice:    150,
 			GasBumpPercent: 13,
 			// Modern default: send EIP-1559 dynamic-fee txs. Auto-falls-back to legacy on a
-			// pre-London chain (the dev ganache), so this is safe even on a migrated config.
+			// pre-London chain (one with no base fee), so this is safe even on a migrated config.
 			Eip1559:         true,
 			ContractAddress: "",
 			EthHttpHost:     "",
@@ -248,9 +248,9 @@ func (c *Config) InitForDevNet() {
 	c.Chain.EthWsHost = "ws://127.0.0.1:8545"
 	c.Chain.NetworkId = 696969
 	c.Chain.FirstBlock = 1
-	// The dev env runs ganache-cli v6, which predates the London hard fork and so cannot
-	// accept EIP-1559 (type-2) txs - use legacy gas pricing.
-	c.Chain.Eip1559 = false
+	// The dev env runs anvil, a London+ chain, so it exercises the EIP-1559 path like the prod
+	// networks. (Kept explicit rather than relying on the default, to document the dev intent.)
+	c.Chain.Eip1559 = true
 }
 
 func (c *Config) InitForSepolia() {

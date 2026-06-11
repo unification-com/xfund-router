@@ -48,7 +48,7 @@ test:
 test-verbose:
 	@go test -mod=readonly -v ./...
 
-# End-to-end run against the local dev-env (ganache + Router). Needs the dev-env
+# End-to-end run against the local dev-env (anvil + Router). Needs the dev-env
 # image built once: docker build -t ooo_dev_env -f ../docker/dev.Dockerfile ..
 integration:
 	@bash scripts/integration/run.sh
