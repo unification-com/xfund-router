@@ -12,12 +12,12 @@ base.target[.minutes]
 
 - `base` / `target` - the pair symbols. These are **case-sensitive** (`xFUND` is not the same
   as `XFUND`).
-- `minutes` - an optional AdHoc lookback window: an integer clamped to `0`-`60`. `0` (the
+- `minutes` - an optional lookback window: an integer clamped to `0`-`60`. `0` (the
   default) fetches the latest prices; a non-zero value averages over the past `nn` minutes.
 
-Every request is an AdHoc DEX query: the provider looks the pair up across the supported DEX
-subgraphs and returns the mean price (outliers removed via the Chauvenet criterion), scaled to
-`price * 10^18`.
+Every request is a DEX price query: the provider looks the pair up across the supported DEX
+subgraphs and returns a robust, liquidity-weighted mean (per-pool outliers removed with a
+median + MAD filter), scaled to `price * 10^18`.
 
 ```
 WETH.USDC          latest mean WETH/USDC price
@@ -47,7 +47,7 @@ Go v1.18+ is required to compile the `go-ooo` application.
 
 ## testapp
 
-`testapp` can be used to test AdHoc DEX queries. It is useful for quickly testing AdHoc data retrieval without needing
+`testapp` can be used to test DEX price queries. It is useful for quickly testing price data retrieval without needing
 to deploy and run a full development network stack (Docker `devnet`, `go-ooo` application, running on-chain queries etc.)
 
 1. Build the `testapp`
@@ -59,13 +59,13 @@ make build-testapp
 2. Populate the temp database
 
 ```bash
-./build/testapp api adhoc-update --graphnetapi [GRAPHNET_API_KEY]
+./build/testapp api update-pairs --graphnetapi [GRAPHNET_API_KEY]
 ```
 
-3. Run AdHoc queries (the canonical suffix-less form; the legacy `WETH.USDC.AD` is also accepted)
+3. Run price queries (the canonical suffix-less form; the legacy `WETH.USDC.AD` is also accepted)
 
 ```bash
-./build/testapp api adhoc WETH.USDC --graphnetapi [GRAPHNET_API_KEY]
+./build/testapp api price WETH.USDC --graphnetapi [GRAPHNET_API_KEY]
 ```
 
 ## go-ooo
@@ -106,6 +106,23 @@ and to execute any admin commands. For the sake of simplicity, save it to `$HOME
 
 The application should now have the default configuration saved to `$HOME/.go-ooo/config.toml`. It will use `sqlite` as
 the default database, but can easily be configured for PostgreSQL.
+
+#### Upgrading & config migration
+
+When you upgrade `go-ooo`, the config schema may have changed - new sections, or renamed keys. Bring an existing
+`config.toml` up to the current schema **without** re-running `init` (which refuses to overwrite an existing config):
+
+```bash
+./build/go-ooo config migrate --home /path/to/.go-ooo
+```
+
+This preserves your customised values, carries any renamed settings to their new homes (for example the
+`[adhoc_quality]` section was renamed to `[price_quality]`), adds any new sections with their defaults, drops settings
+that no longer exist, and backs up the previous file to `config.toml.bak`. Pass `--dry-run` to preview the changes
+first. It is a no-op on an already-current file.
+
+> Note: the file is regenerated from the current template, so hand-added comments are not preserved - your **values**
+> are. Your previous file is always kept at `config.toml.bak`.
 
 #### Registering a new Oracle Provider
 
