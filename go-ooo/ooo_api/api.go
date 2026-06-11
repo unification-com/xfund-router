@@ -2,11 +2,10 @@ package ooo_api
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"go-ooo/config"
 	"go-ooo/database"
@@ -15,8 +14,6 @@ import (
 )
 
 type OOOApi struct {
-	baseURL          string
-	client           *http.Client
 	db               *database.DB
 	ctx              context.Context
 	dexModuleManager *dex.Manager
@@ -37,16 +34,16 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 	)
 
 	return &OOOApi{
-		baseURL: cfg.Jobs.OooApiUrl,
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-		},
 		db:               db,
 		ctx:              ctx,
 		dexModuleManager: dexModuleManager,
 		quality:          cfg.PriceQuality,
 	}, nil
 }
+
+// ErrFinchainsRemoved is returned when a legacy Finchains-shape (.PR) request is redirected to the
+// DEX path but the pair is not available on any supported DEX. Finchains itself is gone.
+var ErrFinchainsRemoved = errors.New("Finchains endpoints removed; pair is not available on any supported DEX")
 
 func (o *OOOApi) UpdateDexPairs() {
 	o.dexModuleManager.GetSupportedPairs()
@@ -59,7 +56,7 @@ func (o *OOOApi) UpdateDexPairs() {
 // drops to zero (queries are one-shot, so removal is safe - see QUERY_FORMAT_REVIEW).
 const (
 	QTypeAdHoc     = "AD" // AdHoc DEX query
-	QTypeFinchains = "PR" // Finchains price query (removed with Finchains)
+	QTypeFinchains = "PR" // legacy Finchains price query - still recognised so it routes to the redirect
 )
 
 // ParsedEndpoint is the structured form of an OoO endpoint string. Two positional grammars
@@ -82,7 +79,7 @@ type ParsedEndpoint struct {
 	// Finchains subtype/exchange/window params). Per the silent-drop policy the request is
 	// still served; these are surfaced in logs + a metric.
 	IgnoredFields []string
-	// Finchains-only positional fields (legacy; removed with Finchains).
+	// Finchains-only positional fields (legacy grammar; parsed but discarded by the redirect).
 	Subtype string
 	Supp1   string
 	Supp2   string
@@ -113,7 +110,38 @@ func (o *OOOApi) RouteQuery(endpoint string, requestId string) (string, error) {
 	if parsed.IsAdHoc() {
 		return o.QueryDexPrice(parsed, requestId)
 	}
-	return o.QueryFinchainsEndpoint(endpoint, requestId)
+	// Finchains is gone: lossily redirect a legacy .PR request to the DEX path on base/target.
+	return o.redirectFinchainsToAdHoc(parsed, requestId)
+}
+
+// redirectFinchainsToAdHoc serves a legacy Finchains-shape request from the DEX mean, discarding
+// the Finchains-only qualifiers (time window, aggregation strategy, per-exchange filter). If
+// base/target is on no supported DEX it returns ErrFinchainsRemoved. Every redirect is logged so
+// post-deploy analytics can show how much Finchains-shape traffic is still arriving.
+func (o *OOOApi) redirectFinchainsToAdHoc(parsed ParsedEndpoint, requestId string) (string, error) {
+	logger.InfoWithFields("ooo_api", "redirectFinchainsToAdHoc", "redirect",
+		"Finchains endpoint redirected to the AdHoc DEX path (Finchains qualifiers discarded)",
+		logger.Fields{
+			"request_id": requestId,
+			"base":       parsed.Base,
+			"target":     parsed.Target,
+			"redirected": true,
+		})
+
+	// Synthesise the canonical AdHoc form (base.target, default window); drop subtype/supp/window.
+	adhoc := ParsedEndpoint{Base: parsed.Base, Target: parsed.Target, QType: QTypeAdHoc}
+	price, err := o.QueryDexPrice(adhoc, requestId)
+	if err != nil {
+		logger.WarnWithFields("ooo_api", "redirectFinchainsToAdHoc", "",
+			"redirect failed - pair not available on any supported DEX", logger.Fields{
+				"request_id": requestId,
+				"base":       parsed.Base,
+				"target":     parsed.Target,
+				"error":      err.Error(),
+			})
+		return "", ErrFinchainsRemoved
+	}
+	return price, nil
 }
 
 // IsAdhoc parses endpoint and reports whether it is an AdHoc DEX query. Used at request
@@ -156,7 +184,9 @@ func ParseEndpoint(endpoint string) (ParsedEndpoint, error) {
 				p.Minutes, p.IgnoredFields = parseAdhocMinutes(ep[3], ep[4:])
 			}
 		} else {
-			// base.target.PR.subtype[.supp1.supp2.supp3] - consumed by the Finchains builder.
+			// base.target.PR.subtype[.supp1.supp2.supp3] - the legacy Finchains grammar. Still
+			// parsed (so the request routes + logs as a redirect) but the qualifiers are then
+			// discarded by the lossy redirect (Finchains is gone).
 			if len(ep) > 3 {
 				p.Subtype = ep[3]
 			}

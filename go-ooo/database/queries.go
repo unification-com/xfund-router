@@ -95,28 +95,6 @@ func (d *DB) GetLeastGasUsed() (models.DataRequests, error) {
 }
 
 /*
-  SupportedPairs queries
-*/
-
-func (d *DB) PairIsSupportedByPairName(pair string) (models.SupportedPairs, error) {
-	supported := models.SupportedPairs{}
-	err := d.Where("name = ?", pair).First(&supported).Error
-	return supported, err
-}
-
-func (d *DB) PairIsSupportedByBaseAndTarget(base string, target string) (models.SupportedPairs, error) {
-	supported := models.SupportedPairs{}
-	err := d.Where("base = ? AND target = ?", base, target).First(&supported).Error
-	return supported, err
-}
-
-func (d *DB) PairsNoLongerSupported(pairs []string) ([]models.SupportedPairs, error) {
-	res := []models.SupportedPairs{}
-	err := d.Not(map[string]interface{}{"name": pairs}).Find(&res).Error
-	return res, err
-}
-
-/*
   DexPairs queries
 */
 

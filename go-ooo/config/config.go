@@ -8,7 +8,6 @@ import (
 )
 
 type JobsConfig struct {
-	OooApiUrl         string `mapstructure:"ooo_api_url"`
 	CheckDuration     uint64 `mapstructure:"check_duration"`
 	WaitConfirmations uint64 `mapstructure:"wait_confirmations"`
 	MaxJobAge         uint64 `mapstructure:"max_job_age"`
@@ -117,7 +116,6 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Jobs: JobsConfig{
-			OooApiUrl:         "https://crypto.finchains.io/api",
 			CheckDuration:     5,
 			WaitConfirmations: 1,
 			MaxJobAge:         3600,
@@ -357,9 +355,6 @@ func (c Config) ValidateBasic() error {
 	}
 	if c.Jobs.WaitConfirmations == 0 {
 		return errors.New("jobs.wait_confirmations not set in config.toml")
-	}
-	if c.Jobs.OooApiUrl == "" {
-		return errors.New("jobs.ooo_api_url not set in config.toml")
 	}
 
 	if c.Keystore.Account == "" {

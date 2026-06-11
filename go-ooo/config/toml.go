@@ -81,9 +81,6 @@ password = "{{ .Database.Password }}"
 # number of seconds between polling the chain for new requests
 check_duration = {{ .Jobs.CheckDuration }}
 
-# URL for the Finchains API
-ooo_api_url = "{{ .Jobs.OooApiUrl }}"
-
 # Number of blocks to wait before fulfilling a request
 wait_confirmations = {{ .Jobs.WaitConfirmations }}
 

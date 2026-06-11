@@ -125,7 +125,7 @@ func (s *Service) Run() {
 		s.initPrometheus()
 	}(s)
 
-	// update supported (Finchains) + DEX pairs - initial refresh at startup
+	// refresh the DEX pair catalogue - initial refresh at startup
 	go s.refreshPairs()
 
 	// pick up from the last block we know about to process
@@ -166,9 +166,9 @@ func (s *Service) Run() {
 	}
 }
 
-// refreshPairs updates the supported (Finchains) + DEX pairs, skipping the run if a
-// previous refresh is still in progress - so a slow refresh can't pile up a goroutine
-// on every updatePairsTicker tick. Shared by the initial refresh + the ticker (DRY).
+// refreshPairs updates the DEX pair catalogue, skipping the run if a previous refresh is still
+// in progress - so a slow refresh can't pile up a goroutine on every updatePairsTicker tick.
+// Shared by the initial refresh + the ticker (DRY).
 func (s *Service) refreshPairs() {
 	if !s.pairsRefreshing.CompareAndSwap(false, true) {
 		logger.Info("service", "refreshPairs", "", "skipping pair refresh - previous run still in progress")
@@ -176,7 +176,6 @@ func (s *Service) refreshPairs() {
 	}
 	defer s.pairsRefreshing.Store(false)
 
-	s.oooApi.UpdateSupportedPairs()
 	s.oooApi.UpdateDexPairs()
 }
 

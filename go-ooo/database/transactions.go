@@ -151,19 +151,6 @@ func (d *DB) InsertNewToBlock(toBlock uint64) error {
 }
 
 /*
-  SupportedPairs table
-*/
-
-func (d *DB) AddNewSupportedPair(name string, base string, target string) (err error) {
-	err = d.Create(&models.SupportedPairs{
-		Name:   name,
-		Base:   base,
-		Target: target,
-	}).Error
-	return
-}
-
-/*
   FailedFulfillments table
 */
 
