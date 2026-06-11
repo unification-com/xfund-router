@@ -196,13 +196,18 @@ func DefaultConfig() *Config {
 			},
 		},
 		PriceQuality: PriceQualityConfig{
-			// Sensible flag defaults: warn (but still answer) on a single-venue, thinly-backed
-			// or widely-dispersed sample.
+			// Flag defaults calibrated against a live mainnet sweep (2026-06-11): every legit
+			// pair had >=2 venues and legit dispersion stayed <=0.7%, while a thin long-tail pair
+			// reached ~2% - so 2 venues / $100k / 1% dispersion warn on the genuinely thin/dispersed
+			// without false-flagging blue-chips. Warn (but still answer) below these.
 			FlagMinPools:        2,
 			FlagMinVenues:       2,
 			FlagMinLiquidityUsd: 100000,
-			FlagMaxDispersion:   0.02,
-			// Refuse backstop disabled by default - calibrate against real queries before enabling.
+			FlagMaxDispersion:   0.01,
+			// Refuse backstop disabled by default (opt-in). The same sweep suggests a conservative
+			// starting set if you enable it: refuse_min_liquidity_usd = 25000 (sub-$25k is dust;
+			// the thinnest legit pair was $30k) and refuse_max_dispersion = 0.20 (>20% post-MAD is
+			// clearly broken). Do NOT refuse on venues - real single-venue pairs exist.
 			RefuseMinPools:        0,
 			RefuseMinVenues:       0,
 			RefuseMinLiquidityUsd: 0,

@@ -194,11 +194,15 @@ min_tx_count = {{ .Dexs.XdaiHoneyswap.MinTxCount }}
 # (chain+dex), total backing liquidity (whole USD) and dispersion (robust coefficient of
 # variation = MAD scale / median).
 #
-# flag_*   - log a "thin price sample" warning but STILL fulfil. Soft bars; sensible defaults.
+# flag_*   - log a "thin price sample" warning but STILL fulfil. Soft bars; defaults calibrated
+#            against a live mainnet sweep (legit pairs: >=2 venues, dispersion <=0.7%).
 # refuse_* - refuse to publish (the request stays unfulfilled) when a sample is degenerate. A
 #            conservative backstop: each check is disabled at 0, and all default to 0 so the
-#            refuse path is opt-in. Calibrate against real queries before enabling, and note a
-#            liquidity floor will also refuse pairs whose ReserveUsd metadata is stale/zero.
+#            refuse path is opt-in. Calibrated starting set if you enable it:
+#              refuse_min_liquidity_usd = 25000   (sub-$25k is dust; the thinnest legit pair was $30k)
+#              refuse_max_dispersion    = 0.20    (>20% post-MAD disagreement is clearly broken)
+#            Do NOT refuse on venues - real single-venue pairs exist. Note a liquidity floor will
+#            also refuse pairs whose ReserveUsd metadata is stale/zero.
 
 [price_quality]
 flag_min_pools = {{ .PriceQuality.FlagMinPools }}
