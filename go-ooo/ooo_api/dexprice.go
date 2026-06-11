@@ -8,10 +8,14 @@ import (
 	"go-ooo/utils"
 	"math"
 	"math/big"
+	"time"
 )
 
 func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string, error) {
 	base, target, minutes := parsed.Base, parsed.Target, parsed.Minutes
+
+	start := time.Now()
+	defer func() { priceFetchDuration.Observe(time.Since(start).Seconds()) }()
 
 	logger.Debug("ooo_api", "QueryDexPrice", "ParseEndpoint", "endpoint parsed", logger.Fields{
 		"requestId": requestId,
@@ -43,6 +47,7 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 	}
 
 	if len(values) == 0 {
+		priceNoDataTotal.Inc()
 		logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "no prices found on DEXs for pair", logger.Fields{
 			"base":   base,
 			"target": target,
@@ -90,6 +95,7 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 	// on-chain. The existing zero-prices refusal (above) always applies regardless.
 	if reason := qualityShortfall(o.quality.RefuseMinPools, o.quality.RefuseMinVenues, o.quality.RefuseMinLiquidityUsd, o.quality.RefuseMaxDispersion,
 		numPools, numVenues, totalLiquidity, dispersion); reason != "" {
+		priceRefusedTotal.Inc()
 		logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "refusing price - sample below quality floor", logger.Fields{
 			"base":              base,
 			"target":            target,
@@ -126,10 +132,14 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 		"final_wei_mean":    wei.String(),
 	})
 
+	// This price is being served - record its quality signals for the metrics histograms.
+	observePriceQuality(numPools, numVenues, totalLiquidity, dispersion)
+
 	// Flag (off-chain): still answers, but warns when below the soft bars so a thin sample is
 	// visible to the operator without declining the request.
 	if reason := qualityShortfall(o.quality.FlagMinPools, o.quality.FlagMinVenues, o.quality.FlagMinLiquidityUsd, o.quality.FlagMaxDispersion,
 		numPools, numVenues, totalLiquidity, dispersion); reason != "" {
+		priceFlaggedTotal.Inc()
 		logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "thin price sample - low manipulation resistance", logger.Fields{
 			"base":              base,
 			"target":            target,

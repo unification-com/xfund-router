@@ -230,6 +230,7 @@ func getPrices(module Module, base, target string, minutes uint64, dexInfo DexIn
 				"base":   base,
 				"target": target,
 			})
+			dexQueryTotal.WithLabelValues(module.Chain(), module.Dex(), "error").Inc()
 			resCh <- DexResult{}
 			errCh <- fmt.Errorf("%s, %s, %s, %s. getPrices recovered from panic: %v", module.Chain(), module.Dex(), base, target, r)
 		}
@@ -237,6 +238,7 @@ func getPrices(module Module, base, target string, minutes uint64, dexInfo DexIn
 
 	query, numQueries, err := module.GenerateDexPricesQuery(dexInfo.ContractAddresses, minutes, dexInfo.CurrentBlock, dexInfo.BlockPerMin)
 	if err != nil {
+		dexQueryTotal.WithLabelValues(module.Chain(), module.Dex(), "error").Inc()
 		errMsg := fmt.Sprintf(`%s, %s, %s, %s. getPrices generate query error: %s`, module.Chain(), module.Dex(), base, target, err.Error())
 		resCh <- DexResult{}
 		errCh <- errors.New(errMsg)
@@ -245,6 +247,7 @@ func getPrices(module Module, base, target string, minutes uint64, dexInfo DexIn
 
 	dexResult, err := runQuery(query, module.SubgraphUrl())
 	if err != nil {
+		dexQueryTotal.WithLabelValues(module.Chain(), module.Dex(), "error").Inc()
 		errMsg := fmt.Sprintf(`%s, %s, %s, %s. getPrices run query error: %s`, module.Chain(), module.Dex(), base, target, err.Error())
 		resCh <- DexResult{}
 		errCh <- errors.New(errMsg)
@@ -254,11 +257,18 @@ func getPrices(module Module, base, target string, minutes uint64, dexInfo DexIn
 	dexPools, err := module.ProcessDexPricesResult(base, target, numQueries, dexResult)
 
 	if err != nil {
+		dexQueryTotal.WithLabelValues(module.Chain(), module.Dex(), "error").Inc()
 		errMsg := fmt.Sprintf(`%s, %s, %s, %s. getPrices process query results error: %s`, module.Chain(), module.Dex(), base, target, err.Error())
 		resCh <- DexResult{}
 		errCh <- errors.New(errMsg)
 		return
 	}
+
+	result := "success"
+	if len(dexPools) == 0 {
+		result = "no_data"
+	}
+	dexQueryTotal.WithLabelValues(module.Chain(), module.Dex(), result).Inc()
 
 	resCh <- DexResult{
 		Chain: module.Chain(),
