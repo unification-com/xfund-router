@@ -68,6 +68,17 @@ make build-testapp
 ./build/testapp api price WETH.USDC --graphnetapi [GRAPHNET_API_KEY]
 ```
 
+By default the `testapp` uses a throwaway sqlite file (`/tmp/go-ooo_testapp.sqlite`). It can
+instead run against a Postgres database — for example a restored production dump, which gives a
+realistic curated-pair set to query and exercises the schema-migration path on real data:
+
+```bash
+./build/testapp api price WETH.USDC \
+  --db-dialect postgres --db-host /path/to/socket-or-host --db-port 5432 \
+  --db-user [USER] --db-name [DB] --db-pass [PASS] \
+  --graphnetapi [GRAPHNET_API_KEY]
+```
+
 ## go-ooo
 
 `go-ooo`, the core OoO service application receives and processes data requests. The application requires on-chain 

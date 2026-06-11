@@ -2,25 +2,28 @@ package cmd
 
 import (
 	"context"
+
 	"go-ooo/config"
-	"go-ooo/logger"
-	"gorm.io/driver/sqlite"
-	"log"
-	"os"
-	"time"
-
 	"go-ooo/database"
+	"go-ooo/logger"
 	"go-ooo/ooo_api"
-	"gorm.io/gorm"
-
-	gorm_logger "gorm.io/gorm/logger"
 )
 
 const (
 	FlagGraphNetworkApiKey = "graphnetapi"
 )
 
-var graphNetApi string
+var (
+	graphNetApi string
+
+	dbDialect string
+	dbStorage string
+	dbHost    string
+	dbPort    uint64
+	dbUser    string
+	dbName    string
+	dbPass    string
+)
 
 func createApi() *ooo_api.OOOApi {
 	ctx := context.Background()
@@ -32,34 +35,27 @@ func createApi() *ooo_api.OOOApi {
 	// API keys for testing
 	cfg.ApiKeys.GraphNetwork = graphNetApi
 
-	gormLogger := gorm_logger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
-		gorm_logger.Config{
-			SlowThreshold:             time.Second,      // Slow SQL threshold
-			LogLevel:                  gorm_logger.Warn, // Log level
-			IgnoreRecordNotFoundError: true,             // Ignore ErrRecordNotFound error for logger
-			Colorful:                  false,            // Disable color
-		},
-	)
+	// DB: sqlite by default, or postgres (e.g. a restored production dump) via the --db-* flags.
+	// Reuse the application's NewDb so the testapp exercises the exact connection + migration
+	// path go-ooo runs in production - including schema migrations against a real dump.
+	cfg.Database.Dialect = dbDialect
+	cfg.Database.Storage = dbStorage
+	cfg.Database.Host = dbHost
+	cfg.Database.Port = dbPort
+	cfg.Database.User = dbUser
+	cfg.Database.Database = dbName
+	cfg.Database.Password = dbPass
 
-	db, err := gorm.Open(sqlite.Open("/tmp/go-ooo_testapp.sqlite"), &gorm.Config{
-		Logger: gormLogger,
-	})
-
+	dbConn, err := database.NewDb(cfg)
 	if err != nil {
-		logger.Fatal("cmd", "createApi", "gorm.Open", err.Error())
-	}
-	dbConn := &database.DB{
-		DB: db,
+		logger.Fatal("cmd", "createApi", "database.NewDb", err.Error())
 	}
 
-	err = dbConn.Migrate()
-	if err != nil {
+	if err := dbConn.Migrate(); err != nil {
 		logger.Fatal("cmd", "createApi", "db.Migrate", err.Error())
 	}
 
 	oooApi, err := ooo_api.NewApi(ctx, cfg, dbConn)
-
 	if err != nil {
 		logger.Fatal("cmd", "createApi", "ooo_api.NewApi", err.Error())
 	}
