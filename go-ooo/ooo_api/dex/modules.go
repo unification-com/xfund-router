@@ -5,6 +5,7 @@ import (
 	"go-ooo/config"
 	"go-ooo/logger"
 	"net/http"
+	"sync"
 	"time"
 
 	"go-ooo/database"
@@ -31,7 +32,12 @@ type Manager struct {
 	db         *database.DB
 	httpClient *http.Client
 
-	chains  map[string]*chains.ChainDef
+	chains map[string]*chains.ChainDef
+
+	// modules is the priceable source set. It is replaced wholesale by SetModules when the
+	// dex-pair-verify manifest refreshes (#127), so mu guards it against the concurrent price +
+	// pair-refresh loops that read it.
+	mu      sync.RWMutex
 	modules map[string]Module
 }
 
@@ -71,4 +77,31 @@ func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB, mod
 		chains:  chainMap,
 		modules: moduleMap,
 	}
+}
+
+// SetModules replaces the priceable module set wholesale. The manifest-driven export refresh
+// (#127) calls it after rebuilding modules from the v3 manifest. Concurrent price/pair-refresh
+// loops snapshot the set under the read lock, so they always see the complete old or complete new
+// set, never a partial one.
+func (dm *Manager) SetModules(modules []Module) {
+	moduleMap := make(map[string]Module, len(modules))
+	for _, m := range modules {
+		moduleMap[m.Name()] = m
+	}
+	dm.mu.Lock()
+	dm.modules = moduleMap
+	dm.mu.Unlock()
+}
+
+// snapshotModules returns the current modules under a read lock. Callers iterate the returned
+// slice (doing slow, networked per-module work) without holding the lock, so a SetModules can
+// swap the set in without blocking on in-flight queries.
+func (dm *Manager) snapshotModules() []Module {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+	mods := make([]Module, 0, len(dm.modules))
+	for _, m := range dm.modules {
+		mods = append(mods, m)
+	}
+	return mods
 }

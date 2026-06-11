@@ -9,7 +9,7 @@ import (
 )
 
 func (dm *Manager) GetSupportedPairs() {
-	for _, module := range dm.modules {
+	for _, module := range dm.snapshotModules() {
 		var pairMetaData types.PairMetaData
 
 		dataUrl := fmt.Sprintf(`https://raw.githubusercontent.com/unification-com/ooo-adhoc/main/data/%s/%s.json`, module.Chain(), module.Dex())
@@ -42,7 +42,7 @@ func (dm *Manager) GetSupportedPairs() {
 }
 
 func (dm *Manager) UpdateAllPairsMetaDataFromDexs() {
-	for _, module := range dm.modules {
+	for _, module := range dm.snapshotModules() {
 
 		var contractAddresses []string
 		pairsDb, _ := dm.db.Get100PairsForDataRefresh(module.Chain(), module.Dex())

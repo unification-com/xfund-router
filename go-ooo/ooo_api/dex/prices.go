@@ -53,8 +53,9 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 	blockByChain := make(map[string]uint64)
 	chainRpcFailed := make(map[string]bool)
 
-	// get a list of valid modules to send query to
-	for _, module := range dm.modules {
+	// get a list of valid modules to send query to. snapshotModules guards against a concurrent
+	// SetModules (the manifest refresh) swapping the set out mid-iteration.
+	for _, module := range dm.snapshotModules() {
 
 		logger.InfoWithFields("dex", "GetPricesFromDexModules", "check valid", "get prices", logger.Fields{
 			"dex":     module.Name(),
@@ -70,9 +71,19 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			continue
 		}
 
+		// A manifest-driven module may reference a chain go-ooo has no block/RPC config for; skip
+		// it rather than nil-panicking on dm.chains[chain] below.
+		chainDef := dm.chains[chain]
+		if chainDef == nil {
+			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check chain configured",
+				"module's chain is not configured (no block/rpc) - skipping",
+				logger.Fields{"chain": chain, "dex": module.Dex()})
+			continue
+		}
+
 		currentBlock, cached := blockByChain[chain]
 		if !cached {
-			cb, err := dm.chains[chain].EthClient.BlockNumber(dm.ctx)
+			cb, err := chainDef.EthClient.BlockNumber(dm.ctx)
 			if err != nil {
 				logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
 					"chain": chain,
@@ -87,7 +98,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			currentBlock = cb
 		}
 
-		blocksPerMin := uint64(dm.chains[chain].BlocksPerMin)
+		blocksPerMin := uint64(chainDef.BlocksPerMin)
 
 		dbPairRes, _ := dm.db.FindByDexPairName(base, target, chain, module.Dex())
 
