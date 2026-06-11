@@ -79,6 +79,28 @@ realistic curated-pair set to query and exercises the schema-migration path on r
   --graphnetapi [GRAPHNET_API_KEY]
 ```
 
+### Operator report
+
+`testapp report` summarises the request history straight from the database: an overall P&L
+summary, plus per-consumer, per-pair and failure breakdowns. It is **read-only** (it never
+migrates or modifies the database), so it is safe to point at a live Postgres instance, a replica,
+or a restored dump:
+
+```bash
+# against a Postgres dump / instance
+./build/testapp report \
+  --db-dialect postgres --db-host /path/to/socket-or-host --db-port 5432 \
+  --db-user [USER] --db-name [DB] --db-pass [PASS] \
+  --xfund-price-eth 0.0125
+
+# against a sqlite file
+./build/testapp report --db-storage /path/to/go-ooo.sqlite
+```
+
+`--xfund-price-eth` (ETH per xFUND) values fees and P&L in ETH; omit it to see fees in xFUND and
+cost in ETH only. `--days N` limits the window to the last N days (default: all history) and
+`--top N` caps each breakdown table (default 20).
+
 ## go-ooo
 
 `go-ooo`, the core OoO service application receives and processes data requests. The application requires on-chain 
