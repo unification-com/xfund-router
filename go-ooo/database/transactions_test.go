@@ -13,7 +13,7 @@ func TestIncrementFulfillmentAttempts(t *testing.T) {
 	require.NoError(t, d.Migrate())
 
 	const reqId = "0xreq1"
-	require.NoError(t, d.InsertNewRequest("0xprov", "0xcons", reqId, "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 100, true))
+	require.NoError(t, d.InsertNewRequest("0xprov", "0xcons", reqId, "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 100))
 
 	require.NoError(t, d.IncrementFulfillmentAttempts(reqId))
 	require.NoError(t, d.IncrementFulfillmentAttempts(reqId))
@@ -34,7 +34,7 @@ func TestFindByRequestId(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, found)
 
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xreqX", "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 1, true))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xreqX", "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 1))
 	row, found, err := d.FindByRequestId("0xreqX")
 	require.NoError(t, err)
 	require.True(t, found)

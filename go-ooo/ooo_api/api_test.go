@@ -86,21 +86,6 @@ func TestParseEndpoint(t *testing.T) {
 	}
 }
 
-func TestIsAdhoc(t *testing.T) {
-	if ad, err := IsAdhoc("WETH.USDC.AD"); err != nil || !ad {
-		t.Errorf("WETH.USDC.AD: adhoc=%v err=%v", ad, err)
-	}
-	if ad, err := IsAdhoc("WETH.USDC"); err != nil || !ad {
-		t.Errorf("WETH.USDC (suffix-less): adhoc=%v err=%v", ad, err)
-	}
-	if pr, err := IsAdhoc("BTC.GBP.PR.AVC.1H"); err != nil || pr {
-		t.Errorf("BTC.GBP.PR...: adhoc=%v err=%v", pr, err)
-	}
-	if _, err := IsAdhoc("BTC"); err == nil {
-		t.Error("BTC: expected a parse error")
-	}
-}
-
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

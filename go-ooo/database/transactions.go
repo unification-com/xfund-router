@@ -18,7 +18,7 @@ func (d *DB) InsertNewRequest(provider string,
 	consumer string, requestId string,
 	endpoint string, endpointDecoded string,
 	txHash string, gasUsed uint64, gasPrice uint64,
-	fee uint64, blockNumber uint64, isAdhoc bool) (err error) {
+	fee uint64, blockNumber uint64) (err error) {
 	err = d.Omit("FulfilTx").Create(&models.DataRequests{
 		Provider:            provider,
 		Consumer:            consumer,
@@ -32,7 +32,6 @@ func (d *DB) InsertNewRequest(provider string,
 		Fee:                 fee,
 		RequestStatus:       models.REQUEST_STATUS_INITIALISED,
 		FulfillmentAttempts: 0,
-		IsAdhoc:             isAdhoc,
 		JobStatus:           models.JOB_STATUS_PENDING,
 	}).Error
 	return

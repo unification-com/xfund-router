@@ -144,17 +144,6 @@ func (o *OOOApi) redirectFinchainsToAdHoc(parsed ParsedEndpoint, requestId strin
 	return price, nil
 }
 
-// IsAdhoc parses endpoint and reports whether it is an AdHoc DEX query. Used at request
-// detection time (chain) to set the job's adhoc flag. The canonical suffix-less form
-// (base.target[.minutes]) is always AdHoc.
-func IsAdhoc(endpoint string) (bool, error) {
-	parsed, err := ParseEndpoint(endpoint)
-	if err != nil {
-		return false, err
-	}
-	return parsed.IsAdHoc(), nil
-}
-
 // ParseEndpoint splits an endpoint string into its fields. Two positional grammars are
 // accepted, disambiguated by the third field:
 //

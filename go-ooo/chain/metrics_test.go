@@ -26,8 +26,8 @@ func TestWarmStartFulfilmentMetrics(t *testing.T) {
 	d := newChainTestDB(t)
 
 	// 2 sent (r1, r2), 1 success (r1), 2 reverted attempts.
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr1", "WETH.USDC", "WETH.USDC", "0xtx1", 0, 0, 1, 100, true))
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr2", "WETH.USDC", "WETH.USDC", "0xtx2", 0, 0, 1, 100, true))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr1", "WETH.USDC", "WETH.USDC", "0xtx1", 0, 0, 1, 100))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr2", "WETH.USDC", "WETH.USDC", "0xtx2", 0, 0, 1, 100))
 	require.NoError(t, d.UpdateFulfillmentSent("0xr1", "0xfh1", 101, 1, 1_000_000_000, 1_000_000_000))
 	require.NoError(t, d.UpdateRequestStatus("0xr1", models.REQUEST_STATUS_SUCCESS, ""))
 	require.NoError(t, d.UpdateFulfillmentSent("0xr2", "0xfh2", 102, 2, 2_000_000_000, 1_500_000_000))

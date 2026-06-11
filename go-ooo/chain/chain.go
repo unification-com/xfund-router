@@ -400,16 +400,6 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 			"requestId": requestId,
 		})
 
-		isAdHoc, err := ooo_api.IsAdhoc(endpointStr)
-
-		if err != nil {
-			// possibly not in Tx pool yet
-			logger.ErrorWithFields("chain", "processIncomingRequests", "parse and check adhoc", err.Error(),
-				logger.Fields{
-					"requestId": requestId,
-				})
-		}
-
 		err = o.db.InsertNewRequest(
 			provider.Hex(),
 			consumer.Hex(),
@@ -421,7 +411,6 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 			gasPrice,
 			event.Fee.Uint64(),
 			event.Raw.BlockNumber,
-			isAdHoc,
 		)
 
 		if err != nil {

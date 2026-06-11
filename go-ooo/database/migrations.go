@@ -26,7 +26,7 @@ import (
 
 // latestSchemaVersion is the version a fully-migrated database ends on. It MUST equal
 // the highest migrationStep.to in schemaMigrations.
-const latestSchemaVersion uint64 = 3
+const latestSchemaVersion uint64 = 4
 
 // migrationStep transforms the database from schema version (to-1) to version `to`.
 type migrationStep struct {
@@ -39,6 +39,7 @@ var schemaMigrations = []migrationStep{
 	{to: 1, name: "clear adhoc token data", run: migrateDeleteAdhocTokenData},
 	{to: 2, name: "clear adhoc token data", run: migrateDeleteAdhocTokenData},
 	{to: 3, name: "drop legacy dex_tokens table and columns", run: migrateDropLegacyDexTokens},
+	{to: 4, name: "drop the Finchains supported_pairs table and the is_adhoc column", run: migrateDropFinchainsRemnants},
 }
 
 // runSchemaMigrations applies, in order, every step whose target version is ahead of
@@ -139,6 +140,25 @@ func migrateDropLegacyDexTokens(tx *gorm.DB) error {
 			if err := m.DropColumn(&models.DexPairs{}, col); err != nil {
 				return fmt.Errorf("drop dex_pairs.%s: %w", col, err)
 			}
+		}
+	}
+	return nil
+}
+
+// migrateDropFinchainsRemnants removes the Finchains-only supported_pairs table and the now-dead
+// is_adhoc column on data_requests (Finchains is gone; every request is a DEX query). Idempotent:
+// each drop is existence-guarded, so it is a no-op on a fresh database (where AutoMigrate never
+// created them) and safe to re-run on a populated one.
+func migrateDropFinchainsRemnants(tx *gorm.DB) error {
+	m := tx.Migrator()
+	if m.HasTable("supported_pairs") {
+		if err := m.DropTable("supported_pairs"); err != nil {
+			return fmt.Errorf("drop supported_pairs: %w", err)
+		}
+	}
+	if m.HasColumn(&models.DataRequests{}, "is_adhoc") {
+		if err := m.DropColumn(&models.DataRequests{}, "is_adhoc"); err != nil {
+			return fmt.Errorf("drop data_requests.is_adhoc: %w", err)
 		}
 	}
 	return nil

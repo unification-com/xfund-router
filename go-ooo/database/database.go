@@ -95,7 +95,6 @@ func (d *DB) Migrate() error {
 		&models.DataRequests{},
 		&models.FailedFulfilment{},
 		&models.ToBlocks{},
-		&models.SupportedPairs{},
 		&models.DexPairs{},
 		&models.TokenContracts{},
 		&models.VersionInfo{},

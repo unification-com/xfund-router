@@ -13,9 +13,9 @@ func TestFulfilmentCounts(t *testing.T) {
 	require.NoError(t, d.Migrate())
 
 	// Three requests; r1 sent + success, r2 sent only, r3 never sent.
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr1", "WETH.USDC", "WETH.USDC", "0xtx1", 0, 0, 1, 100, true))
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr2", "WETH.USDC", "WETH.USDC", "0xtx2", 0, 0, 1, 100, true))
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr3", "WETH.USDC", "WETH.USDC", "0xtx3", 0, 0, 1, 100, true))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr1", "WETH.USDC", "WETH.USDC", "0xtx1", 0, 0, 1, 100))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr2", "WETH.USDC", "WETH.USDC", "0xtx2", 0, 0, 1, 100))
+	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xr3", "WETH.USDC", "WETH.USDC", "0xtx3", 0, 0, 1, 100))
 
 	require.NoError(t, d.UpdateFulfillmentSent("0xr1", "0xfh1", 101, 1, 1_000_000_000, 1_000_000_000))
 	require.NoError(t, d.UpdateRequestStatus("0xr1", models.REQUEST_STATUS_SUCCESS, ""))

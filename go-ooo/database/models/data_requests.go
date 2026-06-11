@@ -26,7 +26,6 @@ type DataRequests struct {
 	Consumer                    string `gorm:"index"`
 	Provider                    string `gorm:"index"`
 	RequestId                   string `gorm:"uniqueIndex"`
-	IsAdhoc                     bool   `gorm:"index"`
 	RequestBlockNumber          uint64 `gorm:"index"`
 	LastDataFetchBlockNumber    uint64
 	RequestTxHash               string `gorm:"index"`
@@ -67,10 +66,6 @@ func (d *DataRequests) GetProvider() string {
 
 func (d *DataRequests) GetRequestId() string {
 	return d.RequestId
-}
-
-func (d *DataRequests) GetIsAdHoc() bool {
-	return d.IsAdhoc
 }
 
 func (d *DataRequests) GetRequestBlockNumber() uint64 {
