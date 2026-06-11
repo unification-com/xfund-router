@@ -62,12 +62,13 @@ func (d *DB) UpdateFulfillmentSuccess(requestId string, blockNumber uint64,
 	})
 }
 
-func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber uint64, nonce uint64, gasPrice uint64) error {
+func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber uint64, nonce uint64, gasPrice uint64, gasTipCap uint64) error {
 	return d.updateRequest(requestId, func(req *models.DataRequests) {
 		req.FulfillTxHash = txHash
 		req.LastFulfillSentBlockNumber = blockNumber
 		req.FulfillNonce = nonce
 		req.FulfillGasPrice = gasPrice
+		req.FulfillGasTipCap = gasTipCap
 	})
 }
 

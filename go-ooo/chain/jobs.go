@@ -287,6 +287,8 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 	}
 
 	fulfilmentSentTotal.Inc()
+	// tx.GasPrice() is the effective max price per gas - the gas price for a legacy tx, the fee
+	// cap for an EIP-1559 tx - so the histogram records the ceiling we committed to either way.
 	fulfilmentGasPriceGwei.Observe(weiToGwei(tx.GasPrice().Uint64()))
 
 	logger.InfoWithFields("chain", "submitFulfilment", "send tx",
@@ -298,7 +300,9 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 		})
 
 	_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_SENT, "")
-	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum, tx.Nonce(), tx.GasPrice().Uint64())
+	// Persist both the fee cap (GasPrice) and the tip (GasTipCap) so a stuck-tx replacement can
+	// bump both, as EIP-1559 requires. For a legacy tx the two are equal and the tip is unused.
+	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum, tx.Nonce(), tx.GasPrice().Uint64(), tx.GasTipCap().Uint64())
 }
 
 // replaceStuckFulfilmentTx rebroadcasts the fulfilment for job at the SAME nonce as the
@@ -313,7 +317,7 @@ func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, cur
 		return
 	}
 
-	opts, err := o.buildReplacementTransactOpts(job.GetFulfillNonce(), job.GetFulfillGasPrice())
+	opts, err := o.buildReplacementTransactOpts(job.GetFulfillNonce(), job.GetFulfillGasPrice(), job.GetFulfillGasTipCap())
 	if err != nil {
 		logger.ErrorWithFields("chain", "replaceStuckFulfilmentTx", "build replacement opts",
 			err.Error(),

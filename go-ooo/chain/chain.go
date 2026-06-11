@@ -43,6 +43,10 @@ type OoORouterService struct {
 	oracleAddress    common.Address
 	oraclePrivateKey *ecdsa.PrivateKey
 
+	// useEip1559 is the effective decision (config AND chain support) on whether fulfilment
+	// and admin txs are priced as EIP-1559 dynamic-fee txs rather than legacy gas-price txs.
+	useEip1559 bool
+
 	db *database.DB
 
 	oooApi *ooo_api.OOOApi
@@ -141,6 +145,10 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 
 	historicalFilterOpts := &bind.FilterOpts{Context: ctx, Start: initialFromBlock, End: nil}
 
+	// Decide legacy vs EIP-1559 pricing once at startup: the config toggle gated by an actual
+	// base-fee probe, so a pre-London chain (or an RPC hiccup) safely falls back to legacy.
+	useEip1559 := determineEip1559(ctx, client, cfg.Chain.Eip1559)
+
 	return &OoORouterService{
 		contractAddress:         contractAddress,
 		client:                  client,
@@ -151,6 +159,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		logRequestFulfilledHash: logRequestFulfilledHash,
 		contractAbi:             contractAbi,
 		oracleAddress:           oracleAddress,
+		useEip1559:              useEip1559,
 		baseTransactOpts:        transactOpts,
 		callOpts:                callOpts,
 		db:                      db,

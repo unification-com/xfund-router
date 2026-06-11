@@ -28,6 +28,7 @@ type ChainConfig struct {
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
 	GasBumpPercent  uint64 `mapstructure:"gas_bump_percent"`
+	Eip1559         bool   `mapstructure:"eip1559"`
 	ContractAddress string `mapstructure:"contract_address"`
 	EthHttpHost     string `mapstructure:"eth_http_host"`
 	EthWsHost       string `mapstructure:"eth_ws_host"`
@@ -130,9 +131,12 @@ func DefaultConfig() *Config {
 			Account: "",
 		},
 		Chain: ChainConfig{
-			GasLimit:        500000,
-			MaxGasPrice:     150,
-			GasBumpPercent:  13,
+			GasLimit:       500000,
+			MaxGasPrice:    150,
+			GasBumpPercent: 13,
+			// Modern default: send EIP-1559 dynamic-fee txs. Auto-falls-back to legacy on a
+			// pre-London chain (the dev ganache), so this is safe even on a migrated config.
+			Eip1559:         true,
 			ContractAddress: "",
 			EthHttpHost:     "",
 			EthWsHost:       "",
@@ -244,6 +248,9 @@ func (c *Config) InitForDevNet() {
 	c.Chain.EthWsHost = "ws://127.0.0.1:8545"
 	c.Chain.NetworkId = 696969
 	c.Chain.FirstBlock = 1
+	// The dev env runs ganache-cli v6, which predates the London hard fork and so cannot
+	// accept EIP-1559 (type-2) txs - use legacy gas pricing.
+	c.Chain.Eip1559 = false
 }
 
 func (c *Config) InitForSepolia() {

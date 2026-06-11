@@ -41,6 +41,12 @@ max_gas_price = {{ .Chain.MaxGasPrice }}
 # replace a transaction; values below 10 fall back to a safe default.
 gas_bump_percent = {{ .Chain.GasBumpPercent }}
 
+# Send EIP-1559 (type-2) dynamic-fee transactions, pricing each fulfilment with a priority
+# fee (tip) plus a base-fee-derived max fee instead of a single legacy gas price. max_gas_price
+# still caps the total. Automatically falls back to legacy pricing on a pre-London chain (one
+# whose latest block carries no base fee), so leaving this true is safe everywhere.
+eip1559 = {{ .Chain.Eip1559 }}
+
 ##########################################
 ## Database                             ##
 ##########################################

@@ -13,6 +13,13 @@ func TestInitForNet(t *testing.T) {
 	c := DefaultConfig()
 	require.NoError(t, c.InitForNet("mainnet"))
 	require.EqualValues(t, 1, c.Chain.NetworkId)
+	// Post-London chains default to EIP-1559 pricing.
+	require.True(t, c.Chain.Eip1559)
+
+	// The dev env runs pre-London ganache, so it must default to legacy pricing.
+	dev := DefaultConfig()
+	require.NoError(t, dev.InitForNet("dev"))
+	require.False(t, dev.Chain.Eip1559)
 
 	// A typo must error, not silently configure DevNet (127.0.0.1).
 	typo := DefaultConfig()

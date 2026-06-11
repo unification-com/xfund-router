@@ -41,6 +41,7 @@ type DataRequests struct {
 	FulfillTxHash               string `gorm:"index"`
 	FulfillGasUsed              uint64
 	FulfillGasPrice             uint64
+	FulfillGasTipCap            uint64
 	FulfillNonce                uint64
 	FulfillmentAttempts         uint64 `gorm:"default:0"`
 	JobStatus                   int    `gorm:"index"`
@@ -126,6 +127,12 @@ func (d *DataRequests) GetFulfillGasUsed() uint64 {
 
 func (d *DataRequests) GetFulfillGasPrice() uint64 {
 	return d.FulfillGasPrice
+}
+
+// GetFulfillGasTipCap returns the EIP-1559 priority fee (tip) of the last sent fulfilment tx.
+// Zero for legacy txs (and for rows written before this field existed).
+func (d *DataRequests) GetFulfillGasTipCap() uint64 {
+	return d.FulfillGasTipCap
 }
 
 func (d *DataRequests) GetFulfillNonce() uint64 {

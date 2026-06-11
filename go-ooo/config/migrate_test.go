@@ -66,6 +66,43 @@ func TestMigrateConfigFile_RenamesAdhocQuality(t *testing.T) {
 	}
 }
 
+func TestMigrateConfigFile_AddsEip1559Default(t *testing.T) {
+	// Simulate a config from before the eip1559 key existed: render the current template, then
+	// strip the eip1559 line (and customise a value, to prove preservation).
+	path := filepath.Join(t.TempDir(), "config.toml")
+	WriteConfigFile(path, DefaultConfig())
+	cur, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seed config: %v", err)
+	}
+	s := string(cur)
+	if !strings.Contains(s, "eip1559 = true") {
+		t.Fatalf("precondition: template should emit eip1559 = true:\n%s", s)
+	}
+	s = strings.Replace(s, "eip1559 = true\n", "", 1)
+	s = strings.Replace(s, "max_gas_price = 150", "max_gas_price = 99", 1)
+	if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+		t.Fatalf("write pre-eip1559 config: %v", err)
+	}
+
+	res, err := MigrateConfigFile(path, false)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if !res.Changed {
+		t.Fatal("expected the file to change (the eip1559 key is added)")
+	}
+
+	out, _ := os.ReadFile(path)
+	got := string(out)
+	if !strings.Contains(got, "eip1559 = true") {
+		t.Errorf("the new eip1559 key should be added with its default:\n%s", got)
+	}
+	if !strings.Contains(got, "max_gas_price = 99") {
+		t.Error("a customised value must be preserved across the migrate")
+	}
+}
+
 func TestMigrateConfigFile_Idempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	writePreRenameConfig(t, path)
