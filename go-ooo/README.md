@@ -58,8 +58,15 @@ make build-testapp
 
 2. Populate the temp database
 
+`update-pairs` pulls the DEX source manifest + per-source verified-pair feeds from a dex-pair-verify
+export API (`--dpv-api`, e.g. a locally-run instance) into the database, then refreshes each pair's
+live metadata from the subgraphs. The `--graphnetapi` key is needed for the (paid) decentralised-network
+subgraph endpoints; without it no source is priceable.
+
 ```bash
-./build/testapp api update-pairs --graphnetapi [GRAPHNET_API_KEY]
+./build/testapp api update-pairs \
+  --dpv-api http://127.0.0.1:3000/api/ooo/v1 --dpv-token [EXPORT_API_TOKEN] \
+  --graphnetapi [GRAPHNET_API_KEY]
 ```
 
 3. Run price queries (the canonical suffix-less form; the legacy `WETH.USDC.AD` is also accepted)
