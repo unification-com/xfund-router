@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"github.com/labstack/echo/v4"
-	"sync/atomic"
 	"time"
 
 	"go-ooo/chain"
@@ -38,10 +37,6 @@ type Service struct {
 	analyticsTasks chan go_ooo_types.AnalyticsTask
 
 	adminTokenHash string
-
-	// pairsRefreshing guards the periodic pair refresh so a slow run can't pile up a
-	// new goroutine on every tick.
-	pairsRefreshing atomic.Bool
 }
 
 func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
@@ -172,16 +167,9 @@ func (s *Service) Run() {
 	}
 }
 
-// refreshPairs updates the DEX pair catalogue, skipping the run if a previous refresh is still
-// in progress - so a slow refresh can't pile up a goroutine on every updatePairsTicker tick.
-// Shared by the initial refresh + the ticker (DRY).
+// refreshPairs refreshes the DEX source catalogue + pair set. Shared by the initial refresh + the
+// ticker; overlapping runs are coalesced by SyncDexSources' own guard, so this stays a thin seam.
 func (s *Service) refreshPairs() {
-	if !s.pairsRefreshing.CompareAndSwap(false, true) {
-		logger.Info("service", "refreshPairs", "", "skipping pair refresh - previous run still in progress")
-		return
-	}
-	defer s.pairsRefreshing.Store(false)
-
 	s.oooApi.UpdateDexPairs()
 }
 

@@ -5,6 +5,7 @@ import (
 	"go-ooo/config"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-ooo/database"
@@ -30,6 +31,11 @@ type Manager struct {
 	cfg        *config.Config
 	db         *database.DB
 	httpClient *http.Client
+
+	// syncing guards SyncDexSources so the startup refresh, the periodic refresh and an admin-
+	// triggered sync can't overlap - a second caller skips. Distinct from mu, which guards only the
+	// module/chain pointer swap.
+	syncing atomic.Bool
 
 	chains map[string]*chains.ChainDef
 

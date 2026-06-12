@@ -27,12 +27,25 @@ func (o *OoORouterService) ProcessAdminTask(task go_ooo_types.AdminTask) go_ooo_
 		return o.queryFees(task)
 	case "query_granular_fees":
 		return o.queryGranularFees(task)
+	case "sync_dex_sources":
+		return o.syncDexSources(task)
 	default:
 		return go_ooo_types.AdminTaskResponse{
 			AdminTask: task,
 			Error:     "unknown task",
 		}
 	}
+}
+
+// syncDexSources triggers an on-demand refresh of the DEX source catalogue + pair feeds from
+// dex-pair-verify. It runs in a goroutine so it doesn't block the service loop (which also
+// serialises fulfilment); an overlapping run is coalesced by SyncDexSources' own guard.
+func (o *OoORouterService) syncDexSources(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
+	resp := go_ooo_types.AdminTaskResponse{AdminTask: task}
+	go o.oooApi.UpdateDexPairs()
+	resp.Success = true
+	resp.Result = "DEX source sync triggered; it runs in the background - watch the logs / Prometheus metrics for completion"
+	return resp
 }
 
 // runAdminTx builds chain-anchored transaction options (fresh nonce + gas) and runs

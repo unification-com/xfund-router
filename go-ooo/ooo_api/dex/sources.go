@@ -64,6 +64,15 @@ func modelToSource(row models.SupportedSource) (export.ManifestSource, error) {
 // catalogue then carries the oracle), then refresh each active pair's live reserve/tx metadata from
 // the subgraphs. This is the periodic + startup refresh entry point.
 func (dm *Manager) SyncDexSources() {
+	// One sync at a time across all callers (startup, the periodic ticker, the admin trigger): a
+	// second concurrent caller skips rather than piling up duplicate manifest fetches + subgraph
+	// queries.
+	if !dm.syncing.CompareAndSwap(false, true) {
+		logger.Info("dex", "SyncDexSources", "", "skipping source sync - a previous run is still in progress")
+		return
+	}
+	defer dm.syncing.Store(false)
+
 	if err := dm.syncManifestAndFeeds(); err != nil {
 		// A failed sync (e.g. the API is down) is not fatal: keep pricing from the persisted
 		// manifest + pairs and just refresh their live metadata below.
