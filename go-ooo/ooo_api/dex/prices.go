@@ -72,8 +72,9 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 
 		// A manifest-driven module may reference a chain go-ooo has no block/RPC config for; skip
-		// it rather than nil-panicking on dm.chains[chain] below.
-		chainDef := dm.chains[chain]
+		// it rather than nil-panicking below. Read under the lock (chainDef) so a concurrent
+		// ApplyManifest swapping the chain set in can't race this lookup.
+		chainDef := dm.chainDef(chain)
 		if chainDef == nil {
 			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check chain configured",
 				"module's chain is not configured (no block/rpc) - skipping",
