@@ -16,15 +16,26 @@ type DexInfo struct {
 }
 
 // PoolSample is one pool's contribution to a price query: its identity, its backing
-// liquidity (ReserveUsd, for weighting) and its snapshot prices across the queried blocks.
-// GetPricesFromDexModules returns these per-pool rather than a flat price list so the
-// aggregator can reduce and liquidity-weight each pool independently.
+// liquidity (ReserveUsd) + trust score (for weighting), and its snapshot prices across the queried
+// blocks. GetPricesFromDexModules returns these per-pool rather than a flat price list so the
+// aggregator can reduce and weight each pool independently.
 type PoolSample struct {
 	Chain     string
 	Dex       string
 	Contract  string
 	Liquidity float64
-	Prices    []float64
+	// Confidence is the pool's dex-pair-verify trust score in [0,1] (XR1): it scales the pool's
+	// weight in the aggregator's weighted mean. 0 means unscored (legacy/pre-trust rows) and is
+	// treated as neutral by the aggregator, not zero-trust.
+	Confidence float64
+	Prices     []float64
+}
+
+// poolMeta carries the per-pool metadata the aggregator needs but the subgraph price query does not
+// return - backing liquidity + trust score - joined back onto the prices by contract address.
+type poolMeta struct {
+	liquidity  float64
+	confidence float64
 }
 
 // DexResult carries one DEX's per-pool price groups back from a fetch goroutine.
@@ -40,9 +51,9 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 	resCh := make(chan DexResult)
 	errCh := make(chan error)
 	validMods := make(map[string]DexInfo)
-	// liquidity per module, keyed "chain|dex" -> lower(contract) -> reserveUsd, to join onto
-	// the per-pool prices the family returns in the receive loop.
-	liquidityByMod := make(map[string]map[string]float64)
+	// per-pool metadata (liquidity + trust score) keyed "chain|dex" -> lower(contract), to join
+	// onto the per-pool prices the family returns in the receive loop.
+	metaByMod := make(map[string]map[string]poolMeta)
 	dexSuccess := 0
 	dexFail := 0
 	dexNoData := 0
@@ -116,7 +127,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			continue
 		}
 
-		liq := make(map[string]float64)
+		meta := make(map[string]poolMeta)
 		var contractAddresses []string
 		for _, p := range dbPairRes {
 			if p.ReserveUsd < float64(module.MinLiquidity()) {
@@ -135,7 +146,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			}
 
 			contractAddresses = append(contractAddresses, p.ContractAddress)
-			liq[strings.ToLower(p.ContractAddress)] = p.ReserveUsd
+			meta[strings.ToLower(p.ContractAddress)] = poolMeta{liquidity: p.ReserveUsd, confidence: p.Confidence}
 		}
 
 		if len(contractAddresses) == 0 {
@@ -169,7 +180,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 
 		validMods[module.Name()] = dexInfo
-		liquidityByMod[chain+"|"+module.Dex()] = liq
+		metaByMod[chain+"|"+module.Dex()] = meta
 
 		go getPrices(module, base, target, minutes, dexInfo, resCh, errCh)
 	}
@@ -196,14 +207,16 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			})
 
 		if len(r.Pools) > 0 {
-			liq := liquidityByMod[r.Chain+"|"+r.Dex]
+			meta := metaByMod[r.Chain+"|"+r.Dex]
 			for _, pool := range r.Pools {
+				m := meta[strings.ToLower(pool.Contract)]
 				samples = append(samples, PoolSample{
-					Chain:     r.Chain,
-					Dex:       r.Dex,
-					Contract:  pool.Contract,
-					Liquidity: liq[strings.ToLower(pool.Contract)],
-					Prices:    pool.Prices,
+					Chain:      r.Chain,
+					Dex:        r.Dex,
+					Contract:   pool.Contract,
+					Liquidity:  m.liquidity,
+					Confidence: m.confidence,
+					Prices:     pool.Prices,
 				})
 			}
 			dexSuccess++

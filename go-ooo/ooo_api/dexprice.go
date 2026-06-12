@@ -30,7 +30,7 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 	// its backing liquidity as the weight and its source venue (chain|dex) for the quality
 	// signals. Reducing per-pool first stops a trending series being read as i.i.d. noise and
 	// stops a busy multi-pool DEX out-voting a single-pool one.
-	var values, weights []float64
+	var values, weights, liquidities []float64
 	var sources []string
 	for _, s := range samples {
 		fp := finitePrices(s.Prices)
@@ -42,7 +42,10 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 			continue
 		}
 		values = append(values, est)
-		weights = append(weights, s.Liquidity)
+		// Weight by liquidity scaled by the trust score (XR1); keep the raw liquidity for the
+		// quality signals (manipulation resistance is about real depth, not trust-adjusted depth).
+		weights = append(weights, confidenceWeight(s.Liquidity, s.Confidence))
+		liquidities = append(liquidities, s.Liquidity)
 		sources = append(sources, s.Chain+"|"+s.Dex)
 	}
 
@@ -57,23 +60,24 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 	}
 
 	// Stage B: robustly reject outlier pool-estimates (median + MAD), then take a
-	// liquidity-weighted mean of the survivors. MAD has a 50% breakdown point, so a single
-	// manipulated/garbage reading cannot inflate the scale and mask itself - unlike the old
-	// fixed mean±1σ clip. Deep pools dominate; a dust pool is both outlier-rejected and, if it
-	// survives, low-weighted. (Trust-score weighting is XR1, pending the dex-pair-verify export.)
+	// liquidity-and-trust-weighted mean of the survivors. MAD has a 50% breakdown point, so a
+	// single manipulated/garbage reading cannot inflate the scale and mask itself - unlike the old
+	// fixed mean±1σ clip. Deep, trusted pools dominate; a dust or low-trust pool is both outlier-
+	// rejected and, if it survives, low-weighted (the weight is liquidity × trust score - XR1).
 	median, scale := madCentreAndScale(values)
-	var keptVals, keptWeights []float64
+	var keptVals, keptWeights, keptLiquidities []float64
 	var keptSources []string
 	for i, v := range values {
 		if scale == 0 || math.Abs(v-median)/scale <= madRejectThreshold {
 			keptVals = append(keptVals, v)
 			keptWeights = append(keptWeights, weights[i])
+			keptLiquidities = append(keptLiquidities, liquidities[i])
 			keptSources = append(keptSources, sources[i])
 		}
 	}
 	if len(keptVals) == 0 {
 		// The median estimate always survives the filter, so this is defensive only.
-		keptVals, keptWeights, keptSources = values, weights, sources
+		keptVals, keptWeights, keptLiquidities, keptSources = values, weights, liquidities, sources
 	}
 
 	priceFloat := weightedMean(keptVals, keptWeights)
@@ -83,7 +87,7 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 	// the price (refuse/flag below) and make a thin, easily-manipulated sample visible rather
 	// than returning a confident-looking number from a single source.
 	numPools := len(keptVals)
-	numVenues, totalLiquidity := venueCountAndLiquidity(keptSources, keptWeights)
+	numVenues, totalLiquidity := venueCountAndLiquidity(keptSources, keptLiquidities)
 	dispersion := 0.0
 	if median > 0 {
 		dispersion = scale / median
@@ -238,6 +242,19 @@ func madCentreAndScale(prices []float64) (median, scale float64) {
 	}
 
 	return median, scale
+}
+
+// confidenceWeight blends a pool's backing liquidity with its dex-pair-verify trust score (XR1):
+// weight = liquidity × confidence, so a lower-trust pool counts proportionally less in the weighted
+// mean (a ManualVerified pool scores 1 and keeps full weight). A confidence of 0 means unscored
+// (legacy rows, or a source predating the trust export) and any out-of-range value is treated as
+// neutral (factor 1) - the pool keeps full liquidity weight rather than being silently dropped.
+func confidenceWeight(liquidity, confidence float64) float64 {
+	factor := confidence
+	if factor <= 0 || factor > 1 {
+		factor = 1
+	}
+	return liquidity * factor
 }
 
 // weightedMean returns sum(v·w)/sum(w). If the total weight is zero (no liquidity data for

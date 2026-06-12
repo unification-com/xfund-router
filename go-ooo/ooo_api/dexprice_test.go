@@ -121,6 +121,44 @@ func TestWeightedMean_NegativeWeightClamped(t *testing.T) {
 	}
 }
 
+func TestConfidenceWeight(t *testing.T) {
+	cases := []struct {
+		name            string
+		liquidity, conf float64
+		want            float64
+	}{
+		{"full trust keeps full liquidity", 100, 1, 100},
+		{"half trust halves the weight", 100, 0.5, 50},
+		{"low trust heavily down-weights", 1_000_000, 0.1, 100_000},
+		{"unscored (0) is neutral", 100, 0, 100},
+		{"negative is neutral", 100, -0.3, 100},
+		{"above-range is neutral", 100, 1.5, 100},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := confidenceWeight(c.liquidity, c.conf); math.Abs(got-c.want) > 1e-9 {
+				t.Errorf("confidenceWeight(%v, %v) = %v, want %v", c.liquidity, c.conf, got, c.want)
+			}
+		})
+	}
+}
+
+func TestTrustWeightingShiftsTowardTrustedPool(t *testing.T) {
+	// Two equally-deep pools at different prices: the higher-confidence pool should pull the
+	// trust-weighted mean above the 1620 equal-weight midpoint, toward its 1640 price.
+	const liq = 1_000_000.0
+	wHi := confidenceWeight(liq, 1.0)  // trusted pool at 1640
+	wLo := confidenceWeight(liq, 0.25) // low-trust pool at 1600
+	got := weightedMean([]float64{1640, 1600}, []float64{wHi, wLo})
+	if got <= 1620 {
+		t.Errorf("trust weighting should pull above the 1620 midpoint, got %v", got)
+	}
+	want := (1640*wHi + 1600*wLo) / (wHi + wLo)
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("trust-weighted mean = %v, want %v", got, want)
+	}
+}
+
 func TestQualityShortfall(t *testing.T) {
 	// Healthy sample: 5 pools, 3 venues, $1M backing, 0.1% dispersion.
 	const (
