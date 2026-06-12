@@ -85,3 +85,22 @@ func TestProcessPairFeedEmptyFeedDoesNotWipe(t *testing.T) {
 	require.NoError(t, dm.db.Where("chain = ? AND dex = ?", "eth", "shibaswap").Find(&active).Error)
 	require.Len(t, active, 1, "empty feed must not soft-delete the existing pair")
 }
+
+// TestNormalisePoolKey guards the v4 regression: common.HexToAddress silently truncates a 32-byte
+// poolId to its last 20 bytes, which corrupted every Uniswap v4 pool key so no subgraph pool ever
+// matched it. A poolId must pass through intact (lower-cased); a 20-byte address is still checksummed.
+func TestNormalisePoolKey(t *testing.T) {
+	// Real Uniswap v4 ETH/USDC poolId — must survive whole, not be cut to its last 20 bytes.
+	poolId := "0xdce6394339af00981949f5f3baf27e3610c76326a700af57e4b3e3ae4977f78d"
+	if got := normalisePoolKey(poolId); got != poolId {
+		t.Errorf("poolId mangled: got %q (len %d), want it intact (len %d)", got, len(got), len(poolId))
+	}
+	// A mixed-case poolId is lower-cased (so it matches the subgraph + the price-query form).
+	if got := normalisePoolKey("0xDCE6394339AF00981949F5F3BAF27E3610C76326A700AF57E4B3E3AE4977F78D"); got != poolId {
+		t.Errorf("poolId not lower-cased: got %q", got)
+	}
+	// A 20-byte pool address is still checksummed (unchanged v2/v3 behaviour).
+	if got := normalisePoolKey("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"); got != "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" {
+		t.Errorf("20-byte address checksum: got %q", got)
+	}
+}

@@ -1,7 +1,9 @@
 package dex
 
 import (
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -9,6 +11,22 @@ import (
 	"go-ooo/ooo_api/dex/types"
 	"go-ooo/ooo_api/export"
 )
+
+// poolIdRe matches a 32-byte Uniswap-v4-style poolId (a hash, not a 20-byte pool address).
+var poolIdRe = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
+
+// normalisePoolKey canonicalises a pool's on-chain key for storage + lookup. A 20-byte pool
+// address is checksummed (the long-standing behaviour, matching what the subgraphs return for
+// v2/v3); a 32-byte poolId (Uniswap v4 singletons) is lower-cased and passed through - because
+// common.HexToAddress would silently truncate it to its last 20 bytes, corrupting the id so no
+// subgraph pool ever matches it again. The price query lower-cases either form before hitting the
+// subgraph, so both store-forms resolve correctly.
+func normalisePoolKey(raw string) string {
+	if poolIdRe.MatchString(raw) {
+		return strings.ToLower(raw)
+	}
+	return common.HexToAddress(raw).Hex()
+}
 
 // processPairFeed persists one source's dex-pair-verify pair feed to dex_pairs: it resolves each
 // pair's tokens, upserts the row (carrying the export's confidence + canonical key), then
@@ -27,8 +45,9 @@ func (dm *Manager) processPairFeed(feed export.PairFeed) int {
 			continue
 		}
 
-		// Normalise to a checksummed address so the upsert lookup + the soft-delete NOT-IN set match.
-		contract := common.HexToAddress(p.ContractAddress).Hex()
+		// Normalise the pool key so the upsert lookup + the soft-delete NOT-IN set match. A 20-byte
+		// address is checksummed; a 32-byte v4 poolId is kept intact (not truncated to 20 bytes).
+		contract := normalisePoolKey(p.ContractAddress)
 
 		t0, err := dm.db.FindOrInsertNewTokenContract(p.Token0.Symbol, p.Token0.ContractAddress, chain)
 		if err != nil {
@@ -69,7 +88,7 @@ func (dm *Manager) processPairFeed(feed export.PairFeed) int {
 func (dm *Manager) updatePairsInDb(pairs []types.DexPair, chain, dex string) {
 
 	for _, p := range pairs {
-		contractAddress := common.HexToAddress(p.Contract)
+		contractAddress := normalisePoolKey(p.Contract)
 		txCount, err := strconv.Atoi(p.TxCount)
 		if err != nil {
 			txCount = 0
@@ -80,14 +99,14 @@ func (dm *Manager) updatePairsInDb(pairs []types.DexPair, chain, dex string) {
 			reserveUsd = 0.0
 		}
 
-		err = dm.db.UpdateDexPairMetaData(chain, dex, contractAddress.Hex(), reserveUsd, uint64(txCount))
+		err = dm.db.UpdateDexPairMetaData(chain, dex, contractAddress, reserveUsd, uint64(txCount))
 
 		if err != nil {
 			// log error and continue
 			logger.ErrorWithFields("dex", "updatePairsInDb", "FindOrInsertNewDexPair", err.Error(), logger.Fields{
 				"chain":            chain,
 				"dex":              dex,
-				"contract_address": contractAddress.Hex(),
+				"contract_address": contractAddress,
 			})
 		}
 	}
