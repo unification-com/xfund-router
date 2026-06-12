@@ -41,6 +41,10 @@ type ManifestSource struct {
 	ExportURL            string             `json:"exportUrl"` // /api/ooo/v1/export/{chain}/{dex}
 	LastUpdated          int64              `json:"lastUpdated"`
 	LastVerifiedAt       int64              `json:"lastVerifiedAt"`
+	// MinLiquidityUsd is the source's curation floor (XR2). It is NOT part of the manifest wire
+	// format - the floor is carried on the per-source pair feed (PairFeed.MinLiquidityUsd) - so it is
+	// excluded from (de)serialisation and populated internally from the persisted source on restore.
+	MinLiquidityUsd float64 `json:"-"`
 }
 
 // Manifest is the v3 discovery manifest (GET /api/ooo/v1/export/manifest).

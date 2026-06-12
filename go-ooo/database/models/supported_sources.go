@@ -22,6 +22,10 @@ type SupportedSource struct {
 	BlocksPerMin   int
 	PairCount      int
 	ExportUrl      string
+	// MinLiquidityUsd is the source's curation floor (XR2): the per-(chain,dex) minLiquidityUsd from
+	// its pair feed, the authoritative liquidity floor go-ooo applies in the price path instead of
+	// its own hard-coded default. 0 means not yet known (no feed processed) - the default applies.
+	MinLiquidityUsd float64
 	// SourceUpdatedAt / SourceVerifiedAt mirror the manifest source's lastUpdated / lastVerifiedAt
 	// (unix seconds) - the dex-pair-verify-side freshness, distinct from this row's own GORM
 	// CreatedAt / UpdatedAt.

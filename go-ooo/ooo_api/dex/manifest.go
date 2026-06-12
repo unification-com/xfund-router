@@ -58,8 +58,9 @@ func subgraphURLFor(endpoints []export.ManifestEndpoint, apiKey string) (string,
 // structured warning - so a forward-compat family or a key-less deployment degrades gracefully.
 // This is the manifest-driven replacement for the hand-written seed.go constructors (#119 step 5).
 //
-// MinLiquidity/MinTxCount use the global defaults here; the authoritative per-source curation floor
-// (the feed's minLiquidityUsd, XR2) is applied when the pair feed is consumed.
+// The per-source curation floor (the feed's minLiquidityUsd, XR2) is used as the module's
+// MinLiquidity when known (carried on the source from the persisted pair feed); go-ooo's configured
+// default is the fallback for a source with no floor yet. MinTxCount uses the global default.
 func BuildModulesFromManifest(cfg *config.Config, m *export.Manifest) []FamilyModule {
 	apiKey := cfg.ApiKeys.GraphNetwork
 	modules := make([]FamilyModule, 0, len(m.SupportedSources))
@@ -81,11 +82,16 @@ func BuildModulesFromManifest(cfg *config.Config, m *export.Manifest) []FamilyMo
 			continue
 		}
 
+		minLiquidity := uint64(types.DefaultMinLiquidity)
+		if src.MinLiquidityUsd > 0 {
+			minLiquidity = uint64(src.MinLiquidityUsd)
+		}
+
 		modules = append(modules, NewFamilyModule(FamilyModuleSpec{
 			Chain:        src.Chain,
 			Dex:          src.Dex,
 			SubgraphUrl:  subgraphUrl,
-			MinLiquidity: types.DefaultMinLiquidity,
+			MinLiquidity: minLiquidity,
 			MinTxCount:   types.DefaultMinTxCount,
 			Family:       family,
 		}))

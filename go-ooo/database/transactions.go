@@ -297,6 +297,15 @@ func (d *DB) UpsertSupportedSource(src models.SupportedSource) (models.Supported
 	return existing, err
 }
 
+// UpdateSourceMinLiquidity records a source's curation floor (its pair feed's minLiquidityUsd, XR2)
+// on the supported_sources row. Kept separate from UpsertSupportedSource because the floor arrives
+// with the pair feed, not the manifest, so the manifest upsert must not clobber a known floor.
+func (d *DB) UpdateSourceMinLiquidity(chain, dex string, minLiquidityUsd float64) error {
+	return d.Model(&models.SupportedSource{}).
+		Where("chain = ? AND dex = ?", chain, dex).
+		Update("min_liquidity_usd", minLiquidityUsd).Error
+}
+
 // SoftDeleteSupportedSourcesNotIn soft-deletes the sources whose "chain|dex" key is not in keepKeys
 // (the manifest's current set), so a source dropped from the manifest stops driving dispatch. An
 // empty keepKeys is a no-op: a transient empty/failed manifest must NOT wipe the whole catalogue

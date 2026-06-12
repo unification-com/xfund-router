@@ -31,6 +31,7 @@ func sourceToModel(src export.ManifestSource) (models.SupportedSource, error) {
 		BlocksPerMin:         src.BlocksPerMin,
 		PairCount:            src.PairCount,
 		ExportUrl:            src.ExportURL,
+		MinLiquidityUsd:      src.MinLiquidityUsd,
 		SourceUpdatedAt:      src.LastUpdated,
 		SourceVerifiedAt:     src.LastVerifiedAt,
 	}, nil
@@ -54,6 +55,7 @@ func modelToSource(row models.SupportedSource) (export.ManifestSource, error) {
 		BlocksPerMin:         row.BlocksPerMin,
 		PairCount:            row.PairCount,
 		ExportURL:            row.ExportUrl,
+		MinLiquidityUsd:      row.MinLiquidityUsd,
 		LastUpdated:          row.SourceUpdatedAt,
 		LastVerifiedAt:       row.SourceVerifiedAt,
 	}, nil
@@ -109,6 +111,7 @@ func (dm *Manager) syncManifestAndFeeds() error {
 	// Pull each active (priceable) source's verified-pair feed into dex_pairs. Iterating the built
 	// modules - rather than every manifest source - means we only fetch feeds for sources whose
 	// schema family go-ooo can actually price.
+	floorsUpdated := false
 	for _, mod := range dm.snapshotModules() {
 		feed, changed, err := client.FetchPairFeed(dm.ctx, mod.Chain(), mod.Dex(), 0)
 		if err != nil {
@@ -120,6 +123,28 @@ func (dm *Manager) syncManifestAndFeeds() error {
 			continue
 		}
 		dm.processPairFeed(*feed)
+
+		// Record the source's curation floor (XR2) from the feed. The fetched manifest doesn't carry
+		// it, so this is the only place it becomes known; the re-apply below folds it into the module.
+		if feed.MinLiquidityUsd > 0 {
+			if err := dm.db.UpdateSourceMinLiquidity(mod.Chain(), mod.Dex(), feed.MinLiquidityUsd); err != nil {
+				logger.ErrorWithFields("dex", "syncManifestAndFeeds", "update source floor", err.Error(),
+					logger.Fields{"chain": mod.Chain(), "dex": mod.Dex()})
+			} else {
+				floorsUpdated = true
+			}
+		}
+	}
+
+	// Re-apply from the database so the modules pick up the per-source curation floors just written
+	// from the feeds (XR2) - the fetched manifest doesn't carry them. Cheap: the chain clients are
+	// reused, only the module floors change.
+	if floorsUpdated {
+		if restored, err := dm.LoadManifestFromDB(); err != nil {
+			logger.ErrorWithFields("dex", "syncManifestAndFeeds", "reload for curation floors", err.Error(), logger.Fields{})
+		} else {
+			dm.ApplyManifest(restored)
+		}
 	}
 
 	return nil

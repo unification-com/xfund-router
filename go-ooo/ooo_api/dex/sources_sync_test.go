@@ -82,6 +82,17 @@ func TestSyncManifestAndFeeds(t *testing.T) {
 	require.Len(t, sources, 3)
 	require.Len(t, dm.snapshotModules(), 2) // univ4 family unrecognised -> no module
 
+	// XR2: the module's liquidity floor reflects the feed's per-source minLiquidityUsd (1000), not
+	// go-ooo's hard-coded default - applied via the re-apply after the feeds land.
+	var uniMod Module
+	for _, m := range dm.snapshotModules() {
+		if m.Dex() == "uniswap_v3" {
+			uniMod = m
+		}
+	}
+	require.NotNil(t, uniMod)
+	require.EqualValues(t, 1000, uniMod.MinLiquidity())
+
 	// Each recognised source's feed landed in dex_pairs, carrying the export's confidence + key.
 	var pairs []models.DexPairs
 	require.NoError(t, db.Where("chain = ?", "eth").Find(&pairs).Error)

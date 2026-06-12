@@ -25,6 +25,7 @@ func TestSourceModelRoundTrip(t *testing.T) {
 		BlocksPerMin:         5,
 		PairCount:            42,
 		ExportURL:            "/api/ooo/v1/export/eth/uniswap_v3",
+		MinLiquidityUsd:      5000,
 		LastUpdated:          111,
 		LastVerifiedAt:       222,
 	}
