@@ -28,15 +28,16 @@ import "strings"
 const zeroAddress = "0x0000000000000000000000000000000000000000"
 
 // wrappedNativeByChain maps a chain to the symbol dex-pair-verify normalises its native currency
-// to. Only the ETH-native chains v4 is being brought online on are mapped (all wrap to WETH); a
-// chain not listed here gets no native rewrite - its native-currency pools, if any, would price
-// with the wrong orientation, so its wrapped symbol must be added here (and verified live) before
-// v4 is enabled on it. This is the "verify before seeding" discipline applied to native pricing.
+// to. The ETH-native chains wrap to WETH; Polygon's native POL wraps to WPOL. A chain not listed
+// here gets no native rewrite - its native-currency pools, if any, would price with the wrong
+// orientation, so its wrapped symbol must be added here (and verified live) before v4 is enabled
+// on it. This is the "verify before seeding" discipline applied to native pricing.
 var wrappedNativeByChain = map[string]string{
-	"eth":      "WETH",
-	"base":     "WETH",
-	"arbitrum": "WETH",
-	"optimism": "WETH",
+	"eth":         "WETH",
+	"base":        "WETH",
+	"arbitrum":    "WETH",
+	"optimism":    "WETH",
+	"polygon_pos": "WPOL",
 }
 
 // Family is the SchemaFamily implementation for Uniswap-v4-style subgraphs; construct with New.
