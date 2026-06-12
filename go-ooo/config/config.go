@@ -109,6 +109,13 @@ type PriceQualityConfig struct {
 	RefuseMinVenues       uint64  `mapstructure:"refuse_min_venues"`
 	RefuseMinLiquidityUsd uint64  `mapstructure:"refuse_min_liquidity_usd"`
 	RefuseMaxDispersion   float64 `mapstructure:"refuse_max_dispersion"`
+
+	// S6 manipulation cross-check (opt-in, default-off): drop a surviving pool whose estimate
+	// deviates beyond SuspectDeviation (modified z-score) AND whose backing liquidity is below
+	// SuspectMinLiquidityUsd. A shallow pool notably off the consensus is a likely manipulation; a
+	// deep one is a genuine arbitrage gap (kept). Disabled unless BOTH are set > 0.
+	SuspectDeviation       float64 `mapstructure:"suspect_deviation"`
+	SuspectMinLiquidityUsd uint64  `mapstructure:"suspect_min_liquidity_usd"`
 }
 
 type Config struct {
@@ -232,6 +239,12 @@ func DefaultConfig() *Config {
 			RefuseMinVenues:       0,
 			RefuseMinLiquidityUsd: 0,
 			RefuseMaxDispersion:   0,
+			// S6 suspect-pool drop disabled by default (opt-in). Suggested if enabling:
+			// suspect_deviation = 2.0 (modified-z; catches mild outliers within MAD's 3.5) +
+			// suspect_min_liquidity_usd = 10000 (drop sub-$10k mild outliers as likely manipulation;
+			// deep pools off-consensus are kept as real arbitrage gaps).
+			SuspectDeviation:       0,
+			SuspectMinLiquidityUsd: 0,
 		},
 	}
 }

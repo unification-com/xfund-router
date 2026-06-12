@@ -159,6 +159,62 @@ func TestTrustWeightingShiftsTowardTrustedPool(t *testing.T) {
 	}
 }
 
+func TestDropSuspectPools(t *testing.T) {
+	// A tight consensus cluster plus one off-consensus pool. Whether that pool is dropped depends on
+	// its liquidity: shallow → likely manipulation (drop); deep → genuine arbitrage gap (keep).
+	vals := []float64{1640, 1641, 1639, 1680}
+	weights := []float64{1e6, 1e6, 1e6, 5_000} // incidental here
+	sources := []string{"eth|a", "eth|b", "eth|c", "eth|d"}
+	median, scale := madCentreAndScale(vals)
+	if scale <= 0 {
+		t.Fatalf("expected a non-zero scale, got %v", scale)
+	}
+
+	t.Run("drops a shallow outlier", func(t *testing.T) {
+		liq := []float64{1e6, 1e6, 1e6, 5_000} // the outlier pool is shallow ($5k)
+		fv, _, _, fs, dropped := dropSuspectPools(vals, weights, liq, sources, median, scale, 2.0, 10_000)
+		if dropped != 1 || len(fv) != 3 {
+			t.Fatalf("expected 1 dropped / 3 kept, got dropped=%d kept=%v", dropped, fv)
+		}
+		if contains(fv, 1680.0) {
+			t.Errorf("shallow outlier 1680 should be dropped, kept: %v", fv)
+		}
+		for _, s := range fs {
+			if s == "eth|d" {
+				t.Errorf("the dropped pool's source eth|d should be gone, got %v", fs)
+			}
+		}
+	})
+
+	t.Run("keeps a deep outlier (real arbitrage gap)", func(t *testing.T) {
+		liq := []float64{1e6, 1e6, 1e6, 5e7} // the outlier pool is deep ($50M)
+		fv, _, _, _, dropped := dropSuspectPools(vals, weights, liq, sources, median, scale, 2.0, 10_000)
+		if dropped != 0 || len(fv) != 4 {
+			t.Errorf("a deep outlier should be kept, got dropped=%d kept=%v", dropped, fv)
+		}
+	})
+
+	t.Run("zero scale is a no-op", func(t *testing.T) {
+		flat := []float64{5, 5, 5}
+		fv, _, _, _, dropped := dropSuspectPools(flat, flat, flat, []string{"a", "b", "c"}, 5, 0, 2.0, 10_000)
+		if dropped != 0 || len(fv) != 3 {
+			t.Errorf("zero scale should be a no-op, got dropped=%d kept=%v", dropped, fv)
+		}
+	})
+
+	t.Run("never drops every pool", func(t *testing.T) {
+		// All four are shallow + dispersed enough to look suspect; the guard returns them unchanged
+		// rather than wiping the sample.
+		v := []float64{100, 200, 300, 400}
+		liq := []float64{1, 1, 1, 1}
+		m, sc := madCentreAndScale(v)
+		fv, _, _, _, dropped := dropSuspectPools(v, v, liq, []string{"a", "b", "c", "d"}, m, sc, 0.1, 10_000)
+		if dropped != 0 || len(fv) != 4 {
+			t.Errorf("must not drop every pool, got dropped=%d kept=%v", dropped, fv)
+		}
+	})
+}
+
 func TestQualityShortfall(t *testing.T) {
 	// Healthy sample: 5 pools, 3 venues, $1M backing, 0.1% dispersion.
 	const (

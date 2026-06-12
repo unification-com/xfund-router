@@ -80,6 +80,21 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 		keptVals, keptWeights, keptLiquidities, keptSources = values, weights, liquidities, sources
 	}
 
+	// S6 manipulation cross-check (opt-in): drop shallow pools that are mild outliers - a likely
+	// manipulation the conservative MAD threshold lets through. Deep off-consensus pools (genuine
+	// arbitrage gaps) are kept. Disabled unless both knobs are set.
+	if o.quality.SuspectDeviation > 0 && o.quality.SuspectMinLiquidityUsd > 0 {
+		var dropped int
+		keptVals, keptWeights, keptLiquidities, keptSources, dropped = dropSuspectPools(
+			keptVals, keptWeights, keptLiquidities, keptSources, median, scale,
+			o.quality.SuspectDeviation, float64(o.quality.SuspectMinLiquidityUsd))
+		if dropped > 0 {
+			logger.WarnWithFields("ooo_api", "QueryDexPrice", "", "dropped shallow-outlier pools as likely manipulation (S6)", logger.Fields{
+				"base": base, "target": target, "dropped": dropped,
+			})
+		}
+	}
+
 	priceFloat := weightedMean(keptVals, keptWeights)
 
 	// Quality signals: how many independent venues and how much liquidity back this price, and
@@ -242,6 +257,39 @@ func madCentreAndScale(prices []float64) (median, scale float64) {
 	}
 
 	return median, scale
+}
+
+// dropSuspectPools is the S6 manipulation cross-check: it drops a pool whose estimate deviates beyond
+// suspectDeviation (modified z-score relative to median/scale) AND whose backing liquidity is below
+// suspectMinLiquidity - a shallow pool notably off the consensus, a likely manipulation. A deep
+// outlier (a real arbitrage gap) is kept. It is a no-op when scale is 0 (no usable spread) and never
+// drops every pool (a degenerate all-suspect set is returned unchanged). Returns the filtered slices
+// + the number dropped.
+func dropSuspectPools(vals, weights, liquidities []float64, sources []string, median, scale, suspectDeviation, suspectMinLiquidity float64) ([]float64, []float64, []float64, []string, int) {
+	if scale == 0 {
+		return vals, weights, liquidities, sources, 0
+	}
+
+	var fVals, fWeights, fLiq []float64
+	var fSources []string
+	dropped := 0
+	for i, v := range vals {
+		deviation := math.Abs(v-median) / scale
+		if deviation > suspectDeviation && liquidities[i] < suspectMinLiquidity {
+			dropped++
+			continue
+		}
+		fVals = append(fVals, v)
+		fWeights = append(fWeights, weights[i])
+		fLiq = append(fLiq, liquidities[i])
+		fSources = append(fSources, sources[i])
+	}
+
+	if dropped == 0 || len(fVals) == 0 {
+		// Nothing suspect, or everything is - keep the original set rather than wipe it.
+		return vals, weights, liquidities, sources, 0
+	}
+	return fVals, fWeights, fLiq, fSources, dropped
 }
 
 // confidenceWeight blends a pool's backing liquidity with its dex-pair-verify trust score (XR1):

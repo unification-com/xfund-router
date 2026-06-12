@@ -228,6 +228,12 @@ refuse_min_pools = {{ .PriceQuality.RefuseMinPools }}
 refuse_min_venues = {{ .PriceQuality.RefuseMinVenues }}
 refuse_min_liquidity_usd = {{ .PriceQuality.RefuseMinLiquidityUsd }}
 refuse_max_dispersion = {{ .PriceQuality.RefuseMaxDispersion }}
+# S6 manipulation cross-check (opt-in): drop a surviving pool that is a mild outlier
+# (deviation > suspect_deviation, a modified z-score) AND shallow (liquidity <
+# suspect_min_liquidity_usd) - a likely manipulation. Deep off-consensus pools are kept.
+# Disabled unless both are > 0. Suggested: suspect_deviation = 2.0, suspect_min_liquidity_usd = 10000.
+suspect_deviation = {{ .PriceQuality.SuspectDeviation }}
+suspect_min_liquidity_usd = {{ .PriceQuality.SuspectMinLiquidityUsd }}
 
 `
 
