@@ -275,66 +275,46 @@ func (o *OoORouterService) GetHistoricalEvents() {
 
 }
 
-func (o *OoORouterService) subscribeToDataRequested(me []common.Address) {
-
-	if o.subscriptionDr != nil {
-		o.subscriptionDr.Unsubscribe()
+// subscribe (re)establishes one event subscription with retry/backoff: it unsubscribes any existing
+// subscription, retries watch until it connects, and returns the live subscription. It panics if it
+// can't connect within the backoff window - there's no point running the oracle without events. name
+// is the log tag; watch performs the specific WatchXxx call. Shared by the two event subscriptions.
+func (o *OoORouterService) subscribe(name string, existing event.Subscription, watch func() (event.Subscription, error)) event.Subscription {
+	if existing != nil {
+		existing.Unsubscribe()
 	}
 
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = 10 * time.Minute
 
 	var sub event.Subscription
-
 	retryable := func() error {
-		var subErr error
-		sub, subErr = o.contractInstance.WatchDataRequested(o.watchOpts, o.chanDataRequests, nil, me, nil)
-		return subErr
+		s, err := watch()
+		sub = s
+		return err
+	}
+	notify := func(err error, _ time.Duration) {
+		logger.Error("chain", name, "init subscription", err.Error())
 	}
 
-	notify := func(err error, t time.Duration) {
-		logger.Error("chain", "subscribeToDataRequested", "init subscription", err.Error())
-	}
-
-	err := backoff.RetryNotify(retryable, b, notify)
-
-	if err != nil {
+	if err := backoff.RetryNotify(retryable, b, notify); err != nil {
 		// no point continuing if we can't connect after retrying
 		panic(err)
 	}
 
-	o.subscriptionDr = sub
+	return sub
+}
+
+func (o *OoORouterService) subscribeToDataRequested(me []common.Address) {
+	o.subscriptionDr = o.subscribe("subscribeToDataRequested", o.subscriptionDr, func() (event.Subscription, error) {
+		return o.contractInstance.WatchDataRequested(o.watchOpts, o.chanDataRequests, nil, me, nil)
+	})
 }
 
 func (o *OoORouterService) subscribeToRequestFulfilled(me []common.Address) {
-
-	if o.subscriptionRf != nil {
-		o.subscriptionRf.Unsubscribe()
-	}
-
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = 10 * time.Minute
-
-	var sub event.Subscription
-
-	retryable := func() error {
-		var subErr error
-		sub, subErr = o.contractInstance.WatchRequestFulfilled(o.watchOpts, o.chanRequestFulfilled, nil, me, nil)
-		return subErr
-	}
-
-	notify := func(err error, t time.Duration) {
-		logger.Error("chain", "subscribeToRequestFulfilled", "init subscription", err.Error())
-	}
-
-	err := backoff.RetryNotify(retryable, b, notify)
-
-	if err != nil {
-		// no point continuing if we can't connect after retrying
-		panic(err)
-	}
-
-	o.subscriptionRf = sub
+	o.subscriptionRf = o.subscribe("subscribeToRequestFulfilled", o.subscriptionRf, func() (event.Subscription, error) {
+		return o.contractInstance.WatchRequestFulfilled(o.watchOpts, o.chanRequestFulfilled, nil, me, nil)
+	})
 }
 
 func (o *OoORouterService) RunEventWatchers() {
