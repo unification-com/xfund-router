@@ -1,46 +1,15 @@
 package dex
 
 import (
-	"encoding/json"
 	"fmt"
 	"go-ooo/logger"
-	"go-ooo/ooo_api/dex/types"
 	"strings"
 )
 
-func (dm *Manager) GetSupportedPairs() {
-	for _, module := range dm.snapshotModules() {
-		var pairMetaData types.PairMetaData
-
-		dataUrl := fmt.Sprintf(`https://raw.githubusercontent.com/unification-com/ooo-adhoc/main/data/%s/%s.json`, module.Chain(), module.Dex())
-
-		logger.InfoWithFields("dex", "GetSupportedPairs", "", "refresh pairs", logger.Fields{
-			"dex": module.Name(),
-			"url": dataUrl,
-		})
-
-		res, err := runQuery(nil, dataUrl)
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "GetSupportedPairs", "run refresh pairs query", err.Error(), logger.Fields{
-				"dex": module.Name(),
-			})
-			continue
-		}
-
-		err = json.Unmarshal(res, &pairMetaData)
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "GetSupportedPairs", "unmarshal result", err.Error(), logger.Fields{
-				"dex": module.Name(),
-			})
-			continue
-		}
-
-		dm.processPairMetaData(pairMetaData)
-	}
-}
-
+// UpdateAllPairsMetaDataFromDexs refreshes the live reserve/tx metadata of the persisted pairs by
+// querying each active source's subgraph - keeping the figures the price-path liquidity gate + the
+// liquidity-weighting depend on current, independent of how stale the dex-pair-verify feed's own
+// reserves are.
 func (dm *Manager) UpdateAllPairsMetaDataFromDexs() {
 	for _, module := range dm.snapshotModules() {
 

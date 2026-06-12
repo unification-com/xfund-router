@@ -8,24 +8,22 @@ import (
 )
 
 type JobsConfig struct {
-	CheckDuration     uint64            `mapstructure:"check_duration"`
-	WaitConfirmations uint64            `mapstructure:"wait_confirmations"`
-	MaxJobAge         uint64            `mapstructure:"max_job_age"`
-	AdhocExport       AdhocExportConfig `mapstructure:"adhoc_export"`
+	CheckDuration     uint64          `mapstructure:"check_duration"`
+	WaitConfirmations uint64          `mapstructure:"wait_confirmations"`
+	MaxJobAge         uint64          `mapstructure:"max_job_age"`
+	DexExport         DexExportConfig `mapstructure:"dex_export"`
 }
 
-// AdhocExportConfig drives the dex-pair-verify provider-export consumer (#127): the manifest of
-// priceable DEX sources + their verified-pair feeds that go-ooo polls. PrimaryBaseUrl is the
-// authenticated API (e.g. https://dex-pair-verify.example.io/api/ooo/v1); GithubFallbackBaseUrl
-// is the static, unauthenticated mirror used after PrimaryBaseUrl fails FallbackAfterFailures
-// times in a row (or when PrimaryBaseUrl is empty). ApiToken is the interim static export bearer
-// (the XR3 wallet auth replaces it later).
-type AdhocExportConfig struct {
-	PrimaryBaseUrl        string `mapstructure:"primary_base_url"`
-	GithubFallbackBaseUrl string `mapstructure:"github_fallback_base_url"`
-	ApiToken              string `mapstructure:"api_token"`
-	PollIntervalSec       uint64 `mapstructure:"poll_interval_sec"`
-	FallbackAfterFailures uint64 `mapstructure:"fallback_after_failures"`
+// DexExportConfig drives the dex-pair-verify provider-export consumer (#127): the manifest of
+// priceable DEX sources + their verified-pair feeds that go-ooo polls to drive modular DEX dispatch.
+// BaseUrl is the dpv API (e.g. https://dex-pair-verify.example.io/api/ooo/v1); when empty the sync is
+// skipped and the oracle prices from the catalogue last persisted in the database. ApiToken is the
+// interim static export bearer (the XR3 wallet auth replaces it later). PollIntervalSec is how often
+// the catalogue is refreshed.
+type DexExportConfig struct {
+	BaseUrl         string `mapstructure:"base_url"`
+	ApiToken        string `mapstructure:"api_token"`
+	PollIntervalSec uint64 `mapstructure:"poll_interval_sec"`
 }
 
 type ServeConfig struct {
@@ -134,12 +132,10 @@ func DefaultConfig() *Config {
 			CheckDuration:     5,
 			WaitConfirmations: 1,
 			MaxJobAge:         3600,
-			AdhocExport: AdhocExportConfig{
-				PrimaryBaseUrl:        "",
-				GithubFallbackBaseUrl: "https://raw.githubusercontent.com/unification-com/ooo-adhoc/main",
-				ApiToken:              "",
-				PollIntervalSec:       3600,
-				FallbackAfterFailures: 3,
+			DexExport: DexExportConfig{
+				BaseUrl:         "",
+				ApiToken:        "",
+				PollIntervalSec: 3600,
 			},
 		},
 		Serve: ServeConfig{

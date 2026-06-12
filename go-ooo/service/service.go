@@ -63,6 +63,12 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		pollInterval = time.Duration(checkDuration)
 	}
 
+	// How often to refresh the DEX source catalogue + pairs from the dex-pair-verify export.
+	pairsPollInterval := cfg.Jobs.DexExport.PollIntervalSec
+	if pairsPollInterval == 0 {
+		pairsPollInterval = 3600
+	}
+
 	logger.Debug("service", "NewService", "", "poll service", logger.Fields{
 		"poll_interval": time.Second * pollInterval,
 	})
@@ -101,7 +107,7 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		db:               db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
 		jobTicker:         time.NewTicker(time.Second * pollInterval),
-		updatePairsTicker: time.NewTicker(time.Minute * 30),
+		updatePairsTicker: time.NewTicker(time.Second * time.Duration(pairsPollInterval)),
 		oooRouterService:  oooRouterService,
 		adminTasks:        make(chan go_ooo_types.AdminTask),
 		analyticsTasks:    make(chan go_ooo_types.AnalyticsTask),

@@ -22,16 +22,16 @@ type OOOApi struct {
 
 func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, error) {
 
-	dexModuleManager := dex.NewDexManager(
-		ctx, cfg, db,
-		dex.NewShibaswapModule(cfg),
-		dex.NewSushiswapModule(cfg),
-		dex.NewUniswapV2Module(cfg),
-		dex.NewHoneyswapModule(cfg),
-		dex.NewUniswapV3Module(cfg),
-		dex.NewQuickswapV3Module(cfg),
-		dex.NewPancakeswapV3Module(cfg),
-	)
+	dexModuleManager := dex.NewDexManager(ctx, cfg, db)
+
+	// Restore the last-synced source catalogue from the database so the oracle can price from it
+	// immediately, before (or even without) a fresh API sync. A fresh database simply restores an
+	// empty set, and the first SyncDexSources populates it.
+	if m, err := dexModuleManager.LoadManifestFromDB(); err != nil {
+		logger.ErrorWithFields("ooo_api", "NewApi", "restore source catalogue", err.Error(), logger.Fields{})
+	} else {
+		dexModuleManager.ApplyManifest(m)
+	}
 
 	return &OOOApi{
 		db:               db,
@@ -45,9 +45,10 @@ func NewApi(ctx context.Context, cfg *config.Config, db *database.DB) (*OOOApi, 
 // DEX path but the pair is not available on any supported DEX. Finchains itself is gone.
 var ErrFinchainsRemoved = errors.New("Finchains endpoints removed; pair is not available on any supported DEX")
 
+// UpdateDexPairs refreshes the DEX source catalogue + pair set from the dex-pair-verify manifest and
+// per-source feeds, then refreshes live pair metadata. Driven by the startup + periodic pair refresh.
 func (o *OOOApi) UpdateDexPairs() {
-	o.dexModuleManager.GetSupportedPairs()
-	o.dexModuleManager.UpdateAllPairsMetaDataFromDexs()
+	o.dexModuleManager.SyncDexSources()
 }
 
 // Endpoint qualifiers - the explicit 3rd field in the legacy grammar

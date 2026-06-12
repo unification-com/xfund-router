@@ -11,10 +11,15 @@ import (
 
 const (
 	FlagGraphNetworkApiKey = "graphnetapi"
+	FlagDpvApiBaseUrl      = "dpv-api"
+	FlagDpvApiToken        = "dpv-token"
 )
 
 var (
 	graphNetApi string
+
+	dpvApiBaseUrl string
+	dpvApiToken   string
 
 	dbDialect string
 	dbStorage string
@@ -59,6 +64,11 @@ func createApi() *ooo_api.OOOApi {
 
 	// API keys for testing
 	cfg.ApiKeys.GraphNetwork = graphNetApi
+
+	// Point the source-catalogue sync at a (e.g. locally-run) dex-pair-verify API so update-pairs
+	// can pull the manifest + pair feeds. Empty leaves the sync disabled (the persisted catalogue).
+	cfg.Jobs.DexExport.BaseUrl = dpvApiBaseUrl
+	cfg.Jobs.DexExport.ApiToken = dpvApiToken
 
 	// Reuse the application's NewDb + Migrate so the testapp exercises the exact connection +
 	// migration path go-ooo runs in production - including schema migrations against a real dump.

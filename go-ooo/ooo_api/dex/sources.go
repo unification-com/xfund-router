@@ -2,6 +2,7 @@ package dex
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"go-ooo/database/models"
 	"go-ooo/logger"
@@ -56,6 +57,63 @@ func modelToSource(row models.SupportedSource) (export.ManifestSource, error) {
 		LastUpdated:          row.SourceUpdatedAt,
 		LastVerifiedAt:       row.SourceVerifiedAt,
 	}, nil
+}
+
+// SyncDexSources refreshes the priceable catalogue: pull the latest manifest + pair feeds from the
+// dex-pair-verify API (a no-op when no API base URL is configured, or on failure - the persisted
+// catalogue then carries the oracle), then refresh each active pair's live reserve/tx metadata from
+// the subgraphs. This is the periodic + startup refresh entry point.
+func (dm *Manager) SyncDexSources() {
+	if err := dm.syncManifestAndFeeds(); err != nil {
+		// A failed sync (e.g. the API is down) is not fatal: keep pricing from the persisted
+		// manifest + pairs and just refresh their live metadata below.
+		logger.ErrorWithFields("dex", "SyncDexSources", "sync manifest and feeds", err.Error(), logger.Fields{})
+	}
+	dm.UpdateAllPairsMetaDataFromDexs()
+}
+
+// syncManifestAndFeeds fetches the v3 manifest from the configured dex-pair-verify API, persists +
+// applies it (rebuilding the module set + chain config), then pulls each active source's verified-
+// pair feed into dex_pairs. An empty base URL skips the sync entirely (the persisted catalogue is
+// authoritative). Per-source feed failures are logged and skipped so one bad source can't abort the
+// whole refresh.
+func (dm *Manager) syncManifestAndFeeds() error {
+	cfg := dm.cfg.Jobs.DexExport
+	if cfg.BaseUrl == "" {
+		logger.Info("dex", "syncManifestAndFeeds", "",
+			"no dex-pair-verify API base URL configured - skipping manifest sync (pricing from the persisted catalogue)")
+		return nil
+	}
+
+	client := export.NewClient(cfg.BaseUrl, cfg.ApiToken, dm.httpClient)
+
+	manifest, err := client.FetchManifest(dm.ctx)
+	if err != nil {
+		return fmt.Errorf("fetch manifest: %w", err)
+	}
+
+	if _, err := dm.PersistManifest(manifest); err != nil {
+		logger.ErrorWithFields("dex", "syncManifestAndFeeds", "persist manifest", err.Error(), logger.Fields{})
+	}
+	dm.ApplyManifest(manifest)
+
+	// Pull each active (priceable) source's verified-pair feed into dex_pairs. Iterating the built
+	// modules - rather than every manifest source - means we only fetch feeds for sources whose
+	// schema family go-ooo can actually price.
+	for _, mod := range dm.snapshotModules() {
+		feed, changed, err := client.FetchPairFeed(dm.ctx, mod.Chain(), mod.Dex(), 0)
+		if err != nil {
+			logger.ErrorWithFields("dex", "syncManifestAndFeeds", "fetch pair feed", err.Error(),
+				logger.Fields{"chain": mod.Chain(), "dex": mod.Dex()})
+			continue
+		}
+		if !changed || feed == nil {
+			continue
+		}
+		dm.processPairFeed(*feed)
+	}
+
+	return nil
 }
 
 // PersistManifest writes a freshly-fetched manifest to the DB: upsert every source, then soft-delete

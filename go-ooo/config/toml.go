@@ -90,19 +90,16 @@ wait_confirmations = {{ .Jobs.WaitConfirmations }}
 max_job_age = {{ .Jobs.MaxJobAge }}
 
 # dex-pair-verify provider-export consumer: the manifest of priceable DEX sources + their
-# verified-pair feeds go-ooo polls to know which pairs it can price.
-[jobs.adhoc_export]
-# Authenticated export API base, e.g. https://dex-pair-verify.example.io/api/ooo/v1
-# Empty = use the GitHub mirror below immediately.
-primary_base_url = "{{ .Jobs.AdhocExport.PrimaryBaseUrl }}"
-# Static, unauthenticated mirror used after the primary fails fallback_after_failures times.
-github_fallback_base_url = "{{ .Jobs.AdhocExport.GithubFallbackBaseUrl }}"
-# Export bearer token for the primary API (interim; the wallet challenge-response replaces it).
-api_token = "{{ .Jobs.AdhocExport.ApiToken }}"
+# verified-pair feeds go-ooo polls to know which DEXs + pairs it can price. The fetched manifest is
+# persisted, so the oracle keeps pricing from the last sync if the API is briefly unreachable.
+[jobs.dex_export]
+# Export API base, e.g. https://dex-pair-verify.example.io/api/ooo/v1
+# Empty = skip the sync and price from the catalogue already persisted in the database.
+base_url = "{{ .Jobs.DexExport.BaseUrl }}"
+# Export bearer token for the API (interim; the wallet challenge-response replaces it).
+api_token = "{{ .Jobs.DexExport.ApiToken }}"
 # Seconds between export refreshes (default 3600).
-poll_interval_sec = {{ .Jobs.AdhocExport.PollIntervalSec }}
-# Consecutive primary failures before falling back to the GitHub mirror (default 3).
-fallback_after_failures = {{ .Jobs.AdhocExport.FallbackAfterFailures }}
+poll_interval_sec = {{ .Jobs.DexExport.PollIntervalSec }}
 
 ##########################################
 ## Keystore                             ##

@@ -3,7 +3,6 @@ package dex
 import (
 	"context"
 	"go-ooo/config"
-	"go-ooo/logger"
 	"net/http"
 	"sync"
 	"time"
@@ -41,31 +40,11 @@ type Manager struct {
 	modules map[string]Module
 }
 
-func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB, modules ...Module) *Manager {
-	moduleMap := make(map[string]Module)
-	chainMap := make(map[string]*chains.ChainDef)
-
-	supportedChains := []string{types.ChainEth, types.ChainPolygon, types.ChainBsc, types.ChainXdai, types.ChainShibarium}
-
-	for _, module := range modules {
-		moduleMap[module.Name()] = module
-	}
-
-	for _, c := range supportedChains {
-		ch, err := chains.GetChain(c, cfg.Subchain)
-		if err != nil {
-			panic(err)
-		}
-		logger.Debug("dex", "NewDexManager", "GetChain", "got config for chain block number queries", logger.Fields{
-			"chain_name":     ch.ChainName,
-			"chain_id":       ch.ChainId,
-			"chain_short":    ch.ChainShort,
-			"blocks_per_min": ch.BlocksPerMin,
-			"rpc":            ch.RpcUrl,
-		})
-		chainMap[c] = ch
-	}
-
+// NewDexManager builds an empty manager. The priceable module set + per-chain config are populated
+// from the dex-pair-verify manifest - restored from the database at startup, then refreshed from the
+// API - via ApplyManifest, rather than a hard-coded seed list. A fresh database with no persisted
+// manifest starts with nothing to price until the first successful sync.
+func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB) *Manager {
 	return &Manager{
 		ctx: ctx,
 		cfg: cfg,
@@ -74,8 +53,8 @@ func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB, mod
 			Timeout: 15 * time.Second,
 		},
 
-		chains:  chainMap,
-		modules: moduleMap,
+		chains:  make(map[string]*chains.ChainDef),
+		modules: make(map[string]Module),
 	}
 }
 
