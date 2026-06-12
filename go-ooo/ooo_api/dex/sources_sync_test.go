@@ -34,8 +34,9 @@ func TestSyncManifestAndFeeds(t *testing.T) {
 				Endpoints: []export.ManifestEndpoint{{Provider: "studio", URLTemplate: "http://subgraph.local/univ3", Tier: "free"}}},
 			{Chain: "eth", Dex: "sushiswap", SubgraphSchemaFamily: "univ2", RPCURL: "http://127.0.0.1:8545", BlocksPerMin: 5,
 				Endpoints: []export.ManifestEndpoint{{Provider: "studio", URLTemplate: "http://subgraph.local/sushi", Tier: "free"}}},
-			// An unknown schema family must be skipped, not crash the sync.
-			{Chain: "eth", Dex: "futureswap", SubgraphSchemaFamily: "univ4", RPCURL: "http://127.0.0.1:8545", BlocksPerMin: 5,
+			// An unknown schema family must be skipped, not crash the sync (univ4 is now
+			// recognised, so this uses "infinity" - a family go-ooo does not yet implement).
+			{Chain: "eth", Dex: "futureswap", SubgraphSchemaFamily: "infinity", RPCURL: "http://127.0.0.1:8545", BlocksPerMin: 5,
 				Endpoints: []export.ManifestEndpoint{{Provider: "studio", URLTemplate: "http://subgraph.local/future", Tier: "free"}}},
 		},
 	}
@@ -76,11 +77,11 @@ func TestSyncManifestAndFeeds(t *testing.T) {
 	dm := NewDexManager(context.Background(), cfg, db)
 	require.NoError(t, dm.syncManifestAndFeeds())
 
-	// The two recognised sources are persisted; the univ4 one is skipped (persisted but not a module).
+	// The two recognised sources are persisted; the infinity one is skipped (persisted but not a module).
 	sources, err := db.GetSupportedSources()
 	require.NoError(t, err)
 	require.Len(t, sources, 3)
-	require.Len(t, dm.snapshotModules(), 2) // univ4 family unrecognised -> no module
+	require.Len(t, dm.snapshotModules(), 2) // infinity family unrecognised -> no module
 
 	// XR2: the module's liquidity floor reflects the feed's per-source minLiquidityUsd (1000), not
 	// go-ooo's hard-coded default - applied via the re-apply after the feeds land.

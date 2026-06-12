@@ -7,6 +7,7 @@ import (
 	"go-ooo/logger"
 	"go-ooo/ooo_api/dex/families/messari"
 	"go-ooo/ooo_api/dex/families/uniswap"
+	"go-ooo/ooo_api/dex/families/univ4"
 	"go-ooo/ooo_api/dex/types"
 	"go-ooo/ooo_api/export"
 )
@@ -16,15 +17,18 @@ import (
 const apiKeyPlaceholder = "{API_KEY}"
 
 // schemaFamilyFor maps a manifest subgraphSchemaFamily string to the SchemaFamily that prices it.
-// An unrecognised family (dpv's "custom", or a future "univ4"/"infinity") returns false so the
-// caller skips the source with a warning rather than crashing an older binary - the forward-compat
-// seam the modular dispatch exists to provide.
-func schemaFamilyFor(schemaFamily string) (SchemaFamily, bool) {
+// The chain is needed by families whose pricing is chain-specific (univ4 normalises the native
+// currency to that chain's wrapped symbol). An unrecognised family (dpv's "custom", or a future
+// "infinity") returns false so the caller skips the source with a warning rather than crashing an
+// older binary - the forward-compat seam the modular dispatch exists to provide.
+func schemaFamilyFor(schemaFamily, chain string) (SchemaFamily, bool) {
 	switch schemaFamily {
 	case "univ2":
 		return uniswap.New(uniswap.V2), true
 	case "univ3":
 		return uniswap.New(uniswap.V3), true
+	case "univ4":
+		return univ4.New(chain), true
 	case "messari":
 		return messari.New(), true
 	default:
@@ -66,7 +70,7 @@ func BuildModulesFromManifest(cfg *config.Config, m *export.Manifest) []FamilyMo
 	modules := make([]FamilyModule, 0, len(m.SupportedSources))
 
 	for _, src := range m.SupportedSources {
-		family, ok := schemaFamilyFor(src.SubgraphSchemaFamily)
+		family, ok := schemaFamilyFor(src.SubgraphSchemaFamily, src.Chain)
 		if !ok {
 			logger.WarnWithFields("dex", "BuildModulesFromManifest", "skip source",
 				"unrecognised subgraph schema family - skipping (a newer go-ooo may price it)",
