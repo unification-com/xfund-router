@@ -125,6 +125,26 @@ func (d *DB) Get100PairsForDataRefresh(chain, dex string) ([]models.DexPairs, er
 }
 
 /*
+  SupportedSources queries
+*/
+
+// GetSupportedSources returns the persisted DEX source catalogue (the last-synced manifest),
+// excluding any source soft-deleted because it dropped out of a later manifest.
+func (d *DB) GetSupportedSources() ([]models.SupportedSource, error) {
+	var sources []models.SupportedSource
+	err := d.Order("chain asc, dex asc").Find(&sources).Error
+	return sources, err
+}
+
+// FindSupportedSourceByChainDex looks up a single source by its (chain, dex) key. A zero-ID result
+// means no row was found (the upsert path treats that as "insert").
+func (d *DB) FindSupportedSourceByChainDex(chain, dex string) (models.SupportedSource, error) {
+	result := models.SupportedSource{}
+	err := d.Where("chain = ? AND dex = ?", chain, dex).First(&result).Error
+	return result, err
+}
+
+/*
   TokenContracts queries
 */
 

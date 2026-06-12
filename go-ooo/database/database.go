@@ -97,6 +97,7 @@ func (d *DB) Migrate() error {
 		&models.ToBlocks{},
 		&models.DexPairs{},
 		&models.TokenContracts{},
+		&models.SupportedSource{},
 		&models.VersionInfo{},
 	); err != nil {
 		return fmt.Errorf("auto-migrate schema: %w", err)

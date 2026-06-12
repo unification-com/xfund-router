@@ -270,6 +270,47 @@ func (d *DB) SoftDeleteDexPairsNotIn(chain, dex string, keepContracts []string) 
 }
 
 /*
+  SupportedSources
+*/
+
+// UpsertSupportedSource inserts or updates one DEX source from the dex-pair-verify manifest, keyed
+// by (chain, dex). The caller maps a manifest source into the model (marshalling endpoints to JSON);
+// this just persists it, overwriting the manifest-derived fields on an existing row while preserving
+// its id + timestamps.
+func (d *DB) UpsertSupportedSource(src models.SupportedSource) (models.SupportedSource, error) {
+	existing, _ := d.FindSupportedSourceByChainDex(src.Chain, src.Dex)
+	if existing.ID == 0 {
+		err := d.Create(&src).Error
+		return src, err
+	}
+
+	existing.SubgraphSchemaFamily = src.SubgraphSchemaFamily
+	existing.Endpoints = src.Endpoints
+	existing.FactoryAddress = src.FactoryAddress
+	existing.RpcUrl = src.RpcUrl
+	existing.BlocksPerMin = src.BlocksPerMin
+	existing.PairCount = src.PairCount
+	existing.ExportUrl = src.ExportUrl
+	existing.SourceUpdatedAt = src.SourceUpdatedAt
+	existing.SourceVerifiedAt = src.SourceVerifiedAt
+	err := d.Save(&existing).Error
+	return existing, err
+}
+
+// SoftDeleteSupportedSourcesNotIn soft-deletes the sources whose "chain|dex" key is not in keepKeys
+// (the manifest's current set), so a source dropped from the manifest stops driving dispatch. An
+// empty keepKeys is a no-op: a transient empty/failed manifest must NOT wipe the whole catalogue
+// (mirrors the SoftDeleteDexPairsNotIn data-loss guard). Returns the number soft-deleted.
+func (d *DB) SoftDeleteSupportedSourcesNotIn(keepKeys []string) (int64, error) {
+	if len(keepKeys) == 0 {
+		return 0, nil
+	}
+	// Match on the composite key via a SQL concat so a (chain, dex) pair is compared as a unit.
+	res := d.Where("chain || '|' || dex NOT IN ?", keepKeys).Delete(&models.SupportedSource{})
+	return res.RowsAffected, res.Error
+}
+
+/*
   TokenContracts
 */
 
