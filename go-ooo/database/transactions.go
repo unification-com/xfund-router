@@ -220,6 +220,55 @@ func (d *DB) UpdateDexPairMetaData(chain string, dex string,
 	return d.Save(&pair).Error
 }
 
+// UpsertExportDexPair inserts or updates a dex pair from the dex-pair-verify export, keyed by
+// (chain, dex, contractAddress). It carries the export's trust score (confidence) + canonical key
+// and marks the pair Verified - the export only ever emits verified pairs.
+func (d *DB) UpsertExportDexPair(chain, dex, contractAddress, t0Symbol, t1Symbol string,
+	t0DbId, t1DbId uint, reserveUsd float64, txCount uint64, confidence float64, canonicalKey string) (models.DexPairs, error) {
+
+	pair, _ := d.FindByDexChainAddress(chain, dex, contractAddress)
+	if pair.ID == 0 {
+		data := models.DexPairs{
+			Chain:           chain,
+			Dex:             dex,
+			Pair:            fmt.Sprintf("%s-%s", t0Symbol, t1Symbol),
+			T0TokenId:       t0DbId,
+			T1TokenId:       t1DbId,
+			T0Symbol:        t0Symbol,
+			T1Symbol:        t1Symbol,
+			ContractAddress: contractAddress,
+			ReserveUsd:      reserveUsd,
+			TxCount:         txCount,
+			Verified:        true,
+			Confidence:      confidence,
+			CanonicalKey:    canonicalKey,
+		}
+		err := d.Create(&data).Error
+		return data, err
+	}
+
+	pair.ReserveUsd = reserveUsd
+	pair.TxCount = txCount
+	pair.Confidence = confidence
+	pair.CanonicalKey = canonicalKey
+	pair.Verified = true
+	err := d.Save(&pair).Error
+	return pair, err
+}
+
+// SoftDeleteDexPairsNotIn soft-deletes the (chain, dex) dex pairs whose contract address is not in
+// keepContracts (the export's current set), so a pair dropped from the export stops being priced.
+// An empty keepContracts is a no-op: a transient empty feed must NOT wipe a source's whole pair set
+// (mirrors the supported_pairs NOT-IN-empty data-loss guard). Returns the number soft-deleted.
+func (d *DB) SoftDeleteDexPairsNotIn(chain, dex string, keepContracts []string) (int64, error) {
+	if len(keepContracts) == 0 {
+		return 0, nil
+	}
+	res := d.Where("chain = ? AND dex = ? AND contract_address NOT IN ?", chain, dex, keepContracts).
+		Delete(&models.DexPairs{})
+	return res.RowsAffected, res.Error
+}
+
 /*
   TokenContracts
 */
