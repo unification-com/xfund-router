@@ -13,18 +13,32 @@ import (
 	"go-ooo/ooo_api/dex/types"
 )
 
-type Module interface {
+// PriceSource is the price-source seam (#128): the Manager treats every priceable source uniformly
+// through it, regardless of transport. A source OWNS its own transport - FamilyModule (the EVM
+// implementation) speaks GraphQL to a decentralised-network subgraph; a future REST source (e.g.
+// Osmosis SQS) speaks HTTP/JSON - so the orchestrator (GetPricesFromDexModules / getPrices) and the
+// aggregator stay transport-blind. FetchPoolPrices collapses the old generate-query -> run-query ->
+// parse triplet into a single transport-owning call; FetchPairsMetadata does the same for the
+// metadata refresh. The transport-specific building blocks (subgraph URL, GraphQL query/parse) are
+// no longer on the interface - they are an internal detail of the subgraph implementation, so a
+// non-subgraph source need not provide them.
+type PriceSource interface {
 	Name() string
-	SubgraphUrl() string
 	Chain() string
 	Dex() string
 	MinLiquidity() uint64
 	MinTxCount() uint64
-	GeneratePairsQuery(contractAddresses string) ([]byte, error)
-	ProcessPairsQueryResult(result []byte) ([]types.DexPair, error)
-	GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error)
-	ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error)
+	// FetchPoolPrices returns this source's per-pool prices for base/target. dexInfo carries the
+	// per-chain block context the query needs; the source owns query + fetch + parse internally.
+	FetchPoolPrices(base, target string, dexInfo DexInfo, minutes uint64) ([]types.PoolPrices, error)
+	// FetchPairsMetadata returns refreshed reserve/tx metadata for the given pool contract addresses.
+	FetchPairsMetadata(contractAddresses string) ([]types.DexPair, error)
 }
+
+// Module is retained as an alias for PriceSource so the Manager's existing "module" vocabulary
+// (modules map, SetModules, snapshotModules, BuildModulesFromManifest) keeps reading naturally; new
+// code (a Cosmos REST source, the architecture doc) uses the transport-neutral PriceSource name.
+type Module = PriceSource
 
 type Manager struct {
 	ctx        context.Context

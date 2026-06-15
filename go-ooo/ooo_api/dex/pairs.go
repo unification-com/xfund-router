@@ -36,38 +36,13 @@ func (dm *Manager) UpdateAllPairsMetaDataFromDexs() {
 			"num_pairs": len(pairsDb),
 		})
 
-		query, err := module.GeneratePairsQuery(contractAddressesStr)
+		// The source owns its transport: FetchPairsMetadata runs query + fetch + parse and returns
+		// the refreshed pair metadata, so this loop stays transport-blind. Any failure (generate /
+		// fetch / empty / parse) returns an error and the source is skipped for this cycle.
+		pairs, err := module.FetchPairsMetadata(contractAddressesStr)
 
 		if err != nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "generate pairs query", err.Error(), logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-			continue
-		}
-
-		res, err := runQuery(query, module.SubgraphUrl())
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "run pairs query", err.Error(), logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-			continue
-		}
-
-		if res == nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "run pairs query", "empty response", logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-			continue
-		}
-
-		pairs, err := module.ProcessPairsQueryResult(res)
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "process pairs query", err.Error(), logger.Fields{
+			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "fetch pairs metadata", err.Error(), logger.Fields{
 				"chain": module.Chain(),
 				"dex":   module.Dex(),
 			})

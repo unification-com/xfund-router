@@ -1,6 +1,7 @@
 package dex
 
 import (
+	"errors"
 	"fmt"
 
 	"go-ooo/ooo_api/dex/types"
@@ -83,6 +84,40 @@ func (m FamilyModule) GenerateDexPricesQuery(pairContractAddress string, minutes
 
 func (m FamilyModule) ProcessDexPricesResult(base, target string, numQueries uint64, result []byte) ([]types.PoolPrices, error) {
 	return m.family.ProcessDexPricesResult(base, target, numQueries, result)
+}
+
+// FetchPoolPrices is the PriceSource transport seam for a subgraph source: it owns the GraphQL
+// triplet (generate query -> POST to the subgraph -> parse) that the orchestrator used to run
+// inline, so getPrices stays transport-blind. Same queries, same endpoint, same parsing as before -
+// it composes this module's own query/parse methods, so behaviour is unchanged.
+func (m FamilyModule) FetchPoolPrices(base, target string, dexInfo DexInfo, minutes uint64) ([]types.PoolPrices, error) {
+	query, numQueries, err := m.GenerateDexPricesQuery(dexInfo.ContractAddresses, minutes, dexInfo.CurrentBlock, dexInfo.BlockPerMin)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := runQuery(query, m.subgraphUrl)
+	if err != nil {
+		return nil, err
+	}
+	return m.ProcessDexPricesResult(base, target, numQueries, raw)
+}
+
+// FetchPairsMetadata is the PriceSource transport seam for the metadata refresh: generate the pairs
+// query -> POST to the subgraph -> parse. A nil response is reported as an error so the caller skips
+// the source for this cycle, matching the previous inline behaviour.
+func (m FamilyModule) FetchPairsMetadata(contractAddresses string) ([]types.DexPair, error) {
+	query, err := m.GeneratePairsQuery(contractAddresses)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := runQuery(query, m.subgraphUrl)
+	if err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return nil, errors.New("empty response from subgraph")
+	}
+	return m.ProcessPairsQueryResult(raw)
 }
 
 // graphGatewayUrl builds a decentralised-gateway subgraph URL, or the hosted fallback when
