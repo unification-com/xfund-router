@@ -12,6 +12,11 @@ type DexInfo struct {
 	CurrentBlock      uint64
 	BlockPerMin       uint64
 	ContractAddresses string
+	// ContractAddressList is the same pool contracts as a raw slice (ContractAddresses is the
+	// GraphQL-query-formatted string a subgraph source needs). A REST source (Cosmos SQS) echoes its
+	// price under each of these so the orchestrator joins per-pool liquidity/confidence; a subgraph
+	// source ignores it.
+	ContractAddressList []string
 }
 
 // PoolSample is one pool's contribution to a price query: its identity, its backing
@@ -180,9 +185,10 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		contractAddressesStr := fmt.Sprintf(`"%s"`, strings.Join(contractAddresses, `","`))
 
 		dexInfo := DexInfo{
-			CurrentBlock:      currentBlock,
-			BlockPerMin:       blocksPerMin,
-			ContractAddresses: contractAddressesStr,
+			CurrentBlock:        currentBlock,
+			BlockPerMin:         blocksPerMin,
+			ContractAddresses:   contractAddressesStr,
+			ContractAddressList: contractAddresses,
 		}
 
 		validMods[module.Name()] = dexInfo

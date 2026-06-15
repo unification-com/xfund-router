@@ -13,6 +13,9 @@ type SupportedSource struct {
 	Chain                string `gorm:"index:idx_supported_source"`
 	Dex                  string `gorm:"index:idx_supported_source"`
 	SubgraphSchemaFamily string
+	// SourceType is the source's transport (#128): "subgraph" (default) or "rest-sqs" (Cosmos SQS,
+	// where Endpoints[0].urlTemplate is the SQS base URL rather than a subgraph endpoint).
+	SourceType string
 	// Endpoints is the ordered subgraph endpoint list as a JSON array of {provider,urlTemplate,tier}.
 	// Stored as an opaque JSON string (not a child table): it is small metadata only ever read or
 	// written whole, and avoids pulling in a gorm datatypes dependency.

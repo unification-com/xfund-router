@@ -285,6 +285,7 @@ func (d *DB) UpsertSupportedSource(src models.SupportedSource) (models.Supported
 	}
 
 	existing.SubgraphSchemaFamily = src.SubgraphSchemaFamily
+	existing.SourceType = src.SourceType
 	existing.Endpoints = src.Endpoints
 	existing.FactoryAddress = src.FactoryAddress
 	existing.RpcUrl = src.RpcUrl

@@ -118,15 +118,6 @@ type PriceQualityConfig struct {
 	SuspectMinLiquidityUsd uint64  `mapstructure:"suspect_min_liquidity_usd"`
 }
 
-// CosmosConfig enables non-EVM Cosmos price sources (#128). Opt-in (default off): when enabled,
-// go-ooo adds the Osmosis SQS source (a static blue-chip allow-list priced over REST) alongside the
-// EVM subgraph sources. SqsUrl empty = the public sqs.osmosis.zone instance.
-type CosmosConfig struct {
-	Enabled       bool   `mapstructure:"enabled"`
-	SqsUrl        string `mapstructure:"sqs_url"`
-	MinReserveUsd uint64 `mapstructure:"min_reserve_usd"`
-}
-
 type Config struct {
 	Jobs         JobsConfig         `mapstructure:"jobs"`
 	Serve        ServeConfig        `mapstructure:"serve"`
@@ -139,7 +130,6 @@ type Config struct {
 	ApiKeys      ApiKeysConfig      `mapstructure:"api_keys"`
 	Dexs         DexList            `mapstructure:"dexs"`
 	PriceQuality PriceQualityConfig `mapstructure:"price_quality"`
-	Cosmos       CosmosConfig       `mapstructure:"cosmos"`
 }
 
 // DefaultConfig returns server's default configuration.
@@ -256,8 +246,6 @@ func DefaultConfig() *Config {
 			SuspectDeviation:       0,
 			SuspectMinLiquidityUsd: 0,
 		},
-		// Cosmos sources are opt-in (default off) - an EVM-only operator is unaffected.
-		Cosmos: CosmosConfig{Enabled: false},
 	}
 }
 

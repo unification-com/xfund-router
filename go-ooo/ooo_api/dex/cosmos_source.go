@@ -2,101 +2,68 @@ package dex
 
 import (
 	"fmt"
-	"strings"
 
 	"go-ooo/logger"
-	"go-ooo/ooo_api/dex/chains"
 	"go-ooo/ooo_api/dex/sqs"
 	"go-ooo/ooo_api/dex/types"
+	"go-ooo/ooo_api/export"
 )
 
-// CosmosSqsSource is the Osmosis SQS PriceSource (#128 Phase 0b) - the first non-EVM, non-subgraph
-// transport. It implements PriceSource by pricing an allow-list of blue-chip Osmosis pairs off the
-// Osmosis Sidecar Query Server REST API (sqs.osmosis.zone), proving go-ooo's price path is
-// transport-agnostic: the orchestrator (getPrices) and the aggregator (dexprice.go) treat it
-// identically to a subgraph source, because the transport is hidden behind FetchPoolPrices. It
-// speaks REST/JSON, not GraphQL, and has no subgraph URL.
+// cosmosSourceTypeRestSqs is the manifest sourceType marking an Osmosis SQS source (#128). go-ooo
+// builds a CosmosSqsSource for it instead of a subgraph FamilyModule.
+const cosmosSourceTypeRestSqs = "rest-sqs"
+
+// CosmosSqsSource is a non-EVM, non-subgraph PriceSource (#128): it prices a dex-pair-verify-curated
+// Osmosis pair off the Osmosis Sidecar Query Server REST API (sqs.osmosis.zone). The orchestrator
+// (getPrices) and the aggregator (dexprice.go) treat it identically to a subgraph source because the
+// transport is hidden behind FetchPoolPrices - it speaks REST/JSON, not GraphQL, and has no subgraph.
 //
-// Phase 0b deliberately curates a small STATIC allow-list inside go-ooo (bypassing dex-pair-verify)
-// to prove the non-EVM price path with minimal moving parts; Phase 2 moves Cosmos curation to dpv,
-// the same way EVM pairs are curated.
+// Curation + identity now come ENTIRELY from dex-pair-verify (Phase 2): the pairs are persisted to
+// dex_pairs from the export feed, and each token's on-chain denom is persisted to token_contracts (the
+// feed's per-token contractAddress IS the Cosmos denom). The source resolves a queried symbol to its
+// denom via that table, so go-ooo holds no static Osmosis allow-list - the source, its SQS URL, and
+// its pairs are all manifest/feed-driven.
 type CosmosSqsSource struct {
 	chain        string
 	dex          string
 	minLiquidity uint64
 	minTxCount   uint64
 	pricer       sqsPricer
-	tokens       map[string]cosmosToken
+	denoms       denomResolver
 }
 
 // sqsPricer is the slice of the SQS client the source needs: the spot price of one denom quoted in
-// another. *sqs.Client satisfies it; tests inject a fake so FetchPoolPrices is unit-testable without
-// a network call.
+// another. *sqs.Client satisfies it; tests inject a fake so FetchPoolPrices is unit-testable without a
+// network call.
 type sqsPricer interface {
 	TokenPrice(baseDenom, quoteDenom string) (float64, error)
 }
 
-// cosmosToken is one Osmosis token in the static allow-list: its symbol, on-chain denom (native
-// "uosmo" or an "ibc/..." hash) and decimals.
-type cosmosToken struct {
-	symbol   string
-	denom    string
-	decimals int
-}
-
-const (
-	// CosmosChainOsmosis is the chain id the Osmosis SQS source registers under. It is a NON-EVM chain
-	// (its ChainDef has no ethclient), so the price orchestrator skips the EVM block-number lookup for
-	// it - Cosmos spot prices are current, with no historical-block query.
-	CosmosChainOsmosis = "osmosis"
-	// DexOsmosisSqs is the dex id for the Osmosis SQS source.
-	DexOsmosisSqs = "osmosis_sqs"
-
-	// The Osmosis denoms SQS uses for the blue-chip allow-list, confirmed live against
-	// /tokens/metadata (each carries the expected coingeckoId) and /tokens/prices (each quotes vs
-	// USDC). USDC + ATOM arrive as IBC hashes; the newer alloyed/factory tokens (USDT, DYDX, WBTC)
-	// use factory denoms.
-	osmosisUsdcDenom = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"
-	osmosisAtomDenom = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"
-	osmosisTiaDenom  = "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877"
-	osmosisInjDenom  = "ibc/64BA6E31FE887D66C6F8F31C7B1A80C7CA179239677B4088BB55F5EA07DBE273"
-	osmosisAktDenom  = "ibc/1480B8FD20AD5FCAE81EA87584D269547DD4D436843C1D20F15E00EB64743EF4"
-	osmosisDydxDenom = "factory/osmo1zem8r6dv6u38f6qpg546zy30946av8h5srgug0s4gcyy6cfecf3seac083/alloyed/allDYDX"
-	osmosisWbtcDenom = "factory/osmo1z0qrq605sjgcqpylfl4aa6s90x738j7m58wyatt0tdzflg2ha26q67k743/wbtc"
-)
-
-// osmosisAllowList is the blue-chip Osmosis token set go-ooo prices in Phase 0b. Pairs are priced
-// vs USDC (the SQS default quote). Symbols are the canonical oracle symbols a consumer queries.
-var osmosisAllowList = map[string]cosmosToken{
-	"OSMO": {symbol: "OSMO", denom: "uosmo", decimals: 6},
-	"ATOM": {symbol: "ATOM", denom: osmosisAtomDenom, decimals: 6},
-	"USDC": {symbol: "USDC", denom: osmosisUsdcDenom, decimals: 6},
-	"TIA":  {symbol: "TIA", denom: osmosisTiaDenom, decimals: 6},
-	"INJ":  {symbol: "INJ", denom: osmosisInjDenom, decimals: 18},
-	"AKT":  {symbol: "AKT", denom: osmosisAktDenom, decimals: 6},
-	"DYDX": {symbol: "DYDX", denom: osmosisDydxDenom, decimals: 12},
-	"WBTC": {symbol: "WBTC", denom: osmosisWbtcDenom, decimals: 8},
+// denomResolver resolves a token symbol to its on-chain denom on a chain, from the token_contracts
+// table that dex-pair-verify's pair feed populates. *database.DB satisfies it; tests inject a fake.
+type denomResolver interface {
+	FindTokenAddressByChainAndSymbol(chain, symbol string) (string, error)
 }
 
 // Compile-time check that CosmosSqsSource satisfies the PriceSource seam (#128).
 var _ PriceSource = CosmosSqsSource{}
 
-// NewOsmosisSqsSource builds the Osmosis SQS PriceSource pointed at sqsBaseURL (empty = the public
-// instance). It prices the blue-chip Osmosis allow-list (OSMO/ATOM vs USDC) off SQS.
-func NewOsmosisSqsSource(sqsBaseURL string, minLiquidity, minTxCount uint64) CosmosSqsSource {
-	return newCosmosSqsSource(sqs.NewClient(sqsBaseURL), minLiquidity, minTxCount)
+// NewCosmosSqsSource builds a Cosmos SQS PriceSource for (chain, dex), pointed at sqsBaseURL (empty =
+// the public instance), resolving token symbols to denoms via denoms.
+func NewCosmosSqsSource(chain, dex, sqsBaseURL string, denoms denomResolver, minLiquidity, minTxCount uint64) CosmosSqsSource {
+	return newCosmosSqsSource(chain, dex, sqs.NewClient(sqsBaseURL), denoms, minLiquidity, minTxCount)
 }
 
 // newCosmosSqsSource is the internal constructor taking the pricer directly, so tests can inject a
 // fake instead of the real SQS client.
-func newCosmosSqsSource(pricer sqsPricer, minLiquidity, minTxCount uint64) CosmosSqsSource {
+func newCosmosSqsSource(chain, dex string, pricer sqsPricer, denoms denomResolver, minLiquidity, minTxCount uint64) CosmosSqsSource {
 	return CosmosSqsSource{
-		chain:        CosmosChainOsmosis,
-		dex:          DexOsmosisSqs,
+		chain:        chain,
+		dex:          dex,
 		minLiquidity: minLiquidity,
 		minTxCount:   minTxCount,
 		pricer:       pricer,
-		tokens:       osmosisAllowList,
+		denoms:       denoms,
 	}
 }
 
@@ -106,93 +73,81 @@ func (s CosmosSqsSource) Dex() string          { return s.dex }
 func (s CosmosSqsSource) MinLiquidity() uint64 { return s.minLiquidity }
 func (s CosmosSqsSource) MinTxCount() uint64   { return s.minTxCount }
 
-// FetchPoolPrices prices base/target off the Osmosis SQS API. Both symbols must be in the allow-list;
-// the price is the SQS spot price of base quoted in target's denom. dexInfo and minutes are
-// intentionally ignored: Cosmos spot prices are current (no historical-block query - time series is
-// Phase 1's Numia work), and the priceable set is the allow-list, not dexInfo's EVM contract
-// addresses. It returns ONE PoolPrices sample keyed by a synthetic "<base>-<target>" contract that
-// matches the seeded dex_pairs row, so the orchestrator joins liquidity/confidence onto it.
-func (s CosmosSqsSource) FetchPoolPrices(base, target string, _ DexInfo, _ uint64) ([]types.PoolPrices, error) {
-	b, ok := s.tokens[base]
-	if !ok {
-		return nil, fmt.Errorf("cosmos-sqs: base symbol %q not in the Osmosis allow-list", base)
+// FetchPoolPrices prices base/target off the Osmosis SQS API. It resolves each symbol to its on-chain
+// denom (from token_contracts, populated by the dpv feed) and reads the SQS spot price of base quoted
+// in target's denom - a chain-wide spot, not per-pool. The price is echoed under EACH curated pool
+// contract in dexInfo (the dpv-curated pools for this pair) so the orchestrator joins each pool's
+// liquidity + trust score onto it, exactly as for a subgraph source's per-pool prices. minutes is
+// ignored: Cosmos spot prices are current (no historical-block query).
+func (s CosmosSqsSource) FetchPoolPrices(base, target string, dexInfo DexInfo, _ uint64) ([]types.PoolPrices, error) {
+	baseDenom, err := s.denoms.FindTokenAddressByChainAndSymbol(s.chain, base)
+	if err != nil || baseDenom == "" {
+		return nil, fmt.Errorf("cosmos-sqs: no denom for base symbol %q on %s: %v", base, s.chain, err)
 	}
-	t, ok := s.tokens[target]
-	if !ok {
-		return nil, fmt.Errorf("cosmos-sqs: target symbol %q not in the Osmosis allow-list", target)
+	targetDenom, err := s.denoms.FindTokenAddressByChainAndSymbol(s.chain, target)
+	if err != nil || targetDenom == "" {
+		return nil, fmt.Errorf("cosmos-sqs: no denom for target symbol %q on %s: %v", target, s.chain, err)
 	}
-	price, err := s.pricer.TokenPrice(b.denom, t.denom)
+
+	price, err := s.pricer.TokenPrice(baseDenom, targetDenom)
 	if err != nil {
 		return nil, err
 	}
 	if price <= 0 {
 		return nil, fmt.Errorf("cosmos-sqs: non-positive price %v for %s/%s", price, base, target)
 	}
-	return []types.PoolPrices{{
-		Contract: cosmosPairContract(base, target),
-		Prices:   []float64{price},
-	}}, nil
+
+	// Echo the chain-wide spot under each curated pool contract so the aggregator weights it by that
+	// pool's liquidity + confidence (the metadata the orchestrator joins by contract address).
+	out := make([]types.PoolPrices, 0, len(dexInfo.ContractAddressList))
+	for _, contract := range dexInfo.ContractAddressList {
+		out = append(out, types.PoolPrices{Contract: contract, Prices: []float64{price}})
+	}
+	return out, nil
 }
 
-// FetchPairsMetadata is a no-op for the allow-list source: there is no external pair discovery to
-// refresh in Phase 0b (the allow-list is static and its synthetic pairs carry no live reserves to
-// update). Returning nil leaves the seeded rows untouched.
+// FetchPairsMetadata is a no-op: a Cosmos source's pairs + reserves come from the dex-pair-verify feed
+// (persisted to dex_pairs), not from a live metadata query here.
 func (s CosmosSqsSource) FetchPairsMetadata(_ string) ([]types.DexPair, error) {
 	return nil, nil
 }
 
-// cosmosPairContract is the synthetic pool key for an allow-list pair ("osmo-usdc"). Lower-cased to
-// match the orchestrator's case-insensitive metadata join (it lower-cases contract addresses), and
-// used as the ContractAddress when seeding the pair into dex_pairs.
-func cosmosPairContract(base, target string) string {
-	return strings.ToLower(base + "-" + target)
-}
+// --- manifest-driven construction (#128 Phase 2d) ---
 
-// --- Manager wiring (Phase 0b): the static Cosmos source set ---
-
-// osmosisStaticPairs are the allow-list trading pairs go-ooo seeds into dex_pairs so the price path
-// (FindByDexPairName) can find them. Each is priced vs USDC.
-var osmosisStaticPairs = []struct{ base, target string }{
-	{"OSMO", "USDC"},
-	{"ATOM", "USDC"},
-	{"TIA", "USDC"},
-	{"INJ", "USDC"},
-	{"AKT", "USDC"},
-	{"DYDX", "USDC"},
-	{"WBTC", "USDC"},
-}
-
-// osmosisPlaceholderReserveUsd is the seeded backing liquidity for an allow-list pair until Phase 1
-// reads real reserves from SQS /pools. A single Osmosis pool backs each pair, so the figure does not
-// affect the median; it only needs to clear the source's liquidity floor.
-const osmosisPlaceholderReserveUsd = 1_000_000.0
-
-// cosmosSources returns the static Cosmos PriceSources + their non-EVM chain definitions when Cosmos
-// is enabled in config (else nil). They are curated in go-ooo, not the dpv manifest, so ApplyManifest
-// appends them to the manifest-derived EVM set. The chain has a nil EthClient, so the price
-// orchestrator skips the EVM block-number lookup for it (Cosmos spot prices are current).
-func (dm *Manager) cosmosSources() ([]PriceSource, map[string]*chains.ChainDef) {
-	if !dm.cfg.Cosmos.Enabled {
-		return nil, nil
-	}
-	src := NewOsmosisSqsSource(dm.cfg.Cosmos.SqsUrl, dm.cfg.Cosmos.MinReserveUsd, 0)
-	chainSet := map[string]*chains.ChainDef{
-		CosmosChainOsmosis: {ChainShort: CosmosChainOsmosis, ChainName: "Osmosis"},
-	}
-	return []PriceSource{src}, chainSet
-}
-
-// seedCosmosPairs upserts the Osmosis allow-list pairs into dex_pairs (idempotent), so the price path
-// can find them. Called from ApplyManifest when Cosmos is enabled.
-func (dm *Manager) seedCosmosPairs() {
-	for _, p := range osmosisStaticPairs {
-		pair := fmt.Sprintf("%s-%s", p.base, p.target)
-		if err := dm.db.UpsertStaticDexPair(
-			CosmosChainOsmosis, DexOsmosisSqs, pair, p.base, p.target,
-			cosmosPairContract(p.base, p.target), osmosisPlaceholderReserveUsd, 1.0,
-		); err != nil {
-			logger.ErrorWithFields("dex", "seedCosmosPairs", "upsert static dex pair", err.Error(),
-				logger.Fields{"pair": pair})
+// restURLFor returns the SQS base URL from a rest-sqs source's endpoint list (its first non-empty
+// urlTemplate; no {API_KEY} substitution - SQS is keyless).
+func restURLFor(endpoints []export.ManifestEndpoint) (string, bool) {
+	for _, e := range endpoints {
+		if e.URLTemplate != "" {
+			return e.URLTemplate, true
 		}
 	}
+	return "", false
+}
+
+// buildCosmosSources constructs a CosmosSqsSource for every manifest source whose transport is
+// rest-sqs, resolving token denoms via denoms (the token_contracts table). This is the manifest-driven
+// replacement for the old static Osmosis allow-list: the source set, its SQS URL, and its pairs all
+// come from dex-pair-verify. MinTxCount is 0 (SQS exposes no per-pool tx counts; the dpv curation
+// floor + verdict do the filtering); MinLiquidity is the source's curation floor (XR2) when known.
+func buildCosmosSources(m *export.Manifest, denoms denomResolver) []CosmosSqsSource {
+	var out []CosmosSqsSource
+	for _, src := range m.SupportedSources {
+		if src.SourceType != cosmosSourceTypeRestSqs {
+			continue
+		}
+		sqsURL, ok := restURLFor(src.Endpoints)
+		if !ok {
+			logger.WarnWithFields("dex", "buildCosmosSources", "skip source",
+				"no SQS endpoint URL on the rest-sqs source - skipping",
+				logger.Fields{"chain": src.Chain, "dex": src.Dex})
+			continue
+		}
+		minLiquidity := uint64(types.DefaultMinLiquidity)
+		if src.MinLiquidityUsd > 0 {
+			minLiquidity = uint64(src.MinLiquidityUsd)
+		}
+		out = append(out, NewCosmosSqsSource(src.Chain, src.Dex, sqsURL, denoms, minLiquidity, 0))
+	}
+	return out
 }

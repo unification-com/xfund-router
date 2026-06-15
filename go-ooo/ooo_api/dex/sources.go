@@ -25,6 +25,7 @@ func sourceToModel(src export.ManifestSource) (models.SupportedSource, error) {
 		Chain:                src.Chain,
 		Dex:                  src.Dex,
 		SubgraphSchemaFamily: src.SubgraphSchemaFamily,
+		SourceType:           src.SourceType,
 		Endpoints:            string(endpoints),
 		FactoryAddress:       src.FactoryAddress,
 		RpcUrl:               src.RPCURL,
@@ -50,6 +51,7 @@ func modelToSource(row models.SupportedSource) (export.ManifestSource, error) {
 		Dex:                  row.Dex,
 		Endpoints:            endpoints,
 		SubgraphSchemaFamily: row.SubgraphSchemaFamily,
+		SourceType:           row.SourceType,
 		FactoryAddress:       row.FactoryAddress,
 		RPCURL:               row.RpcUrl,
 		BlocksPerMin:         row.BlocksPerMin,
@@ -222,18 +224,12 @@ func (dm *Manager) ApplyManifest(m *export.Manifest) {
 	dm.mu.RUnlock()
 	newChains := dm.buildChains(existing, m)
 
-	// Append the static Cosmos sources + their non-EVM chains (#128 Phase 0b), curated in go-ooo
-	// rather than the dpv manifest, and seed their allow-list pairs so the price path can find them.
-	// No-op unless [cosmos] enabled = true in config.
-	cosmosMods, cosmosChains := dm.cosmosSources()
-	for _, cs := range cosmosMods {
+	// Cosmos (rest-sqs) sources are built from the manifest too, but as REST PriceSources rather than
+	// subgraph FamilyModules; their pairs + token denoms come from the dex-pair-verify feed (dex_pairs
+	// / token_contracts), so go-ooo no longer curates a static Osmosis allow-list. buildChains has
+	// already registered their non-EVM chain (nil EthClient) so the orchestrator skips the block lookup.
+	for _, cs := range buildCosmosSources(m, dm.db) {
 		moduleMap[cs.Name()] = cs
-	}
-	for name, cd := range cosmosChains {
-		newChains[name] = cd
-	}
-	if len(cosmosMods) > 0 {
-		dm.seedCosmosPairs()
 	}
 
 	dm.mu.Lock()
@@ -258,6 +254,14 @@ func (dm *Manager) buildChains(existing map[string]*chains.ChainDef, m *export.M
 
 	for _, src := range m.SupportedSources {
 		if _, done := out[src.Chain]; done {
+			continue
+		}
+
+		// A non-EVM REST source (Osmosis SQS, #128) has no RPC; register a chain def with no eth client
+		// so the price orchestrator skips the EVM block-number lookup for it (Cosmos spot prices are
+		// current, with no historical-block query).
+		if src.SourceType == cosmosSourceTypeRestSqs {
+			out[src.Chain] = &chains.ChainDef{ChainShort: src.Chain, ChainName: src.Chain}
 			continue
 		}
 

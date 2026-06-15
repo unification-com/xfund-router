@@ -34,13 +34,16 @@ type ManifestSource struct {
 	Dex                  string             `json:"dex"`
 	Endpoints            []ManifestEndpoint `json:"endpoints"` // [0] is the primary; free-tier alternatives follow
 	SubgraphSchemaFamily string             `json:"subgraphSchemaFamily"`
-	FactoryAddress       string             `json:"factoryAddress"`
-	RPCURL               string             `json:"rpcUrl"`       // "" when the chain is not mapped (JSON null)
-	BlocksPerMin         int                `json:"blocksPerMin"` // 0 when not mapped (JSON null)
-	PairCount            int                `json:"pairCount"`
-	ExportURL            string             `json:"exportUrl"` // /api/ooo/v1/export/{chain}/{dex}
-	LastUpdated          int64              `json:"lastUpdated"`
-	LastVerifiedAt       int64              `json:"lastVerifiedAt"`
+	// SourceType is the source's transport (#128): "subgraph" (the EVM/GraphQL default) or "rest-sqs"
+	// (a Cosmos Osmosis SQS source - the primary endpoint's urlTemplate is then the SQS base URL).
+	SourceType     string `json:"sourceType"`
+	FactoryAddress string `json:"factoryAddress"`
+	RPCURL         string `json:"rpcUrl"`       // "" when the chain is not mapped (JSON null)
+	BlocksPerMin   int    `json:"blocksPerMin"` // 0 when not mapped (JSON null)
+	PairCount      int    `json:"pairCount"`
+	ExportURL      string `json:"exportUrl"` // /api/ooo/v1/export/{chain}/{dex}
+	LastUpdated    int64  `json:"lastUpdated"`
+	LastVerifiedAt int64  `json:"lastVerifiedAt"`
 	// MinLiquidityUsd is the source's curation floor (XR2). It is NOT part of the manifest wire
 	// format - the floor is carried on the per-source pair feed (PairFeed.MinLiquidityUsd) - so it is
 	// excluded from (de)serialisation and populated internally from the persisted source on restore.

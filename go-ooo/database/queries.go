@@ -116,24 +116,6 @@ func (d *DB) FindByDexChainAddress(chain, dex, contractAddress string) (models.D
 	return result, err
 }
 
-// UpsertStaticDexPair idempotently inserts (or updates) a curated, verified dex pair, keyed on
-// (chain, dex, contractAddress). It seeds the static Cosmos allow-list (#128 Phase 0b), which is
-// sourced inside go-ooo rather than from the dex-pair-verify export, so the price path's
-// FindByDexPairName can find it like any EVM pair.
-func (d *DB) UpsertStaticDexPair(chain, dex, pair, t0Symbol, t1Symbol, contractAddress string, reserveUsd, confidence float64) error {
-	row := models.DexPairs{}
-	return d.Where(models.DexPairs{Chain: chain, Dex: dex, ContractAddress: contractAddress}).
-		Assign(models.DexPairs{
-			Pair:       pair,
-			T0Symbol:   t0Symbol,
-			T1Symbol:   t1Symbol,
-			ReserveUsd: reserveUsd,
-			Confidence: confidence,
-			Verified:   true,
-		}).
-		FirstOrCreate(&row).Error
-}
-
 func (d *DB) Get100PairsForDataRefresh(chain, dex string) ([]models.DexPairs, error) {
 	var res []models.DexPairs
 	duration, _ := time.ParseDuration("-6h")
@@ -187,5 +169,15 @@ func (d *DB) FindByTokenAll(symbol string, address string, chain string) (models
 func (d *DB) FindTokenAddressByRowId(id uint) (string, error) {
 	result := models.TokenContracts{}
 	err := d.Where("id = ?", id).First(&result).Error
+	return result.ContractAddress, err
+}
+
+// FindTokenAddressByChainAndSymbol resolves a token symbol to its on-chain contract address (a Cosmos
+// denom for a Cosmos chain) on a chain, from the token_contracts rows the dex-pair-verify pair feed
+// populates. The Cosmos SQS price source uses it to turn a queried symbol into the denom SQS prices by
+// (#128). The newest row wins when a symbol has more than one denom (e.g. several USDC bridges).
+func (d *DB) FindTokenAddressByChainAndSymbol(chain, symbol string) (string, error) {
+	result := models.TokenContracts{}
+	err := d.Where("chain = ? AND token_symbol = ?", chain, symbol).Order("id desc").First(&result).Error
 	return result.ContractAddress, err
 }
