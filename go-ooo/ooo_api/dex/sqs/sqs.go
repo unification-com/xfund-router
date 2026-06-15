@@ -36,32 +36,35 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
-// TokenPrice returns the spot price of baseDenom quoted in quoteDenom - e.g. "uosmo" quoted in the
-// USDC IBC denom gives OSMO's price in USDC. SQS GET /tokens/prices?base=<denom> responds with
-// {"<baseDenom>": {"<quoteDenom>": "<price>"}}; this reads out the requested quote.
-func (c *Client) TokenPrice(baseDenom, quoteDenom string) (float64, error) {
-	url := fmt.Sprintf("%s/tokens/prices?base=%s", c.baseURL, baseDenom)
+// TokenPricesUsd returns the USD spot price of each denom. SQS GET /tokens/prices?base=<d1,d2,...>
+// responds with {"<denom>": {"<usdDenom>": "<price>"}}, where usdDenom is the USD unit SQS quotes in
+// (the native USDC). It reads that single quote per denom - DISCOVERING the usdDenom from the response
+// rather than passing it, so no denom is hard-coded and any USDC bridge variant a symbol resolved to
+// still prices at ~1. A pair price is then base-USD ÷ target-USD (computed by the caller). A denom SQS
+// cannot price is simply absent from the result (not an error).
+func (c *Client) TokenPricesUsd(denoms []string) (map[string]float64, error) {
+	out := make(map[string]float64, len(denoms))
+	if len(denoms) == 0 {
+		return out, nil
+	}
+	url := fmt.Sprintf("%s/tokens/prices?base=%s", c.baseURL, strings.Join(denoms, ","))
 	body, err := c.get(url)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	var resp map[string]map[string]string
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return 0, fmt.Errorf("sqs: decode prices response: %w", err)
+		return nil, fmt.Errorf("sqs: decode prices response: %w", err)
 	}
-	quotes, ok := resp[baseDenom]
-	if !ok {
-		return 0, fmt.Errorf("sqs: no prices returned for base denom %s", baseDenom)
+	for denom, quotes := range resp {
+		for _, priceStr := range quotes {
+			if p, perr := strconv.ParseFloat(priceStr, 64); perr == nil && p > 0 {
+				out[denom] = p
+			}
+			break // a single USD quote per denom
+		}
 	}
-	priceStr, ok := quotes[quoteDenom]
-	if !ok {
-		return 0, fmt.Errorf("sqs: no %s quote for base denom %s", quoteDenom, baseDenom)
-	}
-	price, err := strconv.ParseFloat(priceStr, 64)
-	if err != nil {
-		return 0, fmt.Errorf("sqs: unparseable price %q for base denom %s: %w", priceStr, baseDenom, err)
-	}
-	return price, nil
+	return out, nil
 }
 
 func (c *Client) get(url string) ([]byte, error) {

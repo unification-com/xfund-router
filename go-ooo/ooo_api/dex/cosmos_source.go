@@ -32,11 +32,10 @@ type CosmosSqsSource struct {
 	denoms       denomResolver
 }
 
-// sqsPricer is the slice of the SQS client the source needs: the spot price of one denom quoted in
-// another. *sqs.Client satisfies it; tests inject a fake so FetchPoolPrices is unit-testable without a
-// network call.
+// sqsPricer is the slice of the SQS client the source needs: the USD price of each denom. *sqs.Client
+// satisfies it; tests inject a fake so FetchPoolPrices is unit-testable without a network call.
 type sqsPricer interface {
-	TokenPrice(baseDenom, quoteDenom string) (float64, error)
+	TokenPricesUsd(denoms []string) (map[string]float64, error)
 }
 
 // denomResolver resolves a token symbol to its on-chain denom on a chain, from the token_contracts
@@ -74,11 +73,12 @@ func (s CosmosSqsSource) MinLiquidity() uint64 { return s.minLiquidity }
 func (s CosmosSqsSource) MinTxCount() uint64   { return s.minTxCount }
 
 // FetchPoolPrices prices base/target off the Osmosis SQS API. It resolves each symbol to its on-chain
-// denom (from token_contracts, populated by the dpv feed) and reads the SQS spot price of base quoted
-// in target's denom - a chain-wide spot, not per-pool. The price is echoed under EACH curated pool
-// contract in dexInfo (the dpv-curated pools for this pair) so the orchestrator joins each pool's
-// liquidity + trust score onto it, exactly as for a subgraph source's per-pool prices. minutes is
-// ignored: Cosmos spot prices are current (no historical-block query).
+// denom (from token_contracts, populated by the dpv feed), reads each side's USD spot price from SQS,
+// and divides (base-USD ÷ target-USD) for the cross price - a chain-wide spot, not per-pool. Pricing
+// via USD makes it robust to which bridge variant a symbol resolved to (any USDC bridge prices at ~1)
+// and works for any base/target, not just vs USDC. The price is echoed under EACH curated pool
+// contract in dexInfo so the orchestrator joins each pool's liquidity + trust score onto it, exactly
+// as for a subgraph source's per-pool prices. minutes is ignored: Cosmos spot prices are current.
 func (s CosmosSqsSource) FetchPoolPrices(base, target string, dexInfo DexInfo, _ uint64) ([]types.PoolPrices, error) {
 	baseDenom, err := s.denoms.FindTokenAddressByChainAndSymbol(s.chain, base)
 	if err != nil || baseDenom == "" {
@@ -89,13 +89,15 @@ func (s CosmosSqsSource) FetchPoolPrices(base, target string, dexInfo DexInfo, _
 		return nil, fmt.Errorf("cosmos-sqs: no denom for target symbol %q on %s: %v", target, s.chain, err)
 	}
 
-	price, err := s.pricer.TokenPrice(baseDenom, targetDenom)
+	usd, err := s.pricer.TokenPricesUsd([]string{baseDenom, targetDenom})
 	if err != nil {
 		return nil, err
 	}
-	if price <= 0 {
-		return nil, fmt.Errorf("cosmos-sqs: non-positive price %v for %s/%s", price, base, target)
+	basePrice, targetPrice := usd[baseDenom], usd[targetDenom]
+	if basePrice <= 0 || targetPrice <= 0 {
+		return nil, fmt.Errorf("cosmos-sqs: missing SQS USD price for %s/%s (base=%v target=%v)", base, target, basePrice, targetPrice)
 	}
+	price := basePrice / targetPrice
 
 	// Echo the chain-wide spot under each curated pool contract so the aggregator weights it by that
 	// pool's liquidity + confidence (the metadata the orchestrator joins by contract address).
