@@ -52,10 +52,17 @@ const (
 	// DexOsmosisSqs is the dex id for the Osmosis SQS source.
 	DexOsmosisSqs = "osmosis_sqs"
 
-	// osmosisUsdcDenom / osmosisAtomDenom are the IBC denoms SQS uses for USDC (Noble) and ATOM on
-	// Osmosis, confirmed live against /tokens/metadata (coingeckoId usd-coin / cosmos).
+	// The Osmosis denoms SQS uses for the blue-chip allow-list, confirmed live against
+	// /tokens/metadata (each carries the expected coingeckoId) and /tokens/prices (each quotes vs
+	// USDC). USDC + ATOM arrive as IBC hashes; the newer alloyed/factory tokens (USDT, DYDX, WBTC)
+	// use factory denoms.
 	osmosisUsdcDenom = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"
 	osmosisAtomDenom = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"
+	osmosisTiaDenom  = "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877"
+	osmosisInjDenom  = "ibc/64BA6E31FE887D66C6F8F31C7B1A80C7CA179239677B4088BB55F5EA07DBE273"
+	osmosisAktDenom  = "ibc/1480B8FD20AD5FCAE81EA87584D269547DD4D436843C1D20F15E00EB64743EF4"
+	osmosisDydxDenom = "factory/osmo1zem8r6dv6u38f6qpg546zy30946av8h5srgug0s4gcyy6cfecf3seac083/alloyed/allDYDX"
+	osmosisWbtcDenom = "factory/osmo1z0qrq605sjgcqpylfl4aa6s90x738j7m58wyatt0tdzflg2ha26q67k743/wbtc"
 )
 
 // osmosisAllowList is the blue-chip Osmosis token set go-ooo prices in Phase 0b. Pairs are priced
@@ -64,6 +71,11 @@ var osmosisAllowList = map[string]cosmosToken{
 	"OSMO": {symbol: "OSMO", denom: "uosmo", decimals: 6},
 	"ATOM": {symbol: "ATOM", denom: osmosisAtomDenom, decimals: 6},
 	"USDC": {symbol: "USDC", denom: osmosisUsdcDenom, decimals: 6},
+	"TIA":  {symbol: "TIA", denom: osmosisTiaDenom, decimals: 6},
+	"INJ":  {symbol: "INJ", denom: osmosisInjDenom, decimals: 18},
+	"AKT":  {symbol: "AKT", denom: osmosisAktDenom, decimals: 6},
+	"DYDX": {symbol: "DYDX", denom: osmosisDydxDenom, decimals: 12},
+	"WBTC": {symbol: "WBTC", denom: osmosisWbtcDenom, decimals: 8},
 }
 
 // Compile-time check that CosmosSqsSource satisfies the PriceSource seam (#128).
@@ -143,6 +155,11 @@ func cosmosPairContract(base, target string) string {
 var osmosisStaticPairs = []struct{ base, target string }{
 	{"OSMO", "USDC"},
 	{"ATOM", "USDC"},
+	{"TIA", "USDC"},
+	{"INJ", "USDC"},
+	{"AKT", "USDC"},
+	{"DYDX", "USDC"},
+	{"WBTC", "USDC"},
 }
 
 // osmosisPlaceholderReserveUsd is the seeded backing liquidity for an allow-list pair until Phase 1
