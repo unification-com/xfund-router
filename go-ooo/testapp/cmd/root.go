@@ -15,6 +15,10 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	rootCmd.PersistentFlags().StringVar(&graphNetApi, FlagGraphNetworkApiKey, "", "Graph Network API Key")
 
+	// Enable the non-EVM Cosmos sources (#128): adds the Osmosis SQS source + seeds its allow-list
+	// pairs, so `api price OSMO.USDC` can be served off REST.
+	rootCmd.PersistentFlags().BoolVar(&cosmosEnabled, "cosmos", false, "enable the Osmosis SQS (Cosmos) price source")
+
 	// dex-pair-verify export API (e.g. a locally-run instance) for `api update-pairs` to sync the
 	// source manifest + pair feeds from. Empty leaves the sync disabled.
 	rootCmd.PersistentFlags().StringVar(&dpvApiBaseUrl, FlagDpvApiBaseUrl, "", "dex-pair-verify export API base, e.g. http://127.0.0.1:3000/api/ooo/v1")

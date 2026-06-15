@@ -28,6 +28,8 @@ var (
 	dbUser    string
 	dbName    string
 	dbPass    string
+
+	cosmosEnabled bool
 )
 
 // baseConfig builds a default config with the DB selection from the --db-* flags applied: sqlite
@@ -69,6 +71,9 @@ func createApi() *ooo_api.OOOApi {
 	// can pull the manifest + pair feeds. Empty leaves the sync disabled (the persisted catalogue).
 	cfg.Jobs.DexExport.BaseUrl = dpvApiBaseUrl
 	cfg.Jobs.DexExport.ApiToken = dpvApiToken
+
+	// Opt-in Cosmos sources (#128): NewApi's manifest-apply then adds the Osmosis SQS source.
+	cfg.Cosmos.Enabled = cosmosEnabled
 
 	// Reuse the application's NewDb + Migrate so the testapp exercises the exact connection +
 	// migration path go-ooo runs in production - including schema migrations against a real dump.

@@ -116,6 +116,24 @@ func (d *DB) FindByDexChainAddress(chain, dex, contractAddress string) (models.D
 	return result, err
 }
 
+// UpsertStaticDexPair idempotently inserts (or updates) a curated, verified dex pair, keyed on
+// (chain, dex, contractAddress). It seeds the static Cosmos allow-list (#128 Phase 0b), which is
+// sourced inside go-ooo rather than from the dex-pair-verify export, so the price path's
+// FindByDexPairName can find it like any EVM pair.
+func (d *DB) UpsertStaticDexPair(chain, dex, pair, t0Symbol, t1Symbol, contractAddress string, reserveUsd, confidence float64) error {
+	row := models.DexPairs{}
+	return d.Where(models.DexPairs{Chain: chain, Dex: dex, ContractAddress: contractAddress}).
+		Assign(models.DexPairs{
+			Pair:       pair,
+			T0Symbol:   t0Symbol,
+			T1Symbol:   t1Symbol,
+			ReserveUsd: reserveUsd,
+			Confidence: confidence,
+			Verified:   true,
+		}).
+		FirstOrCreate(&row).Error
+}
+
 func (d *DB) Get100PairsForDataRefresh(chain, dex string) ([]models.DexPairs, error) {
 	var res []models.DexPairs
 	duration, _ := time.ParseDuration("-6h")

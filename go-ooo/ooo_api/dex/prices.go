@@ -92,20 +92,27 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			continue
 		}
 
-		currentBlock, cached := blockByChain[chain]
-		if !cached {
-			cb, err := chainDef.EthClient.BlockNumber(dm.ctx)
-			if err != nil {
-				logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
-					"chain": chain,
-					"dex":   module.Dex(),
-				})
+		// EVM chains query (and cache) the current block for the historical-block price window. A
+		// non-EVM source (nil EthClient, e.g. the Cosmos SQS source) has no block query - currentBlock
+		// stays 0 and the source ignores it, since Cosmos spot prices are current.
+		var currentBlock uint64
+		if chainDef.EthClient != nil {
+			cb, cached := blockByChain[chain]
+			if !cached {
+				fetched, err := chainDef.EthClient.BlockNumber(dm.ctx)
+				if err != nil {
+					logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
+						"chain": chain,
+						"dex":   module.Dex(),
+					})
 
-				// Mark the chain failed so its other modules are skipped without re-querying.
-				chainRpcFailed[chain] = true
-				continue
+					// Mark the chain failed so its other modules are skipped without re-querying.
+					chainRpcFailed[chain] = true
+					continue
+				}
+				blockByChain[chain] = fetched
+				cb = fetched
 			}
-			blockByChain[chain] = cb
 			currentBlock = cb
 		}
 

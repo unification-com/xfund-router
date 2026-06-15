@@ -222,6 +222,20 @@ func (dm *Manager) ApplyManifest(m *export.Manifest) {
 	dm.mu.RUnlock()
 	newChains := dm.buildChains(existing, m)
 
+	// Append the static Cosmos sources + their non-EVM chains (#128 Phase 0b), curated in go-ooo
+	// rather than the dpv manifest, and seed their allow-list pairs so the price path can find them.
+	// No-op unless [cosmos] enabled = true in config.
+	cosmosMods, cosmosChains := dm.cosmosSources()
+	for _, cs := range cosmosMods {
+		moduleMap[cs.Name()] = cs
+	}
+	for name, cd := range cosmosChains {
+		newChains[name] = cd
+	}
+	if len(cosmosMods) > 0 {
+		dm.seedCosmosPairs()
+	}
+
 	dm.mu.Lock()
 	dm.modules = moduleMap
 	dm.chains = newChains

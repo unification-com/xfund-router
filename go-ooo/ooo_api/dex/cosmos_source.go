@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"go-ooo/logger"
+	"go-ooo/ooo_api/dex/chains"
 	"go-ooo/ooo_api/dex/sqs"
 	"go-ooo/ooo_api/dex/types"
 )
@@ -132,4 +134,48 @@ func (s CosmosSqsSource) FetchPairsMetadata(_ string) ([]types.DexPair, error) {
 // used as the ContractAddress when seeding the pair into dex_pairs.
 func cosmosPairContract(base, target string) string {
 	return strings.ToLower(base + "-" + target)
+}
+
+// --- Manager wiring (Phase 0b): the static Cosmos source set ---
+
+// osmosisStaticPairs are the allow-list trading pairs go-ooo seeds into dex_pairs so the price path
+// (FindByDexPairName) can find them. Each is priced vs USDC.
+var osmosisStaticPairs = []struct{ base, target string }{
+	{"OSMO", "USDC"},
+	{"ATOM", "USDC"},
+}
+
+// osmosisPlaceholderReserveUsd is the seeded backing liquidity for an allow-list pair until Phase 1
+// reads real reserves from SQS /pools. A single Osmosis pool backs each pair, so the figure does not
+// affect the median; it only needs to clear the source's liquidity floor.
+const osmosisPlaceholderReserveUsd = 1_000_000.0
+
+// cosmosSources returns the static Cosmos PriceSources + their non-EVM chain definitions when Cosmos
+// is enabled in config (else nil). They are curated in go-ooo, not the dpv manifest, so ApplyManifest
+// appends them to the manifest-derived EVM set. The chain has a nil EthClient, so the price
+// orchestrator skips the EVM block-number lookup for it (Cosmos spot prices are current).
+func (dm *Manager) cosmosSources() ([]PriceSource, map[string]*chains.ChainDef) {
+	if !dm.cfg.Cosmos.Enabled {
+		return nil, nil
+	}
+	src := NewOsmosisSqsSource(dm.cfg.Cosmos.SqsUrl, dm.cfg.Cosmos.MinReserveUsd, 0)
+	chainSet := map[string]*chains.ChainDef{
+		CosmosChainOsmosis: {ChainShort: CosmosChainOsmosis, ChainName: "Osmosis"},
+	}
+	return []PriceSource{src}, chainSet
+}
+
+// seedCosmosPairs upserts the Osmosis allow-list pairs into dex_pairs (idempotent), so the price path
+// can find them. Called from ApplyManifest when Cosmos is enabled.
+func (dm *Manager) seedCosmosPairs() {
+	for _, p := range osmosisStaticPairs {
+		pair := fmt.Sprintf("%s-%s", p.base, p.target)
+		if err := dm.db.UpsertStaticDexPair(
+			CosmosChainOsmosis, DexOsmosisSqs, pair, p.base, p.target,
+			cosmosPairContract(p.base, p.target), osmosisPlaceholderReserveUsd, 1.0,
+		); err != nil {
+			logger.ErrorWithFields("dex", "seedCosmosPairs", "upsert static dex pair", err.Error(),
+				logger.Fields{"pair": pair})
+		}
+	}
 }
