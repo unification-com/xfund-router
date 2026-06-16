@@ -4,14 +4,18 @@ import (
 	"fmt"
 
 	"go-ooo/logger"
+	"go-ooo/ooo_api/dex/astroport"
 	"go-ooo/ooo_api/dex/sqs"
 	"go-ooo/ooo_api/dex/types"
 	"go-ooo/ooo_api/export"
 )
 
-// cosmosSourceTypeRestSqs is the manifest sourceType marking an Osmosis SQS source (#128). go-ooo
-// builds a CosmosSource for it instead of a subgraph FamilyModule.
-const cosmosSourceTypeRestSqs = "rest-sqs"
+// The manifest sourceTypes marking a Cosmos REST source (#128). go-ooo builds a CosmosSource for each
+// instead of a subgraph FamilyModule, picking the matching pricer (cosmosPricerFor).
+const (
+	cosmosSourceTypeRestSqs       = "rest-sqs"       // Osmosis Sidecar Query Server
+	cosmosSourceTypeRestAstroport = "rest-astroport" // Astroport on Neutron
+)
 
 // CosmosSource is a non-EVM, non-subgraph PriceSource (#128): it prices a dex-pair-verify-curated
 // Cosmos pair off a chain's REST price API (Osmosis SQS, Astroport on Neutron, ...). The orchestrator
@@ -118,16 +122,20 @@ func (s CosmosSource) FetchPairsMetadata(_ string) ([]types.DexPair, error) {
 // build a CosmosSource rather than a subgraph FamilyModule (#128). buildChains uses it too, to register
 // the source's non-EVM chain def.
 func isCosmosSourceType(sourceType string) bool {
-	return sourceType == cosmosSourceTypeRestSqs
+	return sourceType == cosmosSourceTypeRestSqs || sourceType == cosmosSourceTypeRestAstroport
 }
 
 // cosmosPricerFor returns the USD-price client for a Cosmos source's transport (restURL = its API base)
-// and whether the transport is supported. *sqs.Client (and, later, other REST clients) satisfy
-// cosmosPricer, so CosmosSource is identical across them - only the pricer differs.
+// and whether the transport is supported. *sqs.Client / *astroport.Client both satisfy cosmosPricer,
+// so CosmosSource is identical across them - only the pricer differs. An Astroport source on a chain we
+// do not map to an Astroport chainId is treated as unsupported (skipped) rather than pricing nothing.
 func cosmosPricerFor(src export.ManifestSource, restURL string) (cosmosPricer, bool) {
 	switch src.SourceType {
 	case cosmosSourceTypeRestSqs:
 		return sqs.NewClient(restURL), true
+	case cosmosSourceTypeRestAstroport:
+		c := astroport.NewClient(restURL, src.Chain)
+		return c, c.Configured()
 	default:
 		return nil, false
 	}

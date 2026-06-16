@@ -112,3 +112,17 @@ func TestBuildCosmosSources(t *testing.T) {
 	require.Equal(t, "osmosis_osmosis_sqs", mods[0].Name())
 	require.Equal(t, uint64(25000), mods[0].MinLiquidity()) // curation floor honoured
 }
+
+func TestBuildCosmosSourcesAstroport(t *testing.T) {
+	m := &export.Manifest{SupportedSources: []export.ManifestSource{
+		{Chain: "neutron", Dex: "astroport_neutron", SourceType: "rest-astroport", MinLiquidityUsd: 25000,
+			Endpoints: []export.ManifestEndpoint{{Provider: "self-hosted", URLTemplate: "https://api.astroport.fi", Tier: "free"}}},
+		{Chain: "cosmoshub", Dex: "astroport_hub", SourceType: "rest-astroport", // unmapped chain → no Astroport chainId → skipped
+			Endpoints: []export.ManifestEndpoint{{Provider: "self-hosted", URLTemplate: "https://api.astroport.fi", Tier: "free"}}},
+	}}
+
+	mods := buildCosmosSources(m, osmoDenoms())
+	require.Len(t, mods, 1) // only the neutron source (the unmapped-chain Astroport source is skipped)
+	require.Equal(t, "neutron_astroport_neutron", mods[0].Name())
+	require.Equal(t, uint64(25000), mods[0].MinLiquidity())
+}
