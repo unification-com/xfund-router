@@ -257,10 +257,10 @@ func (dm *Manager) buildChains(existing map[string]*chains.ChainDef, m *export.M
 			continue
 		}
 
-		// A non-EVM REST source (Osmosis SQS, #128) has no RPC; register a chain def with no eth client
-		// so the price orchestrator skips the EVM block-number lookup for it (Cosmos spot prices are
-		// current, with no historical-block query).
-		if src.SourceType == cosmosSourceTypeRestSqs {
+		// A non-EVM Cosmos REST source (Osmosis SQS, Astroport, #128) has no RPC; register a chain def
+		// with no eth client so the price orchestrator skips the EVM block-number lookup for it (Cosmos
+		// spot prices are current, with no historical-block query).
+		if isCosmosSourceType(src.SourceType) {
 			out[src.Chain] = &chains.ChainDef{ChainShort: src.Chain, ChainName: src.Chain}
 			continue
 		}

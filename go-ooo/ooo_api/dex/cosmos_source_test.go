@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakePricer is a stub sqsPricer for unit-testing CosmosSqsSource without a network call.
+// fakePricer is a stub cosmosPricer for unit-testing CosmosSource without a network call.
 type fakePricer struct {
 	usd       map[string]float64
 	err       error
@@ -43,8 +43,8 @@ func osmoDenoms() fakeDenoms {
 	}}
 }
 
-func TestCosmosSqsSourceMetadata(t *testing.T) {
-	s := newCosmosSqsSource("osmosis", "osmosis_sqs", &fakePricer{}, osmoDenoms(), 1000, 0)
+func TestCosmosSourceMetadata(t *testing.T) {
+	s := newCosmosSource("osmosis", "osmosis_sqs", &fakePricer{}, osmoDenoms(), 1000, 0)
 	require.Equal(t, "osmosis_osmosis_sqs", s.Name())
 	require.Equal(t, "osmosis", s.Chain())
 	require.Equal(t, "osmosis_sqs", s.Dex())
@@ -54,10 +54,10 @@ func TestCosmosSqsSourceMetadata(t *testing.T) {
 	var _ PriceSource = s
 }
 
-func TestCosmosSqsSourceFetchPoolPrices(t *testing.T) {
+func TestCosmosSourceFetchPoolPrices(t *testing.T) {
 	// USD prices: OSMO ≈ $0.046692, USDC ≈ $1 → cross price 0.046692 ÷ 1.
 	fp := &fakePricer{usd: map[string]float64{"uosmo": 0.046692, "ibc/USDCDENOM": 1.0}}
-	s := newCosmosSqsSource("osmosis", "osmosis_sqs", fp, osmoDenoms(), 0, 0)
+	s := newCosmosSource("osmosis", "osmosis_sqs", fp, osmoDenoms(), 0, 0)
 
 	// Two curated pools for this pair → the chain-wide spot is echoed under each pool contract so the
 	// orchestrator joins each pool's liquidity/confidence onto it.
@@ -73,27 +73,27 @@ func TestCosmosSqsSourceFetchPoolPrices(t *testing.T) {
 	require.ElementsMatch(t, []string{"uosmo", "ibc/USDCDENOM"}, fp.gotDenoms)
 }
 
-func TestCosmosSqsSourceUnknownSymbol(t *testing.T) {
-	s := newCosmosSqsSource("osmosis", "osmosis_sqs", &fakePricer{}, osmoDenoms(), 0, 0)
+func TestCosmosSourceUnknownSymbol(t *testing.T) {
+	s := newCosmosSource("osmosis", "osmosis_sqs", &fakePricer{}, osmoDenoms(), 0, 0)
 	_, err := s.FetchPoolPrices("OSMO", "DOGE", DexInfo{ContractAddressList: []string{"0xp"}}, 0)
 	require.Error(t, err) // DOGE has no denom in token_contracts
 }
 
-func TestCosmosSqsSourcePricerError(t *testing.T) {
-	s := newCosmosSqsSource("osmosis", "osmosis_sqs", &fakePricer{err: errors.New("boom")}, osmoDenoms(), 0, 0)
+func TestCosmosSourcePricerError(t *testing.T) {
+	s := newCosmosSource("osmosis", "osmosis_sqs", &fakePricer{err: errors.New("boom")}, osmoDenoms(), 0, 0)
 	_, err := s.FetchPoolPrices("ATOM", "USDC", DexInfo{ContractAddressList: []string{"0xp"}}, 0)
 	require.Error(t, err)
 }
 
-func TestCosmosSqsSourceMissingPrice(t *testing.T) {
+func TestCosmosSourceMissingPrice(t *testing.T) {
 	// SQS returned no USD price for the target denom → can't form a cross price.
-	s := newCosmosSqsSource("osmosis", "osmosis_sqs", &fakePricer{usd: map[string]float64{"uosmo": 0.047}}, osmoDenoms(), 0, 0)
+	s := newCosmosSource("osmosis", "osmosis_sqs", &fakePricer{usd: map[string]float64{"uosmo": 0.047}}, osmoDenoms(), 0, 0)
 	_, err := s.FetchPoolPrices("OSMO", "USDC", DexInfo{ContractAddressList: []string{"0xp"}}, 0)
 	require.Error(t, err)
 }
 
-func TestCosmosSqsSourceFetchPairsMetadataNoop(t *testing.T) {
-	s := newCosmosSqsSource("osmosis", "osmosis_sqs", &fakePricer{}, osmoDenoms(), 0, 0)
+func TestCosmosSourceFetchPairsMetadataNoop(t *testing.T) {
+	s := newCosmosSource("osmosis", "osmosis_sqs", &fakePricer{}, osmoDenoms(), 0, 0)
 	pairs, err := s.FetchPairsMetadata("anything")
 	require.NoError(t, err)
 	require.Nil(t, pairs)

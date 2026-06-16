@@ -1,18 +1,18 @@
 // Package sqs is a minimal client for the Osmosis Sidecar Query Server (SQS) public REST API
 // (https://sqs.osmosis.zone) - the Cosmos analogue of the subgraph GraphQL transport. It returns
-// spot token prices (one token quoted in another token's denom), so a CosmosSqsSource can price
-// Osmosis pairs without a subgraph. It is pure HTTP/JSON and deliberately does NOT import the dex
-// package, so it stays transport-only and unit-testable (the dex package adapts it to PriceSource).
+// spot token prices (one token quoted in another token's denom), so a CosmosSource can price Osmosis
+// pairs without a subgraph. It is pure HTTP/JSON and deliberately does NOT import the dex package, so
+// it stays transport-only and unit-testable (the dex package adapts it to PriceSource). The raw GET
+// lives in the shared restclient package (both Cosmos clients use it).
 package sqs
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strconv"
 	"strings"
-	"time"
+
+	"go-ooo/ooo_api/dex/restclient"
 )
 
 // DefaultBaseURL is the public Osmosis SQS instance.
@@ -21,8 +21,7 @@ const DefaultBaseURL = "https://sqs.osmosis.zone"
 // Client talks to an Osmosis SQS REST endpoint. Construct with NewClient; a custom baseURL lets a
 // test point it at an httptest server.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL string
 }
 
 // NewClient returns a Client for baseURL (empty = the public instance, DefaultBaseURL).
@@ -30,10 +29,7 @@ func NewClient(baseURL string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
-	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-	}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 // TokenPricesUsd returns the USD spot price of each denom. SQS GET /tokens/prices?base=<d1,d2,...>
@@ -48,7 +44,7 @@ func (c *Client) TokenPricesUsd(denoms []string) (map[string]float64, error) {
 		return out, nil
 	}
 	url := fmt.Sprintf("%s/tokens/prices?base=%s", c.baseURL, strings.Join(denoms, ","))
-	body, err := c.get(url)
+	body, err := restclient.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -65,21 +61,4 @@ func (c *Client) TokenPricesUsd(denoms []string) (map[string]float64, error) {
 		}
 	}
 	return out, nil
-}
-
-func (c *Client) get(url string) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("sqs: non-200 status %s for %s", resp.Status, url)
-	}
-	return io.ReadAll(resp.Body)
 }
