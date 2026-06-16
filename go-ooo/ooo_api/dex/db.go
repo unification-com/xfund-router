@@ -12,20 +12,23 @@ import (
 	"go-ooo/ooo_api/export"
 )
 
-// poolIdRe matches a 32-byte Uniswap-v4-style poolId (a hash, not a 20-byte pool address).
-var poolIdRe = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
+// evmAddrRe matches a 20-byte EVM pool address (0x + 40 hex). Only these are checksummed; any other
+// pool key is lower-cased and passed through.
+var evmAddrRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
-// normalisePoolKey canonicalises a pool's on-chain key for storage + lookup. A 20-byte pool
-// address is checksummed (the long-standing behaviour, matching what the subgraphs return for
-// v2/v3); a 32-byte poolId (Uniswap v4 singletons) is lower-cased and passed through - because
-// common.HexToAddress would silently truncate it to its last 20 bytes, corrupting the id so no
-// subgraph pool ever matches it again. The price query lower-cases either form before hitting the
-// subgraph, so both store-forms resolve correctly.
+// normalisePoolKey canonicalises a pool's on-chain key for storage + lookup. A 20-byte EVM pool
+// address is checksummed (the long-standing behaviour, matching what the subgraphs return for v2/v3);
+// every other key is lower-cased and passed through, because common.HexToAddress would mangle it.
+// That covers BOTH a 32-byte Uniswap-v4 poolId (HexToAddress silently truncates it to its last 20
+// bytes, corrupting the id) AND a non-EVM chain's pool key such as a Cosmos bech32 address (which is
+// not hex at all, so HexToAddress collapses every pool onto the zero address - making all of a chain's
+// pairs upsert onto one row). The price query lower-cases an EVM key before hitting the subgraph, so
+// both store-forms resolve; a Cosmos source matches the stored key directly.
 func normalisePoolKey(raw string) string {
-	if poolIdRe.MatchString(raw) {
-		return strings.ToLower(raw)
+	if evmAddrRe.MatchString(raw) {
+		return common.HexToAddress(raw).Hex()
 	}
-	return common.HexToAddress(raw).Hex()
+	return strings.ToLower(raw)
 }
 
 // processPairFeed persists one source's dex-pair-verify pair feed to dex_pairs: it resolves each

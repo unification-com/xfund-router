@@ -103,4 +103,15 @@ func TestNormalisePoolKey(t *testing.T) {
 	if got := normalisePoolKey("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"); got != "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" {
 		t.Errorf("20-byte address checksum: got %q", got)
 	}
+	// A Cosmos bech32 pool address is not hex - common.HexToAddress would collapse it (and every other
+	// non-hex address) onto the zero address, making all of a chain's pairs upsert onto one row. It must
+	// pass through intact so distinct pools stay distinct.
+	neutronA := "neutron1nfns3ck2ykrs0fknckrzd9728cyf77devuzernhwcwrdxw7ssk2s3tjf8r"
+	neutronB := "neutron18c8qejysp4hgcfuxdpj4wf29mevzwllz5yh8uayjxamwtrs0n9fshq9vtv"
+	if got := normalisePoolKey(neutronA); got != neutronA {
+		t.Errorf("cosmos address mangled: got %q, want %q", got, neutronA)
+	}
+	if normalisePoolKey(neutronA) == normalisePoolKey(neutronB) {
+		t.Errorf("distinct cosmos addresses collapsed to the same key %q", normalisePoolKey(neutronA))
+	}
 }
