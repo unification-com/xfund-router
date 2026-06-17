@@ -64,7 +64,8 @@ func (dm *Manager) processPairFeed(feed export.PairFeed) int {
 		}
 
 		if _, err := dm.db.UpsertExportDexPair(chain, dex, contract, p.Token0.Symbol, p.Token1.Symbol,
-			t0.ID, t1.ID, p.ReserveUsd, uint64(p.TxCount), p.Confidence, p.CanonicalKey); err != nil {
+			t0.ID, t1.ID, p.ReserveUsd, uint64(p.TxCount), p.Confidence, p.CanonicalKey,
+			p.Token0.CoinGeckoCoinId, p.Token1.CoinGeckoCoinId); err != nil {
 			logger.ErrorWithFields("dex", "processPairFeed", "upsert", err.Error(), logger.Fields{"chain": chain, "dex": dex, "contract": contract})
 			continue
 		}

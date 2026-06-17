@@ -23,6 +23,11 @@ type DexPairs struct {
 	// CanonicalKey groups the same logical pair across chains/DEXs (from the export); "" when the
 	// pair is unkeyable.
 	CanonicalKey string `gorm:"index"`
+	// T0Cg / T1Cg are the CoinGecko coin ids of token0 / token1 from the export (S7). They orient an
+	// alias query (ETH.USD): the side whose cg id is in the base-alias class is the base. "" when the
+	// token is unidentified or for legacy rows predating the alias export.
+	T0Cg string `gorm:"index"`
+	T1Cg string `gorm:"index"`
 }
 
 func (DexPairs) TableName() string {

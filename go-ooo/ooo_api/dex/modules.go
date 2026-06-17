@@ -58,6 +58,10 @@ type Manager struct {
 	// pair-refresh loops that read it.
 	mu      sync.RWMutex
 	modules map[string]Module
+	// aliases is the asset-class alias index (S7), rebuilt from the manifest's AliasGroups/AliasPairs
+	// by ApplyManifest and read by the price loop to recognise + expand an alias query. Guarded by mu
+	// alongside modules/chains so the loop always sees a consistent (modules, chains, aliases) set.
+	aliases *aliasIndex
 }
 
 // NewDexManager builds an empty manager. The priceable module set + per-chain config are populated

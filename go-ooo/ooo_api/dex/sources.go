@@ -182,7 +182,52 @@ func (dm *Manager) PersistManifest(m *export.Manifest) (int, error) {
 			logger.Fields{"removed": removed})
 	}
 
+	// Persist the asset-class alias payload (S7) too, so the alias index is restored on the next
+	// startup without a live fetch - parity with the source catalogue's resilience floor.
+	if err := dm.persistAliases(m); err != nil {
+		logger.ErrorWithFields("dex", "PersistManifest", "persist aliases", err.Error(), logger.Fields{})
+	}
+
 	return persisted, nil
+}
+
+// persistAliases stores the manifest's alias payload (S7) as the singleton alias_configs row. A
+// manifest with no AliasGroups is skipped - a DB-reconstructed manifest carries none and must not
+// overwrite the persisted payload with nothing (mirrors the empty-feed/empty-manifest data guards).
+func (dm *Manager) persistAliases(m *export.Manifest) error {
+	if len(m.AliasGroups) == 0 {
+		return nil
+	}
+	groups, err := json.Marshal(m.AliasGroups)
+	if err != nil {
+		return err
+	}
+	pairs, err := json.Marshal(m.AliasPairs)
+	if err != nil {
+		return err
+	}
+	return dm.db.UpsertAliasConfig(string(groups), string(pairs))
+}
+
+// loadAliasesInto populates a manifest's alias payload from the persisted singleton, so a DB-restored
+// manifest carries the aliases just like the live API one - buildAliasIndex then has a single input
+// path regardless of where the manifest came from. A missing row leaves the payload empty.
+func (dm *Manager) loadAliasesInto(m *export.Manifest) error {
+	groupsJSON, pairsJSON, found, err := dm.db.GetAliasConfig()
+	if err != nil || !found {
+		return err
+	}
+	if groupsJSON != "" {
+		if err := json.Unmarshal([]byte(groupsJSON), &m.AliasGroups); err != nil {
+			return err
+		}
+	}
+	if pairsJSON != "" {
+		if err := json.Unmarshal([]byte(pairsJSON), &m.AliasPairs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadManifestFromDB reconstructs the last-synced manifest from the persisted sources, so the module
@@ -205,6 +250,13 @@ func (dm *Manager) LoadManifestFromDB() (*export.Manifest, error) {
 		}
 		m.SupportedSources = append(m.SupportedSources, src)
 	}
+
+	// Restore the alias payload (S7) onto the reconstructed manifest so alias pricing is available
+	// immediately on startup, before any live sync.
+	if err := dm.loadAliasesInto(m); err != nil {
+		logger.ErrorWithFields("dex", "LoadManifestFromDB", "load aliases", err.Error(), logger.Fields{})
+	}
+
 	return m, nil
 }
 
@@ -232,15 +284,26 @@ func (dm *Manager) ApplyManifest(m *export.Manifest) {
 		moduleMap[cs.Name()] = cs
 	}
 
+	// Rebuild the asset-class alias index (S7) from the manifest. A manifest reconstructed from the
+	// persisted source catalogue (LoadManifestFromDB - the startup restore + the post-feed floor
+	// re-apply) carries no AliasGroups, so buildAliasIndex returns nil; in that case keep the prior
+	// in-memory index rather than wiping it, since only the live API manifest carries the aliases.
+	newAliases := buildAliasIndex(m)
+
 	dm.mu.Lock()
 	dm.modules = moduleMap
 	dm.chains = newChains
+	if newAliases != nil {
+		dm.aliases = newAliases
+	}
 	dm.mu.Unlock()
 
 	logger.InfoWithFields("dex", "ApplyManifest", "", "applied manifest", logger.Fields{
-		"sources": len(m.SupportedSources),
-		"modules": len(moduleMap),
-		"chains":  len(newChains),
+		"sources":      len(m.SupportedSources),
+		"modules":      len(moduleMap),
+		"chains":       len(newChains),
+		"alias_groups": len(m.AliasGroups),
+		"alias_pairs":  len(m.AliasPairs),
 	})
 }
 

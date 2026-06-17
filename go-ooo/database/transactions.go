@@ -221,10 +221,11 @@ func (d *DB) UpdateDexPairMetaData(chain string, dex string,
 }
 
 // UpsertExportDexPair inserts or updates a dex pair from the dex-pair-verify export, keyed by
-// (chain, dex, contractAddress). It carries the export's trust score (confidence) + canonical key
-// and marks the pair Verified - the export only ever emits verified pairs.
+// (chain, dex, contractAddress). It carries the export's trust score (confidence), canonical key and
+// per-token CoinGecko coin ids (t0Cg/t1Cg, for alias orientation - S7) and marks the pair Verified -
+// the export only ever emits verified pairs.
 func (d *DB) UpsertExportDexPair(chain, dex, contractAddress, t0Symbol, t1Symbol string,
-	t0DbId, t1DbId uint, reserveUsd float64, txCount uint64, confidence float64, canonicalKey string) (models.DexPairs, error) {
+	t0DbId, t1DbId uint, reserveUsd float64, txCount uint64, confidence float64, canonicalKey, t0Cg, t1Cg string) (models.DexPairs, error) {
 
 	pair, _ := d.FindByDexChainAddress(chain, dex, contractAddress)
 	if pair.ID == 0 {
@@ -242,6 +243,8 @@ func (d *DB) UpsertExportDexPair(chain, dex, contractAddress, t0Symbol, t1Symbol
 			Verified:        true,
 			Confidence:      confidence,
 			CanonicalKey:    canonicalKey,
+			T0Cg:            t0Cg,
+			T1Cg:            t1Cg,
 		}
 		err := d.Create(&data).Error
 		return data, err
@@ -251,6 +254,8 @@ func (d *DB) UpsertExportDexPair(chain, dex, contractAddress, t0Symbol, t1Symbol
 	pair.TxCount = txCount
 	pair.Confidence = confidence
 	pair.CanonicalKey = canonicalKey
+	pair.T0Cg = t0Cg
+	pair.T1Cg = t1Cg
 	pair.Verified = true
 	err := d.Save(&pair).Error
 	return pair, err
@@ -296,6 +301,22 @@ func (d *DB) UpsertSupportedSource(src models.SupportedSource) (models.Supported
 	existing.SourceVerifiedAt = src.SourceVerifiedAt
 	err := d.Save(&existing).Error
 	return existing, err
+}
+
+// UpsertAliasConfig persists the singleton asset-class alias payload (S7): the curated alias groups +
+// active alias pairs as opaque JSON. It keeps exactly one row - the first existing row is overwritten,
+// otherwise one is created - so the alias index can be rebuilt on restart without a live manifest
+// fetch (the same resilience floor supported_sources gives the module catalogue).
+func (d *DB) UpsertAliasConfig(groupsJSON, pairsJSON string) error {
+	var existing models.AliasConfig
+	err := d.First(&existing).Error
+	if err != nil {
+		// No row yet (or read error) - create the singleton.
+		return d.Create(&models.AliasConfig{Groups: groupsJSON, Pairs: pairsJSON}).Error
+	}
+	existing.Groups = groupsJSON
+	existing.Pairs = pairsJSON
+	return d.Save(&existing).Error
 }
 
 // UpdateSourceMinLiquidity records a source's curation floor (its pair feed's minLiquidityUsd, XR2)

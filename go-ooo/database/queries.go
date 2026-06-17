@@ -108,6 +108,19 @@ func (d *DB) FindByDexPairName(base, target, chain, dexName string) ([]models.De
 	return result, err
 }
 
+// FindByCanonicalKeys returns the verified dex pairs whose canonical key is in keys, across all
+// chains and DEXs, highest-liquidity first. It is the alias gather's pool selector (S7): an alias
+// query (e.g. ETH.USD) resolves to the member canonical keys, then this collects every backing pool
+// so the aggregator can price them as one. An empty keys slice returns nothing.
+func (d *DB) FindByCanonicalKeys(keys []string) ([]models.DexPairs, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	var result []models.DexPairs
+	err := d.Where("canonical_key IN ? AND verified = ?", keys, true).Order("reserve_usd desc").Find(&result).Error
+	return result, err
+}
+
 func (d *DB) FindByDexChainAddress(chain, dex, contractAddress string) (models.DexPairs, error) {
 	result := models.DexPairs{}
 	err := d.Where(
@@ -142,6 +155,21 @@ func (d *DB) FindSupportedSourceByChainDex(chain, dex string) (models.SupportedS
 	result := models.SupportedSource{}
 	err := d.Where("chain = ? AND dex = ?", chain, dex).First(&result).Error
 	return result, err
+}
+
+// GetAliasConfig returns the persisted singleton alias payload (S7) as its two JSON strings (groups,
+// pairs) and whether a row exists. A missing row (fresh DB, no manifest synced yet) returns found=false
+// with empty strings - the caller then leaves the alias index empty until the first sync.
+func (d *DB) GetAliasConfig() (groupsJSON, pairsJSON string, found bool, err error) {
+	var cfg models.AliasConfig
+	err = d.First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return cfg.Groups, cfg.Pairs, true, nil
 }
 
 /*

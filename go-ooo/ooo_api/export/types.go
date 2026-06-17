@@ -50,11 +50,35 @@ type ManifestSource struct {
 	MinLiquidityUsd float64 `json:"-"`
 }
 
+// ManifestAliasGroup is one curated asset-class alias (S7): an alias symbol (USD, ETH, BTC) and the
+// CoinGecko coin ids that are fungible-for-pricing members of it. dex-pair-verify owns this curation
+// (the trust boundary); go-ooo consumes it verbatim to classify a pair's two tokens into asset classes
+// and expand an alias query (e.g. ETH.USD) to every member pool.
+type ManifestAliasGroup struct {
+	Symbol string   `json:"symbol"`
+	CgIds  []string `json:"cgIds"`
+}
+
+// ManifestAliasPair is one active cross-class alias pair (S7): its sorted symbol key (e.g. "ETH.USD")
+// and the canonical keys of the verified pairs that back it. go-ooo expands an alias query to these
+// canonical keys, selects the matching dex_pairs, and robust-aggregates them as one deep price.
+type ManifestAliasPair struct {
+	Pair          string   `json:"pair"`
+	CanonicalKeys []string `json:"canonicalKeys"`
+}
+
 // Manifest is the v3 discovery manifest (GET /api/ooo/v1/export/manifest).
 type Manifest struct {
 	SchemaVersion    int              `json:"schemaVersion"`
 	GeneratedAt      int64            `json:"generatedAt"`
 	SupportedSources []ManifestSource `json:"supportedSources"`
+	// AliasGroups + AliasPairs carry the asset-class aliases (S7), additive within v3. AliasGroups is
+	// the curated fungible-class membership; AliasPairs is the active cross-class pairs derived from the
+	// verified set. A manifest reconstructed from the persisted source catalogue (LoadManifestFromDB)
+	// carries neither - they live only on the live API manifest - so ApplyManifest preserves the prior
+	// in-memory alias index when an incoming manifest has no AliasGroups (see the carry-forward there).
+	AliasGroups []ManifestAliasGroup `json:"aliasGroups"`
+	AliasPairs  []ManifestAliasPair  `json:"aliasPairs"`
 }
 
 // ExportToken is one side of an exported pair.
@@ -63,6 +87,10 @@ type ExportToken struct {
 	Symbol          string `json:"symbol"`
 	Name            string `json:"name"`
 	ContractAddress string `json:"contractAddress"`
+	// CoinGeckoCoinId is the token's CoinGecko coin id ("" if unidentified). go-ooo needs it to orient
+	// an alias query (S7): the token whose cg id is in the base-alias class is the base side. The pair's
+	// canonicalKey alone can't say which side is which, as it is cg-id-sorted.
+	CoinGeckoCoinId string `json:"coingeckoCoinId"`
 }
 
 // ExportPair is one verified pool from a source's pair feed. Confidence ([0,1]) is the per-pool

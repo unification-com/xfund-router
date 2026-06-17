@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/montanaflynn/stats"
 	"go-ooo/logger"
+	"go-ooo/ooo_api/dex"
 	"go-ooo/utils"
 	"math"
 	"math/big"
@@ -24,7 +25,16 @@ func (o *OOOApi) QueryDexPrice(parsed ParsedEndpoint, requestId string) (string,
 		"minutes":   minutes,
 	})
 
-	samples := o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes))
+	// An asset-class alias query (e.g. ETH.USD - both sides are alias symbols with backing coverage,
+	// S7) expands to every fungible member pool across chains/DEXs, so it is priced as one deep
+	// estimate; an exact symbol pair (WETH.USDC) takes the direct path. The aggregation below is
+	// identical for both - only the sample source differs.
+	var samples []dex.PoolSample
+	if o.dexModuleManager.IsAliasPair(base, target) {
+		samples = o.dexModuleManager.GetAliasPricesFromDexModules(base, target, uint64(minutes))
+	} else {
+		samples = o.dexModuleManager.GetPricesFromDexModules(base, target, uint64(minutes))
+	}
 
 	// Stage A: reduce each pool's snapshot series to one robust estimate (median), carrying
 	// its backing liquidity as the weight and its source venue (chain|dex) for the quality
