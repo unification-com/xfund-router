@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"go-ooo/database/models"
 	"go-ooo/logger"
 	"go-ooo/ooo_api/dex/types"
 )
@@ -49,15 +50,53 @@ type DexResult struct {
 	Pools []types.PoolPrices
 }
 
+// poolQuery is one oriented price query against a single module within a price gather: the base/target
+// SYMBOLS the query must use to orient the price, and the candidate verified pool rows for that
+// orientation. The direct path yields at most one per module (the pools that literally trade
+// base/target); the alias path (S7) yields one per distinct oriented symbol pair among the alias's
+// member pools on that module.
+type poolQuery struct {
+	base   string
+	target string
+	pools  []models.DexPairs
+}
+
+// GetPricesFromDexModules collects per-pool price samples for an exact base/target symbol pair across
+// every priceable module that lists it. It is the direct (non-alias) sample source; the alias path
+// (GetAliasPricesFromDexModules, S7) feeds the same gatherSamples driver with a different pool plan.
 func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) []PoolSample {
+	return dm.gatherSamples(base, target, minutes, func(module Module) []poolQuery {
+		rows, _ := dm.db.FindByDexPairName(base, target, module.Chain(), module.Dex())
+		if len(rows) == 0 {
+			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check pair exists in db",
+				"pair not found in database for this dex",
+				logger.Fields{"chain": module.Chain(), "dex": module.Dex(), "base": base, "target": target})
+			return nil
+		}
+		return []poolQuery{{base: base, target: target, pools: rows}}
+	})
+}
+
+// gatherSamples is the shared per-module price-fetch driver behind both the direct and the alias
+// (S7) sample sources. For each priceable module, queriesFor supplies the oriented price queries to
+// run against it (direct: one for base/target; alias: one per oriented symbol pair among the member
+// pools). The driver owns everything transport-/orchestration-shared: snapshotting the module set,
+// caching each chain's current block (one RPC per chain, a failed chain skipped once), honouring each
+// module's MinLiquidity floor, launching one transport-blind getPrices goroutine per query, and
+// joining each pool's liquidity + trust score back onto the returned prices. base/target are the
+// queried pair (or alias) and are used for logging only - the per-query orientation comes from each
+// poolQuery. The aggregation in dexprice.go is identical regardless of which source produced the
+// samples.
+func (dm *Manager) gatherSamples(base, target string, minutes uint64, queriesFor func(module Module) []poolQuery) []PoolSample {
 	var samples []PoolSample
 
 	resCh := make(chan DexResult)
 	errCh := make(chan error)
-	validMods := make(map[string]DexInfo)
-	// per-pool metadata (liquidity + trust score) keyed "chain|dex" -> lower(contract), to join
-	// onto the per-pool prices the family returns in the receive loop.
+	// per-pool metadata (liquidity + trust score) keyed "chain|dex" -> lower(contract), to join onto
+	// the per-pool prices the source returns in the receive loop. A module may launch more than one
+	// query (alias path), so its meta accumulates across them.
 	metaByMod := make(map[string]map[string]poolMeta)
+	launched := 0
 	dexSuccess := 0
 	dexFail := 0
 	dexNoData := 0
@@ -68,20 +107,15 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 	blockByChain := make(map[string]uint64)
 	chainRpcFailed := make(map[string]bool)
 
-	// get a list of valid modules to send query to. snapshotModules guards against a concurrent
-	// SetModules (the manifest refresh) swapping the set out mid-iteration.
+	// snapshotModules guards against a concurrent SetModules (the manifest refresh) swapping the set
+	// out mid-iteration.
 	for _, module := range dm.snapshotModules() {
-
-		logger.InfoWithFields("dex", "GetPricesFromDexModules", "check valid", "get prices", logger.Fields{
-			"dex":     module.Name(),
-			"chain":   module.Chain(),
-			"base":    base,
-			"target":  target,
-			"minutes": minutes,
-		})
+		queries := queriesFor(module)
+		if len(queries) == 0 {
+			continue
+		}
 
 		chain := module.Chain()
-
 		if chainRpcFailed[chain] {
 			continue
 		}
@@ -91,7 +125,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		// ApplyManifest swapping the chain set in can't race this lookup.
 		chainDef := dm.chainDef(chain)
 		if chainDef == nil {
-			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check chain configured",
+			logger.WarnWithFields("dex", "gatherSamples", "check chain configured",
 				"module's chain is not configured (no block/rpc) - skipping",
 				logger.Fields{"chain": chain, "dex": module.Dex()})
 			continue
@@ -106,7 +140,7 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 			if !cached {
 				fetched, err := chainDef.EthClient.BlockNumber(dm.ctx)
 				if err != nil {
-					logger.ErrorWithFields("dex", "GetPricesFromDexModules", "get current block", err.Error(), logger.Fields{
+					logger.ErrorWithFields("dex", "gatherSamples", "get current block", err.Error(), logger.Fields{
 						"chain": chain,
 						"dex":   module.Dex(),
 					})
@@ -122,94 +156,76 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 
 		blocksPerMin := uint64(chainDef.BlocksPerMin)
+		modKey := chain + "|" + module.Dex()
 
-		dbPairRes, _ := dm.db.FindByDexPairName(base, target, chain, module.Dex())
+		for _, q := range queries {
+			meta := metaByMod[modKey]
+			if meta == nil {
+				meta = make(map[string]poolMeta)
+				metaByMod[modKey] = meta
+			}
 
-		if len(dbPairRes) == 0 {
-			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check pair exists in db",
-				"pair not found in database for this dex",
-				logger.Fields{
-					"chain":  chain,
-					"dex":    module.Dex(),
-					"base":   base,
-					"target": target,
-				})
+			var contractAddresses []string
+			for _, p := range q.pools {
+				if p.ReserveUsd < float64(module.MinLiquidity()) {
+					logger.WarnWithFields("dex", "gatherSamples", "check liquidity",
+						"liquidity too low. Skipping",
+						logger.Fields{
+							"chain":         chain,
+							"dex":           module.Dex(),
+							"base":          q.base,
+							"target":        q.target,
+							"reserve_usd":   p.ReserveUsd,
+							"min_liquidity": module.MinLiquidity(),
+						})
 
-			continue
-		}
+					continue
+				}
 
-		meta := make(map[string]poolMeta)
-		var contractAddresses []string
-		for _, p := range dbPairRes {
-			if p.ReserveUsd < float64(module.MinLiquidity()) {
-				logger.WarnWithFields("dex", "GetPricesFromDexModules", "check liquidity",
-					"liquidity too low. Skipping",
-					logger.Fields{
-						"chain":         chain,
-						"dex":           module.Dex(),
-						"base":          base,
-						"target":        target,
-						"reserve_usd":   p.ReserveUsd,
-						"min_liquidity": module.MinLiquidity(),
-					})
+				contractAddresses = append(contractAddresses, p.ContractAddress)
+				meta[strings.ToLower(p.ContractAddress)] = poolMeta{liquidity: p.ReserveUsd, confidence: p.Confidence}
+			}
 
+			if len(contractAddresses) == 0 {
 				continue
 			}
 
-			contractAddresses = append(contractAddresses, p.ContractAddress)
-			meta[strings.ToLower(p.ContractAddress)] = poolMeta{liquidity: p.ReserveUsd, confidence: p.Confidence}
-		}
-
-		if len(contractAddresses) == 0 {
-			logger.WarnWithFields("dex", "GetPricesFromDexModules", "check contract address array",
-				"no contract addresses to query",
+			logger.Debug("dex", "gatherSamples", "number contracts", "",
 				logger.Fields{
-					"chain":  chain,
-					"dex":    module.Dex(),
-					"base":   base,
-					"target": target,
+					"chain":                  chain,
+					"dex":                    module.Dex(),
+					"base":                   q.base,
+					"target":                 q.target,
+					"num_contract_addresses": len(contractAddresses),
 				})
 
-			continue
+			contractAddressesStr := fmt.Sprintf(`"%s"`, strings.Join(contractAddresses, `","`))
+
+			dexInfo := DexInfo{
+				CurrentBlock:        currentBlock,
+				BlockPerMin:         blocksPerMin,
+				ContractAddresses:   contractAddressesStr,
+				ContractAddressList: contractAddresses,
+			}
+
+			launched++
+			go getPrices(module, q.base, q.target, minutes, dexInfo, resCh, errCh)
 		}
-
-		logger.Debug("dex", "GetPricesFromDexModules", "number contracts", "",
-			logger.Fields{
-				"chain":                  chain,
-				"dex":                    module.Dex(),
-				"base":                   base,
-				"target":                 target,
-				"num_contract_addresses": len(contractAddresses),
-			})
-
-		contractAddressesStr := fmt.Sprintf(`"%s"`, strings.Join(contractAddresses, `","`))
-
-		dexInfo := DexInfo{
-			CurrentBlock:        currentBlock,
-			BlockPerMin:         blocksPerMin,
-			ContractAddresses:   contractAddressesStr,
-			ContractAddressList: contractAddresses,
-		}
-
-		validMods[module.Name()] = dexInfo
-		metaByMod[chain+"|"+module.Dex()] = meta
-
-		go getPrices(module, base, target, minutes, dexInfo, resCh, errCh)
 	}
 
-	for range validMods {
+	for i := 0; i < launched; i++ {
 		r := <-resCh // receive result from channel resCh
 		err := <-errCh
 
 		if err != nil {
-			logger.Error("dex", "GetPricesFromDexModules", "getPrices",
+			logger.Error("dex", "gatherSamples", "getPrices",
 				err.Error(),
 			)
 			dexFail++
 			continue
 		}
 
-		logger.Debug("dex", "GetPricesFromDexModules", "getPrices", "prices result",
+		logger.Debug("dex", "gatherSamples", "getPrices", "prices result",
 			logger.Fields{
 				"chain":     r.Chain,
 				"dex":       r.Dex,
@@ -237,14 +253,14 @@ func (dm *Manager) GetPricesFromDexModules(base, target string, minutes uint64) 
 		}
 	}
 
-	logger.Debug("dex", "GetPricesFromDexModules", "", "",
+	logger.Debug("dex", "gatherSamples", "", "",
 		logger.Fields{
 			"base":        base,
 			"target":      target,
 			"dex_success": dexSuccess,
 			"dex_fail":    dexFail,
 			"dex_no_data": dexNoData,
-			"num_dexes":   len(validMods),
+			"num_queries": launched,
 			"num_pools":   len(samples),
 		})
 
