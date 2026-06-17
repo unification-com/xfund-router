@@ -10,10 +10,14 @@ import (
 	"go-ooo/database"
 	"go-ooo/logger"
 	"go-ooo/ooo_api"
+	"go-ooo/ooo_api/export"
 	"go-ooo/ooo_router"
 	go_ooo_types "go-ooo/types"
+	"go-ooo/utils"
+	"go-ooo/utils/walletworker"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -84,6 +88,25 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Provider export auth (T8): when no static EXPORT_API_TOKEN is configured but a provider key + chain
+	// are available, authenticate the dex-pair-verify export pulls with the oracle wallet (the on-chain
+	// registered provider) via challenge-response instead of a shared secret. A configured static token
+	// (the Manager's default) takes precedence as the operator break-glass.
+	exportCfg := cfg.Jobs.DexExport
+	if exportCfg.ApiToken == "" && exportCfg.BaseUrl != "" && len(oraclePrivateKey) > 0 && cfg.Chain.NetworkId > 0 {
+		priv, kerr := crypto.HexToECDSA(utils.RemoveHexPrefix(string(oraclePrivateKey)))
+		if kerr != nil {
+			logger.ErrorWithFields("service", "NewService", "provider export auth", kerr.Error(), logger.Fields{})
+		} else {
+			signer := walletworker.NewEthSigner(priv)
+			oooApi.SetExportAuthenticator(export.NewWalletAuth(exportCfg.BaseUrl, cfg.Chain.NetworkId, signer, nil))
+			logger.InfoWithFields("service", "NewService", "", "using provider wallet-auth for the dex-pair-verify export", logger.Fields{
+				"provider": signer.Address(),
+				"chain_id": cfg.Chain.NetworkId,
+			})
+		}
 	}
 
 	logger.Info("service", "NewService", "", "init ooo router service")

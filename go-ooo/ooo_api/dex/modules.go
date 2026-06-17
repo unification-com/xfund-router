@@ -11,6 +11,7 @@ import (
 	"go-ooo/database"
 	"go-ooo/ooo_api/dex/chains"
 	"go-ooo/ooo_api/dex/types"
+	"go-ooo/ooo_api/export"
 )
 
 // PriceSource is the price-source seam (#128): the Manager treats every priceable source uniformly
@@ -62,6 +63,11 @@ type Manager struct {
 	// by ApplyManifest and read by the price loop to recognise + expand an alias query. Guarded by mu
 	// alongside modules/chains so the loop always sees a consistent (modules, chains, aliases) set.
 	aliases *aliasIndex
+	// exportAuth authenticates the dex-pair-verify export pulls (T8). Defaults to the static
+	// EXPORT_API_TOKEN from config (break-glass / simple setups); the service swaps in a wallet
+	// authenticator (SetExportAuth) when no static token is configured + a provider key is available.
+	// Set once at startup before any sync, so it needs no lock.
+	exportAuth export.Authenticator
 }
 
 // NewDexManager builds an empty manager. The priceable module set + per-chain config are populated
@@ -79,6 +85,17 @@ func NewDexManager(ctx context.Context, cfg *config.Config, db *database.DB) *Ma
 
 		chains:  make(map[string]*chains.ChainDef),
 		modules: make(map[string]Module),
+		// Default to the static token from config; the service may swap in wallet-auth before the first sync.
+		exportAuth: export.StaticToken(cfg.Jobs.DexExport.ApiToken),
+	}
+}
+
+// SetExportAuth swaps the authenticator used for dex-pair-verify export pulls (T8). Called once at
+// startup by the service to install provider wallet-auth in place of the static-token default, before
+// any sync runs.
+func (dm *Manager) SetExportAuth(a export.Authenticator) {
+	if a != nil {
+		dm.exportAuth = a
 	}
 }
 

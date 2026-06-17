@@ -11,6 +11,7 @@ import (
 	"go-ooo/database"
 	"go-ooo/logger"
 	"go-ooo/ooo_api/dex"
+	"go-ooo/ooo_api/export"
 )
 
 type OOOApi struct {
@@ -49,6 +50,12 @@ var ErrFinchainsRemoved = errors.New("Finchains endpoints removed; pair is not a
 // per-source feeds, then refreshes live pair metadata. Driven by the startup + periodic pair refresh.
 func (o *OOOApi) UpdateDexPairs() {
 	o.dexModuleManager.SyncDexSources()
+}
+
+// SetExportAuthenticator installs the authenticator used for dex-pair-verify export pulls (T8). The
+// service calls this at startup to switch from the static-token default to provider wallet-auth.
+func (o *OOOApi) SetExportAuthenticator(a export.Authenticator) {
+	o.dexModuleManager.SetExportAuth(a)
 }
 
 // Endpoint qualifiers - the explicit 3rd field in the legacy grammar

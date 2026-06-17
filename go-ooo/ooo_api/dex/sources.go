@@ -98,7 +98,7 @@ func (dm *Manager) syncManifestAndFeeds() error {
 		return nil
 	}
 
-	client := export.NewClient(cfg.BaseUrl, cfg.ApiToken, dm.httpClient)
+	client := export.NewClient(cfg.BaseUrl, dm.exportAuth, dm.httpClient)
 
 	manifest, err := client.FetchManifest(dm.ctx)
 	if err != nil {

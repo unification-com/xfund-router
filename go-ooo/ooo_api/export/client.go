@@ -21,21 +21,25 @@ const defaultTimeout = 30 * time.Second
 // Authorization header. The dual-source primary/fallback orchestration lives in the consumer that
 // owns two Clients; a single Client talks to a single source.
 type Client struct {
-	baseURL  string
-	apiToken string
-	http     *http.Client
+	baseURL string
+	auth    Authenticator
+	http    *http.Client
 }
 
-// NewClient builds a Client for baseURL (trailing slash trimmed) authenticating with apiToken
-// (empty for an unauthenticated mirror). A nil httpClient gets a sane default.
-func NewClient(baseURL, apiToken string, httpClient *http.Client) *Client {
+// NewClient builds a Client for baseURL (trailing slash trimmed) authenticating via auth (StaticToken
+// for a shared bearer / break-glass, or NewWalletAuth for provider wallet-auth - T8). A nil auth means
+// no Authorization header; a nil httpClient gets a sane default.
+func NewClient(baseURL string, auth Authenticator, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultTimeout}
 	}
+	if auth == nil {
+		auth = StaticToken("")
+	}
 	return &Client{
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		apiToken: apiToken,
-		http:     httpClient,
+		baseURL: strings.TrimRight(baseURL, "/"),
+		auth:    auth,
+		http:    httpClient,
 	}
 }
 
@@ -80,16 +84,25 @@ func (c *Client) FetchPairFeed(ctx context.Context, chain, dex string, sinceUnix
 	return &f, true, nil
 }
 
-// get issues an authenticated GET and returns the status code. On 200 it decodes the body into v;
-// on 304 it returns the status with v untouched; on any other status it returns an error carrying
-// a snippet of the body. Transport errors return (0, err).
+// get issues an authenticated GET and returns the status code, re-authenticating once on a 401. On 200
+// it decodes the body into v; on 304 it returns the status with v untouched; on any other status it
+// returns an error carrying a snippet of the body. Transport errors return (0, err).
 func (c *Client) get(ctx context.Context, rawURL string, v any) (int, error) {
+	return c.doGet(ctx, rawURL, v, false)
+}
+
+func (c *Client) doGet(ctx context.Context, rawURL string, v any, retried bool) (int, error) {
+	bearer, err := c.auth.Bearer(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("export auth: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return 0, err
 	}
-	if c.apiToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	req.Header.Set("Accept", "application/json")
 
@@ -107,6 +120,13 @@ func (c *Client) get(ctx context.Context, rawURL string, v any) (int, error) {
 		return resp.StatusCode, nil
 	case http.StatusNotModified:
 		return resp.StatusCode, nil
+	case http.StatusUnauthorized:
+		if !retried {
+			// A stale/expired bearer - drop it and re-authenticate exactly once.
+			c.auth.Invalidate()
+			return c.doGet(ctx, rawURL, v, true)
+		}
+		fallthrough
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return resp.StatusCode, fmt.Errorf("GET %s: status %d: %s", rawURL, resp.StatusCode, strings.TrimSpace(string(body)))

@@ -24,7 +24,7 @@ func TestFetchManifest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m, err := NewClient(srv.URL, "tok123", srv.Client()).FetchManifest(context.Background())
+	m, err := NewClient(srv.URL, StaticToken("tok123"), srv.Client()).FetchManifest(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "Bearer tok123", gotAuth)
 	require.Equal(t, 3, m.SchemaVersion)
@@ -50,7 +50,7 @@ func TestFetchManifestRejectsNewerSchema(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL, "", srv.Client()).FetchManifest(context.Background())
+	_, err := NewClient(srv.URL, StaticToken(""), srv.Client()).FetchManifest(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "newer than this build")
 }
@@ -68,7 +68,7 @@ func TestFetchPairFeedAndIfModifiedSince(t *testing.T) {
 				"token1":{"chain":"eth","symbol":"USDC","name":"USD Coin","contractAddress":"0xu","coingeckoCoinId":"usd-coin"}}]}`)
 	}))
 	defer srv.Close()
-	c := NewClient(srv.URL, "tok", srv.Client())
+	c := NewClient(srv.URL, StaticToken("tok"), srv.Client())
 
 	feed, changed, err := c.FetchPairFeed(context.Background(), "eth", "uniswap_v3", 0)
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestFetchUnauthorised(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL, "bad", srv.Client()).FetchManifest(context.Background())
+	_, err := NewClient(srv.URL, StaticToken("bad"), srv.Client()).FetchManifest(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "401")
 }
@@ -108,7 +108,7 @@ func TestNoAuthHeaderWhenTokenEmpty(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL, "", srv.Client()).FetchManifest(context.Background())
+	_, err := NewClient(srv.URL, StaticToken(""), srv.Client()).FetchManifest(context.Background())
 	require.NoError(t, err)
 	require.False(t, hadAuth, "no Authorization header should be sent for an empty token")
 }
