@@ -1,9 +1,13 @@
 package database
 
 import (
+	"errors"
 	"fmt"
-	"go-ooo/database/models"
 	"time"
+
+	"go-ooo/database/models"
+
+	"gorm.io/gorm"
 )
 
 /*
@@ -20,10 +24,16 @@ func (d DB) GetLastBlockNumQueried() (models.ToBlocks, error) {
   DataRequests Queries
 */
 
-func (d *DB) FindByRequestId(requestId string) (models.DataRequests, error) {
+// FindByRequestId looks up a request. The bool reports whether a row was found, so callers
+// can tell "not found" apart from a real DB error (GORM's First conflates them via the zero
+// struct) and not treat a transient failure as a brand-new request.
+func (d *DB) FindByRequestId(requestId string) (models.DataRequests, bool, error) {
 	result := models.DataRequests{}
 	err := d.Where("request_id = ?", requestId).First(&result).Error
-	return result, err
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return result, false, nil
+	}
+	return result, err == nil, err
 }
 
 func (d *DB) GetPendingJobs() ([]models.DataRequests, error) {
@@ -31,6 +41,28 @@ func (d *DB) GetPendingJobs() ([]models.DataRequests, error) {
 	err := d.Where("job_status = ?",
 		models.JOB_STATUS_PENDING).Order(fmt.Sprintf("id %s", "asc")).Find(&jobs).Error
 	return jobs, err
+}
+
+// CountFulfilmentsSent counts requests that have been broadcast at least once (have a fulfil tx
+// hash). Used to warm-start the fulfilment metrics from history.
+func (d *DB) CountFulfilmentsSent() (int64, error) {
+	var n int64
+	err := d.Model(&models.DataRequests{}).Where("fulfill_tx_hash <> ''").Count(&n).Error
+	return n, err
+}
+
+// CountRequestsByStatus counts requests in a given RequestStatus.
+func (d *DB) CountRequestsByStatus(status int) (int64, error) {
+	var n int64
+	err := d.Model(&models.DataRequests{}).Where("request_status = ?", status).Count(&n).Error
+	return n, err
+}
+
+// CountFailedFulfilments counts failed (reverted) fulfilment-tx attempts recorded in history.
+func (d *DB) CountFailedFulfilments() (int64, error) {
+	var n int64
+	err := d.Model(&models.FailedFulfilment{}).Count(&n).Error
+	return n, err
 }
 
 func (d *DB) GetLastXSuccessfulRequests(limit int, consumer string) ([]models.DataRequests, error) {
@@ -63,28 +95,6 @@ func (d *DB) GetLeastGasUsed() (models.DataRequests, error) {
 }
 
 /*
-  SupportedPairs queries
-*/
-
-func (d *DB) PairIsSupportedByPairName(pair string) (models.SupportedPairs, error) {
-	supported := models.SupportedPairs{}
-	err := d.Where("name = ?", pair).First(&supported).Error
-	return supported, err
-}
-
-func (d *DB) PairIsSupportedByBaseAndTarget(base string, target string) (models.SupportedPairs, error) {
-	supported := models.SupportedPairs{}
-	err := d.Where("base = ? AND target = ?", base, target).First(&supported).Error
-	return supported, err
-}
-
-func (d *DB) PairsNoLongerSupported(pairs []string) ([]models.SupportedPairs, error) {
-	res := []models.SupportedPairs{}
-	err := d.Not(map[string]interface{}{"name": pairs}).Find(&res).Error
-	return res, err
-}
-
-/*
   DexPairs queries
 */
 
@@ -95,6 +105,19 @@ func (d *DB) FindByDexPairName(base, target, chain, dexName string) ([]models.De
 	err := d.Where(
 		"(pair = ? OR pair = ?) AND chain = ? AND dex = ? AND verified = ?", pair, pairRev, chain, dexName, true,
 	).Order("reserve_usd desc").Find(&result).Error
+	return result, err
+}
+
+// FindByCanonicalKeys returns the verified dex pairs whose canonical key is in keys, across all
+// chains and DEXs, highest-liquidity first. It is the alias gather's pool selector (S7): an alias
+// query (e.g. ETH.USD) resolves to the member canonical keys, then this collects every backing pool
+// so the aggregator can price them as one. An empty keys slice returns nothing.
+func (d *DB) FindByCanonicalKeys(keys []string) ([]models.DexPairs, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	var result []models.DexPairs
+	err := d.Where("canonical_key IN ? AND verified = ?", keys, true).Order("reserve_usd desc").Find(&result).Error
 	return result, err
 }
 
@@ -112,6 +135,41 @@ func (d *DB) Get100PairsForDataRefresh(chain, dex string) ([]models.DexPairs, er
 	qTime := time.Now().Add(duration)
 	err := d.Where("chain = ? AND dex = ? AND updated_at <= ? AND verified = ?", chain, dex, qTime, true).Limit(100).Find(&res).Error
 	return res, err
+}
+
+/*
+  SupportedSources queries
+*/
+
+// GetSupportedSources returns the persisted DEX source catalogue (the last-synced manifest),
+// excluding any source soft-deleted because it dropped out of a later manifest.
+func (d *DB) GetSupportedSources() ([]models.SupportedSource, error) {
+	var sources []models.SupportedSource
+	err := d.Order("chain asc, dex asc").Find(&sources).Error
+	return sources, err
+}
+
+// FindSupportedSourceByChainDex looks up a single source by its (chain, dex) key. A zero-ID result
+// means no row was found (the upsert path treats that as "insert").
+func (d *DB) FindSupportedSourceByChainDex(chain, dex string) (models.SupportedSource, error) {
+	result := models.SupportedSource{}
+	err := d.Where("chain = ? AND dex = ?", chain, dex).First(&result).Error
+	return result, err
+}
+
+// GetAliasConfig returns the persisted singleton alias payload (S7) as its two JSON strings (groups,
+// pairs) and whether a row exists. A missing row (fresh DB, no manifest synced yet) returns found=false
+// with empty strings - the caller then leaves the alias index empty until the first sync.
+func (d *DB) GetAliasConfig() (groupsJSON, pairsJSON string, found bool, err error) {
+	var cfg models.AliasConfig
+	err = d.First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return cfg.Groups, cfg.Pairs, true, nil
 }
 
 /*
@@ -142,12 +200,12 @@ func (d *DB) FindTokenAddressByRowId(id uint) (string, error) {
 	return result.ContractAddress, err
 }
 
-/*
- VersionInfo queries
-*/
-
-func (d *DB) getCurrentDbSchemaVersion() (models.VersionInfo, error) {
-	result := models.VersionInfo{}
-	err := d.Where("version_type = ?", models.VERSION_TYPE_DB_SCHEMA).First(&result).Error
-	return result, err
+// FindTokenAddressByChainAndSymbol resolves a token symbol to its on-chain contract address (a Cosmos
+// denom for a Cosmos chain) on a chain, from the token_contracts rows the dex-pair-verify pair feed
+// populates. The Cosmos SQS price source uses it to turn a queried symbol into the denom SQS prices by
+// (#128). The newest row wins when a symbol has more than one denom (e.g. several USDC bridges).
+func (d *DB) FindTokenAddressByChainAndSymbol(chain, symbol string) (string, error) {
+	result := models.TokenContracts{}
+	err := d.Where("chain = ? AND token_symbol = ?", chain, symbol).Order("id desc").First(&result).Error
+	return result.ContractAddress, err
 }

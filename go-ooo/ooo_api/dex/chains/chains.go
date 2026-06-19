@@ -8,10 +8,28 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-func GetChain(name string, cfg config.SubchainConfig) (*ChainDef, error) {
+// DefaultBlocksPerMin is the assumed block cadence for a chain with no specific value configured.
+const DefaultBlocksPerMin = 5
+
+// ChainMeta is the static, non-dialled description of a chain: its ids, block cadence and RPC URL.
+// Splitting this out from the dialled ChainDef lets the manifest-driven builder apply per-source RPC
+// / block overrides and dial exactly once (rather than dialling the configured RPC then re-dialling
+// a manifest-supplied one).
+type ChainMeta struct {
+	ChainShort   string
+	ChainName    string
+	ChainId      string
+	BlocksPerMin int
+	RpcUrl       string
+}
+
+// LookupChain returns the static metadata for a known chain, taking its RPC URL from cfg. ok is
+// false for an unknown chain - the manifest-driven builder can still construct one from a
+// manifest-supplied RPC, so a new chain needs no code change here.
+func LookupChain(name string, cfg config.SubchainConfig) (ChainMeta, bool) {
 	chainId := ""
 	chainName := ""
-	blocksPerMin := 5
+	blocksPerMin := DefaultBlocksPerMin
 	rpcUrl := ""
 
 	switch name {
@@ -51,21 +69,40 @@ func GetChain(name string, cfg config.SubchainConfig) (*ChainDef, error) {
 		blocksPerMin = 12
 		rpcUrl = cfg.ShibariumHttpRpc
 	default:
-		return &ChainDef{}, errors.New("not supported")
+		return ChainMeta{}, false
 	}
 
-	ethClient, err := ethclient.Dial(rpcUrl)
+	return ChainMeta{
+		ChainShort:   name,
+		ChainName:    chainName,
+		ChainId:      chainId,
+		BlocksPerMin: blocksPerMin,
+		RpcUrl:       rpcUrl,
+	}, true
+}
 
+// DialChain dials meta.RpcUrl and returns a ready ChainDef carrying the dialled client.
+func DialChain(meta ChainMeta) (*ChainDef, error) {
+	ethClient, err := ethclient.Dial(meta.RpcUrl)
 	if err != nil {
 		return &ChainDef{}, err
 	}
 
 	return &ChainDef{
-		ChainShort:   name,
-		ChainId:      chainId,
-		ChainName:    chainName,
-		BlocksPerMin: blocksPerMin,
-		RpcUrl:       rpcUrl,
+		ChainShort:   meta.ChainShort,
+		ChainId:      meta.ChainId,
+		ChainName:    meta.ChainName,
+		BlocksPerMin: meta.BlocksPerMin,
+		RpcUrl:       meta.RpcUrl,
 		EthClient:    ethClient,
 	}, nil
+}
+
+// GetChain returns a dialled ChainDef for a known chain - the pre-manifest construction path.
+func GetChain(name string, cfg config.SubchainConfig) (*ChainDef, error) {
+	meta, ok := LookupChain(name, cfg)
+	if !ok {
+		return &ChainDef{}, errors.New("not supported")
+	}
+	return DialChain(meta)
 }

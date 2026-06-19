@@ -1,22 +1,5 @@
 package ooo_api
 
-type OoOAPIPairsResult struct {
-	Name   string
-	Base   string
-	Target string
-}
-
-type OoOAPIPriceQueryResult struct {
-	Base          string  `json:"base"`
-	Target        string  `json:"target"`
-	Pair          string  `json:"pair"`
-	Time          string  `json:"time,omitempty"`
-	OutlierMethod string  `json:"outlierMethod,omitempty"`
-	Price         string  `json:"price"`
-	PriceRaw      float64 `json:"priceRaw,omitempty"`
-	Dmax          uint64  `json:"dMax,omitempty"`
-}
-
 type GraphQlToken struct {
 	Id             string `json:"id,omitempty"`
 	Name           string `json:"name,omitempty"`

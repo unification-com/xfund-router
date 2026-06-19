@@ -26,7 +26,6 @@ type DataRequests struct {
 	Consumer                    string `gorm:"index"`
 	Provider                    string `gorm:"index"`
 	RequestId                   string `gorm:"uniqueIndex"`
-	IsAdhoc                     bool   `gorm:"index"`
 	RequestBlockNumber          uint64 `gorm:"index"`
 	LastDataFetchBlockNumber    uint64
 	RequestTxHash               string `gorm:"index"`
@@ -41,6 +40,8 @@ type DataRequests struct {
 	FulfillTxHash               string `gorm:"index"`
 	FulfillGasUsed              uint64
 	FulfillGasPrice             uint64
+	FulfillGasTipCap            uint64
+	FulfillNonce                uint64
 	FulfillmentAttempts         uint64 `gorm:"default:0"`
 	JobStatus                   int    `gorm:"index"`
 	RequestStatus               int    `gorm:"index"`
@@ -65,10 +66,6 @@ func (d *DataRequests) GetProvider() string {
 
 func (d *DataRequests) GetRequestId() string {
 	return d.RequestId
-}
-
-func (d *DataRequests) GetIsAdHoc() bool {
-	return d.IsAdhoc
 }
 
 func (d *DataRequests) GetRequestBlockNumber() uint64 {
@@ -127,6 +124,16 @@ func (d *DataRequests) GetFulfillGasPrice() uint64 {
 	return d.FulfillGasPrice
 }
 
+// GetFulfillGasTipCap returns the EIP-1559 priority fee (tip) of the last sent fulfilment tx.
+// Zero for legacy txs (and for rows written before this field existed).
+func (d *DataRequests) GetFulfillGasTipCap() uint64 {
+	return d.FulfillGasTipCap
+}
+
+func (d *DataRequests) GetFulfillNonce() uint64 {
+	return d.FulfillNonce
+}
+
 func (d *DataRequests) GetFulfillmentAttempts() uint64 {
 	return d.FulfillmentAttempts
 }
@@ -141,9 +148,6 @@ func (d *DataRequests) GetJobStatus() int {
 
 func (d *DataRequests) GetRequestStatusString() string {
 	switch d.RequestStatus {
-	case REQUEST_STATUS_UNKNOWN:
-	default:
-		return "UNKNOWN"
 	case REQUEST_STATUS_INITIALISED:
 		return "INITIALISED"
 	case REQUEST_STATUS_FETCHING_DATA:
@@ -160,9 +164,9 @@ func (d *DataRequests) GetRequestStatusString() string {
 		return "SUCCESS"
 	case REQUEST_STATUS_FULFILMENT_FAILED:
 		return "FULFILMENT FAILED"
+	default:
+		return "UNKNOWN"
 	}
-
-	return "UNKNOWN"
 }
 
 func (d *DataRequests) GetJobStatusString() string {

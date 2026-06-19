@@ -7,12 +7,19 @@ import (
 	"go-ooo/database/models"
 	"go-ooo/logger"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	solsha3 "github.com/miguelmota/go-solidity-sha3"
 )
 
-func (o *OoORouterService) ProcessPendingJobQueue() {
+// ProcessPendingJobQueue works through every pending request in one serialised pass. trigger
+// records what kicked it off ('event' for the immediate new-request nudge, 'ticker' for the
+// periodic sweep) and feeds the ooo_job_queue_run_total metric. It is only ever called from the
+// service's single select loop, so fulfilment stays serialised - never call it concurrently.
+func (o *OoORouterService) ProcessPendingJobQueue(trigger string) {
+
+	jobQueueRunTotal.WithLabelValues(trigger).Inc()
 
 	logger.Info("chain", "ProcessPendingJobQueue", "check job queue", "")
 
@@ -61,7 +68,7 @@ func (o *OoORouterService) preProcessPendingJob(job models.DataRequests, current
 		return
 	}
 
-	requestBlockDiff := currentBlockNum - requestTxReceipt.BlockNumber.Uint64()
+	requestBlockDiff := blockDiff(currentBlockNum, requestTxReceipt.BlockNumber.Uint64())
 	switch job.GetRequestStatus() {
 	case models.REQUEST_STATUS_INITIALISED:
 		waitConfirmations := o.cfg.Jobs.WaitConfirmations
@@ -112,18 +119,11 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 			"request_id": requestId,
 		})
 
-	err := o.RenewTransactOpts()
-	if err != nil {
-		logger.ErrorWithFields("chain", "processFulfillmentFetchData", "RenewTransactOpts",
-			err.Error(),
-			logger.Fields{
-				"request_id": requestId,
-			})
-
-		return
-	}
-
-	err = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FETCHING_DATA, "")
+	// NB: the fulfilment tx is built and sent later, in the serialised sendFulfillmentTx
+	// (via the DATA_READY_TO_SEND state). This fetch goroutine intentionally does NOT
+	// touch the transaction options - doing so here raced concurrent fetch goroutines on
+	// shared mutable state for no benefit.
+	err := o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FETCHING_DATA, "")
 
 	if err != nil {
 		// possibly not in Tx pool yet
@@ -203,14 +203,39 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 
 func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
+
+	// Initial send: a fresh, chain-anchored nonce + current gas price.
+	opts, err := o.buildTransactOpts()
+	if err != nil {
+		fulfilmentErrorTotal.WithLabelValues("build_opts").Inc()
+		logger.ErrorWithFields("chain", "sendFulfillmentTx", "build transact opts",
+			err.Error(),
+			logger.Fields{
+				"request_id": requestId,
+			})
+
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
+		return
+	}
+
+	o.submitFulfilment(job, opts, currentBlockNum)
+}
+
+// submitFulfilment signs the fulfilment for job and broadcasts it using opts, then
+// records the sent nonce/gas/txHash. Shared by the initial send (sendFulfillmentTx)
+// and the stuck-tx replacement (replaceStuckFulfilmentTx); they differ only in opts -
+// a fresh chain-anchored nonce vs the stuck tx's nonce with a bumped gas price.
+func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.TransactOpts, currentBlockNum uint64) {
+	requestId := job.GetRequestId()
 	price := job.GetPriceResult()
 
-	logger.Debug("chain", "sendFulfillmentTx", "",
+	logger.Debug("chain", "submitFulfilment", "",
 		"begin send fulfillment transaction",
 		logger.Fields{
 			"request_id": requestId,
 			"endpoint":   job.Endpoint,
 			"price":      price,
+			"nonce":      opts.Nonce,
 		})
 
 	// https://ethereum.stackexchange.com/questions/51566/from-golang-sha3-to-solidity-sha3
@@ -233,7 +258,8 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	signatureBytes, err := crypto.Sign(msgHash.Bytes(), o.oraclePrivateKey)
 
 	if err != nil {
-		logger.ErrorWithFields("chain", "sendFulfillmentTx", "sign message",
+		fulfilmentErrorTotal.WithLabelValues("sign").Inc()
+		logger.ErrorWithFields("chain", "submitFulfilment", "sign message",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -246,10 +272,11 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	// grr - https://ethereum.stackexchange.com/questions/45580/validating-go-ethereum-key-signature-with-ecrecover
 	signatureBytes[64] = uint8(int(signatureBytes[64])) + 27
 
-	tx, err := o.contractInstance.FulfillRequest(o.transactOpts, reqIdBytes32, priceBigInt, signatureBytes)
+	tx, err := o.contractInstance.FulfillRequest(opts, reqIdBytes32, priceBigInt, signatureBytes)
 
 	if err != nil {
-		logger.ErrorWithFields("chain", "sendFulfillmentTx", "send tx",
+		fulfilmentErrorTotal.WithLabelValues("send").Inc()
+		logger.ErrorWithFields("chain", "submitFulfilment", "send tx",
 			err.Error(),
 			logger.Fields{
 				"request_id": requestId,
@@ -259,19 +286,49 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 		return
 	}
 
-	logger.InfoWithFields("chain", "sendFulfillmentTx", "send tx",
+	fulfilmentSentTotal.Inc()
+	// tx.GasPrice() is the effective max price per gas - the gas price for a legacy tx, the fee
+	// cap for an EIP-1559 tx - so the histogram records the ceiling we committed to either way.
+	fulfilmentGasPriceGwei.Observe(weiToGwei(tx.GasPrice().Uint64()))
+
+	logger.InfoWithFields("chain", "submitFulfilment", "send tx",
 		"fulfill tx sent",
 		logger.Fields{
 			"request_id": requestId,
 			"tx":         tx.Hash().Hex(),
+			"nonce":      tx.Nonce(),
 		})
 
 	_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_SENT, "")
-	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum)
+	// Persist both the fee cap (GasPrice) and the tip (GasTipCap) so a stuck-tx replacement can
+	// bump both, as EIP-1559 requires. For a legacy tx the two are equal and the tip is unused.
+	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum, tx.Nonce(), tx.GasPrice().Uint64(), tx.GasTipCap().Uint64())
+}
 
-	o.setNextTxNonce(tx.Nonce(), false)
+// replaceStuckFulfilmentTx rebroadcasts the fulfilment for job at the SAME nonce as the
+// stuck (still-pending) tx, with a higher gas price, so it evicts the stuck tx from the
+// mempool instead of queueing a higher-nonce tx behind it. Respects the attempt and age
+// limits, and counts the retry.
+func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, currentBlockNum uint64) {
+	requestId := job.GetRequestId()
 
-	_ = o.RenewTransactOpts()
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+		return
+	}
+
+	opts, err := o.buildReplacementTransactOpts(job.GetFulfillNonce(), job.GetFulfillGasPrice(), job.GetFulfillGasTipCap())
+	if err != nil {
+		logger.ErrorWithFields("chain", "replaceStuckFulfilmentTx", "build replacement opts",
+			err.Error(),
+			logger.Fields{
+				"request_id": requestId,
+			})
+		return
+	}
+
+	_ = o.db.IncrementFulfillmentAttempts(requestId)
+	o.submitFulfilment(job, opts, currentBlockNum)
 }
 
 func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests, currentBlockNum uint64) {
@@ -284,44 +341,25 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 		})
 
 	// at some point, we just have to stop trying...
-	if job.GetFulfillmentAttempts() >= 3 {
-		// too many fails
-		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check num attempts",
-			"too many fails",
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "give up", reason,
 			logger.Fields{
 				"request_id":   requestId,
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
-	lastFetchBlockDiff := currentBlockNum - job.LastDataFetchBlockNumber
-
-	// still relatively new - ignore
-	if lastFetchBlockDiff < 5 {
+	// still relatively new - wait for the data fetch to time out
+	if blockDiff(currentBlockNum, job.LastDataFetchBlockNumber) < 5 {
 		logger.InfoWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
-			"request < 5 blocks. Wait for data fetch timeout",
+			"request < 5 blocks since last fetch - wait",
 			logger.Fields{
 				"request_id": requestId,
 			})
 
-		return
-	}
-
-	requestBlockDiff := currentBlockNum - job.RequestBlockNumber
-
-	// is the request > 1 hour old?
-	if requestBlockDiff > 250 {
-		logger.WarnWithFields("chain", "processPossiblyStuckDataFetch", "check request age",
-			"request too old",
-			logger.Fields{
-				"request_id": requestId,
-				"age_blocks": requestBlockDiff,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
 		return
 	}
 
@@ -343,31 +381,14 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 	_ = o.db.InsertNewFailedFulfilment(requestId, "", 0, 0, job.GetStatusReason())
 
 	// at some point, we just have to stop trying...
-	if job.GetFulfillmentAttempts() >= 3 {
-		// too many fails
-		logger.WarnWithFields("chain", "processSendFailedJob", "check num attempts",
-			"too many failed attempts",
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		logger.WarnWithFields("chain", "processSendFailedJob", "give up", reason,
 			logger.Fields{
 				"request_id":   requestId,
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
-		return
-	}
-
-	requestBlockDiff := currentBlockNum - job.RequestBlockNumber
-
-	// is the request > 1 hour old?
-	if requestBlockDiff > 250 {
-		logger.WarnWithFields("chain", "processSendFailedJob", "check request age",
-			"request too old",
-			logger.Fields{
-				"request_id": requestId,
-				"age_blocks": requestBlockDiff,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
@@ -384,7 +405,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 			"request_id": requestId,
 		})
 
-	lastFulfillSentBlockDiff := currentBlockNum - job.GetLastFulfillSentBlockNumber()
+	lastFulfillSentBlockDiff := blockDiff(currentBlockNum, job.GetLastFulfillSentBlockNumber())
 	if lastFulfillSentBlockDiff < 3 {
 		// too soon - may take a while for Tx to be broadcast/picked up
 		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check block diff since fulfill tx sent",
@@ -413,14 +434,18 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 		return
 	}
 
-	// no point continuing if it's still pending. Log it and move on.
+	// Still pending after the wait above: the tx is stuck (likely under-priced).
+	// Replace it at the SAME nonce with a higher gas price, rather than queueing a
+	// higher-nonce tx behind it (which cannot mine until the stuck one clears).
 	if isPending {
 		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx pending",
-			"tx still pending - ignore",
+			"tx still pending - replacing at the same nonce with a higher gas price",
 			logger.Fields{
 				"request_id": requestId,
 				"tx_hash":    job.GetFulfillTxHash(),
+				"nonce":      job.GetFulfillNonce(),
 			})
+		o.replaceStuckFulfilmentTx(job, currentBlockNum)
 		return
 	}
 
@@ -437,7 +462,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	}
 
 	if fulfillReceipt.Status == 1 {
-		// Tx was successful. double check for RandomnessRequestFulfilled event
+		// Tx was successful. double check for RequestFulfilled event
 		// in case it was missed
 		logger.InfoWithFields("chain", "processPossiblyStuckSentTx", "check fulfill tx status",
 			"tx was successful. check for RequestFulfilled event",
@@ -450,9 +475,11 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 		copy(reqIdBytes32[:], reqIdBytes)
 		reqArr := make([][32]byte, 0, 1)
 		reqArr = append(reqArr, reqIdBytes32)
-		opts := o.historicalFilterOpts
+		// Clone: historicalFilterOpts is a shared *bind.FilterOpts; mutating it through
+		// a pointer copy would corrupt the opts GetHistoricalEvents also reads.
+		opts := *o.historicalFilterOpts
 		opts.Start = job.RequestBlockNumber
-		itrFr, err := o.contractInstance.FilterRequestFulfilled(opts, nil, nil, reqArr)
+		itrFr, err := o.contractInstance.FilterRequestFulfilled(&opts, nil, nil, reqArr)
 		if err != nil {
 			logger.Error("chain", "processPossiblyStuckSentTx", "get FilterRequestFulfilled events",
 				err.Error())
@@ -472,40 +499,26 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	failedGasPrice := job.GetFulfillGasPrice()
 	failReason := "tx reverted" // todo - try to get revert reason from receipt
 
+	fulfilmentResultTotal.WithLabelValues("reverted").Inc()
+	if failedGasUsed > 0 {
+		fulfilmentGasUsed.Observe(float64(failedGasUsed))
+	}
+
 	// Add fail info to failed Tx history table
 	_ = o.db.InsertNewFailedFulfilment(requestId, fulfilTxHash.Hex(), failedGasUsed, failedGasPrice, failReason)
 
 	// at some point, we just have to stop trying...
-	if job.GetFulfillmentAttempts() >= 3 {
-		// too many fails
-		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "check num attempts",
-			"too many failed attempts",
+	if giveUp, reason := o.shouldGiveUp(job); giveUp {
+		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "give up", reason,
 			logger.Fields{
 				"request_id":   requestId,
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "too many failed attempts")
-		return
-	}
-
-	requestBlockDiff := currentBlockNum - job.RequestBlockNumber
-
-	// is the request > 1 hour?
-	if requestBlockDiff > 250 {
-		logger.WarnWithFields("chain", "processPossiblyStuckSentTx", "check request age",
-			"request too old",
-			logger.Fields{
-				"request_id": requestId,
-				"age_blocks": requestBlockDiff,
-			})
-
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, "request too old")
+		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
 	// finally, try to send a new fulfillment
 	o.sendFulfillmentTx(job, currentBlockNum)
-
-	return
 }

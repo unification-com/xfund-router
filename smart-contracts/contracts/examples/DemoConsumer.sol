@@ -80,7 +80,7 @@ contract DemoConsumer is ConsumerBase, Ownable {
      *
      * Uses OpenZeppelin's onlyOwner modifier to secure the function.
      * The data format can be found at
-     * https://docs.finchains.io/guide/ooo_api.html
+     * https://docs.unification.io/ooo/guide/ooo_api.html
      * Endpoints should be Hex encoded using, for example
      * the web3.utils.asciiToHex function.
      *

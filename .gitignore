@@ -123,3 +123,7 @@ flattened_contracts
 # local scripts
 smart-contracts/scripts/tmp.js
 smart-contracts/custom_networks.js
+
+docs
+CLAUDE.md
+.claude

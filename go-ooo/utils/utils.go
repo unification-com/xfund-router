@@ -77,6 +77,11 @@ func ParseBigFloat(value string) (*big.Float, error) {
 }
 
 func EtherToWei(eth *big.Float) *big.Int {
+	// A non-finite ether value (±Inf) has no meaningful wei and would nil-panic at
+	// eth.Int below (Int returns nil for an infinity) - return zero rather than crash.
+	if eth.IsInf() {
+		return new(big.Int)
+	}
 	truncInt, _ := eth.Int(nil)
 	truncInt = new(big.Int).Mul(truncInt, big.NewInt(params.Ether))
 	fracStr := strings.Split(fmt.Sprintf("%.18f", eth), ".")[1]

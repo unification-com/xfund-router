@@ -2,49 +2,29 @@ package server
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
+	"syscall"
+
+	"golang.org/x/term"
 )
 
-func (s *Server) inputKey() (err error) {
+// promptPassphrase reads the keystore passphrase from the terminal without echo.
+func promptPassphrase() (string, error) {
+	fmt.Print("Enter your keystore passphrase: ")
+	b, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Println("")
-	fmt.Println("Please enter the cli/HTTP key, which was provided to you by Oracle")
-	fmt.Print("Key: ")
-	var key string
-	fmt.Scanf("%s\n", &key)
-	err = s.keystore.CheckToken(key)
-	if err == nil {
-		fmt.Println("Okay, let's continue...")
-		return
-	} else {
-		fmt.Println("I'm not sure I can decrypt your keystore with this key.")
-		err = s.inputKey()
-		return
-	}
-	return
-}
-
-func (s *Server) auth() (err error) {
-	fmt.Println("")
-	fmt.Println("Let's verify it's you")
-	err = s.inputKey()
-	return
-}
-
-func getPasswordFromFileOrFlag(flagValue string) string {
-	file, err := os.Open(flagValue)
-	password := ""
 	if err != nil {
-		password = flagValue
+		return "", err
 	}
+	return strings.TrimSpace(string(b)), nil
+}
 
-	defer file.Close()
-
-	data, err := ioutil.ReadAll(file)
-	if err == nil {
-		password = string(data)
+// getPasswordFromFileOrFlag treats flagValue as a path to a password file if it
+// names a readable file, otherwise as the password itself.
+func getPasswordFromFileOrFlag(flagValue string) string {
+	if data, err := os.ReadFile(flagValue); err == nil {
+		return strings.TrimSpace(string(data))
 	}
-
-	return strings.TrimSpace(password)
+	return strings.TrimSpace(flagValue)
 }

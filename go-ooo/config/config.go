@@ -3,15 +3,27 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
 	oooapidextypes "go-ooo/ooo_api/dex/types"
 	"os"
 )
 
 type JobsConfig struct {
-	OooApiUrl         string `mapstructure:"ooo_api_url"`
-	CheckDuration     uint64 `mapstructure:"check_duration"`
-	WaitConfirmations uint64 `mapstructure:"wait_confirmations"`
+	CheckDuration     uint64          `mapstructure:"check_duration"`
+	WaitConfirmations uint64          `mapstructure:"wait_confirmations"`
+	MaxJobAge         uint64          `mapstructure:"max_job_age"`
+	DexExport         DexExportConfig `mapstructure:"dex_export"`
+}
+
+// DexExportConfig drives the dex-pair-verify provider-export consumer (#127): the manifest of
+// priceable DEX sources + their verified-pair feeds that go-ooo polls to drive modular DEX dispatch.
+// BaseUrl is the dpv API (e.g. https://dex-pair-verify.example.io/api/ooo/v1); when empty the sync is
+// skipped and the oracle prices from the catalogue last persisted in the database. ApiToken is the
+// interim static export bearer (the XR3 wallet auth replaces it later). PollIntervalSec is how often
+// the catalogue is refreshed.
+type DexExportConfig struct {
+	BaseUrl         string `mapstructure:"base_url"`
+	ApiToken        string `mapstructure:"api_token"`
+	PollIntervalSec uint64 `mapstructure:"poll_interval_sec"`
 }
 
 type ServeConfig struct {
@@ -27,6 +39,8 @@ type KeystoreConfig struct {
 type ChainConfig struct {
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
+	GasBumpPercent  uint64 `mapstructure:"gas_bump_percent"`
+	Eip1559         bool   `mapstructure:"eip1559"`
 	ContractAddress string `mapstructure:"contract_address"`
 	EthHttpHost     string `mapstructure:"eth_http_host"`
 	EthWsHost       string `mapstructure:"eth_ws_host"`
@@ -80,26 +94,56 @@ type DexList struct {
 	XdaiHoneyswap         DexConfig `mapstructure:"xdai_honeyswap"`
 }
 
+// PriceQualityConfig gates DEX prices on the quality of the live sample backing them.
+// flag_* are soft bars that log a warning but still fulfil (sensible defaults). refuse_* are a
+// conservative backstop that declines to publish (the request stays unfulfilled); each refuse
+// check is disabled at its zero value, and all default to 0 so refusal is opt-in - only the
+// existing zero-prices refusal applies until an operator sets them.
+type PriceQualityConfig struct {
+	FlagMinPools        uint64  `mapstructure:"flag_min_pools"`
+	FlagMinVenues       uint64  `mapstructure:"flag_min_venues"`
+	FlagMinLiquidityUsd uint64  `mapstructure:"flag_min_liquidity_usd"`
+	FlagMaxDispersion   float64 `mapstructure:"flag_max_dispersion"`
+
+	RefuseMinPools        uint64  `mapstructure:"refuse_min_pools"`
+	RefuseMinVenues       uint64  `mapstructure:"refuse_min_venues"`
+	RefuseMinLiquidityUsd uint64  `mapstructure:"refuse_min_liquidity_usd"`
+	RefuseMaxDispersion   float64 `mapstructure:"refuse_max_dispersion"`
+
+	// S6 manipulation cross-check (opt-in, default-off): drop a surviving pool whose estimate
+	// deviates beyond SuspectDeviation (modified z-score) AND whose backing liquidity is below
+	// SuspectMinLiquidityUsd. A shallow pool notably off the consensus is a likely manipulation; a
+	// deep one is a genuine arbitrage gap (kept). Disabled unless BOTH are set > 0.
+	SuspectDeviation       float64 `mapstructure:"suspect_deviation"`
+	SuspectMinLiquidityUsd uint64  `mapstructure:"suspect_min_liquidity_usd"`
+}
+
 type Config struct {
-	Jobs       JobsConfig       `mapstructure:"jobs"`
-	Serve      ServeConfig      `mapstructure:"serve"`
-	Keystore   KeystoreConfig   `mapstructure:"keystorage"`
-	Chain      ChainConfig      `mapstructure:"chain"`
-	Database   DatabaseConfig   `mapstructure:"database"`
-	Prometheus PrometheusConfig `mapstructure:"prometheus"`
-	Log        LogConfig        `mapstructure:"log"`
-	Subchain   SubchainConfig   `mapstructure:"subchain"`
-	ApiKeys    ApiKeysConfig    `mapstructure:"api_keys"`
-	Dexs       DexList          `mapstructure:"dexs"`
+	Jobs         JobsConfig         `mapstructure:"jobs"`
+	Serve        ServeConfig        `mapstructure:"serve"`
+	Keystore     KeystoreConfig     `mapstructure:"keystorage"`
+	Chain        ChainConfig        `mapstructure:"chain"`
+	Database     DatabaseConfig     `mapstructure:"database"`
+	Prometheus   PrometheusConfig   `mapstructure:"prometheus"`
+	Log          LogConfig          `mapstructure:"log"`
+	Subchain     SubchainConfig     `mapstructure:"subchain"`
+	ApiKeys      ApiKeysConfig      `mapstructure:"api_keys"`
+	Dexs         DexList            `mapstructure:"dexs"`
+	PriceQuality PriceQualityConfig `mapstructure:"price_quality"`
 }
 
 // DefaultConfig returns server's default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Jobs: JobsConfig{
-			OooApiUrl:         "https://crypto.finchains.io/api",
 			CheckDuration:     5,
 			WaitConfirmations: 1,
+			MaxJobAge:         3600,
+			DexExport: DexExportConfig{
+				BaseUrl:         "",
+				ApiToken:        "",
+				PollIntervalSec: 3600,
+			},
 		},
 		Serve: ServeConfig{
 			Host: "127.0.0.1",
@@ -110,8 +154,12 @@ func DefaultConfig() *Config {
 			Account: "",
 		},
 		Chain: ChainConfig{
-			GasLimit:        500000,
-			MaxGasPrice:     150,
+			GasLimit:       500000,
+			MaxGasPrice:    150,
+			GasBumpPercent: 13,
+			// Modern default: send EIP-1559 dynamic-fee txs. Auto-falls-back to legacy on a
+			// pre-London chain (one with no base fee), so this is safe even on a migrated config.
+			Eip1559:         true,
 			ContractAddress: "",
 			EthHttpHost:     "",
 			EthWsHost:       "",
@@ -135,7 +183,7 @@ func DefaultConfig() *Config {
 		},
 		Subchain: SubchainConfig{
 			EthHttpRpc:       "https://rpc.mevblocker.io",
-			PolygonHttpRpc:   "https://polygon-rpc.com",
+			PolygonHttpRpc:   "https://polygon-bor-rpc.publicnode.com",
 			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
 			XdaiHttpRpc:      "https://rpc.gnosischain.com",
 			FantomHttpRpc:    "https://finchains.io/api",
@@ -174,36 +222,53 @@ func DefaultConfig() *Config {
 				MinTxCount:    oooapidextypes.DefaultMinTxCount,
 			},
 		},
+		PriceQuality: PriceQualityConfig{
+			// Flag defaults calibrated against a live mainnet sweep (2026-06-11): every legit
+			// pair had >=2 venues and legit dispersion stayed <=0.7%, while a thin long-tail pair
+			// reached ~2% - so 2 venues / $100k / 1% dispersion warn on the genuinely thin/dispersed
+			// without false-flagging blue-chips. Warn (but still answer) below these.
+			FlagMinPools:        2,
+			FlagMinVenues:       2,
+			FlagMinLiquidityUsd: 100000,
+			FlagMaxDispersion:   0.01,
+			// Refuse backstop disabled by default (opt-in). The same sweep suggests a conservative
+			// starting set if you enable it: refuse_min_liquidity_usd = 25000 (sub-$25k is dust;
+			// the thinnest legit pair was $30k) and refuse_max_dispersion = 0.20 (>20% post-MAD is
+			// clearly broken). Do NOT refuse on venues - real single-venue pairs exist.
+			RefuseMinPools:        0,
+			RefuseMinVenues:       0,
+			RefuseMinLiquidityUsd: 0,
+			RefuseMaxDispersion:   0,
+			// S6 suspect-pool drop disabled by default (opt-in). Suggested if enabling:
+			// suspect_deviation = 2.0 (modified-z; catches mild outliers within MAD's 3.5) +
+			// suspect_min_liquidity_usd = 10000 (drop sub-$10k mild outliers as likely manipulation;
+			// deep pools off-consensus are kept as real arbitrage gaps).
+			SuspectDeviation:       0,
+			SuspectMinLiquidityUsd: 0,
+		},
 	}
 }
 
-func (c *Config) InitForNet(network string) {
+func (c *Config) InitForNet(network string) error {
 	switch network {
 	case "sepolia":
 		c.InitForSepolia()
-		break
-	case "goerli":
-		c.InitForGoerli()
-		break
 	case "mainnet":
 		c.InitForMainnet()
-		break
 	case "polygon":
 		c.InitForPolygon()
-		break
 	case "dev":
 		c.InitForDevNet()
-		break
 	case "shibarium":
 		c.InitForShibarium()
-		break
 	case "puppynet":
 		c.InitForShibariumPuppynet()
-		break
 	default:
-		c.InitForDevNet()
-		break
+		// Don't silently configure DevNet (127.0.0.1) for a typo'd network - the
+		// operator would get a config quietly pointing at localhost.
+		return fmt.Errorf("unknown network %q (expected one of: dev, sepolia, mainnet, polygon, shibarium, puppynet)", network)
 	}
+	return nil
 }
 
 func (c *Config) InitForDevNet() {
@@ -212,6 +277,9 @@ func (c *Config) InitForDevNet() {
 	c.Chain.EthWsHost = "ws://127.0.0.1:8545"
 	c.Chain.NetworkId = 696969
 	c.Chain.FirstBlock = 1
+	// The dev env runs anvil, a London+ chain, so it exercises the EIP-1559 path like the prod
+	// networks. (Kept explicit rather than relying on the default, to document the dev intent.)
+	c.Chain.Eip1559 = true
 }
 
 func (c *Config) InitForSepolia() {
@@ -220,15 +288,6 @@ func (c *Config) InitForSepolia() {
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 11155111
 	c.Chain.FirstBlock = 3647468
-}
-
-// InitForGoerli will be deprecated and removed soon
-func (c *Config) InitForGoerli() {
-	c.Chain.ContractAddress = "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31"
-	c.Chain.EthHttpHost = ""
-	c.Chain.EthWsHost = ""
-	c.Chain.NetworkId = 5
-	c.Chain.FirstBlock = 7345730
 }
 
 func (c *Config) InitForMainnet() {
@@ -270,12 +329,6 @@ func (c *Config) SetKeystore(path, account string) {
 
 func (c *Config) SetSqliteDb(path string) {
 	c.Database.Storage = path
-}
-
-// GetConfig returns a fully parsed Config object.
-func GetConfig(v *viper.Viper) Config {
-
-	return Config{}
 }
 
 func (c Config) ValidateBasic() error {
@@ -334,9 +387,6 @@ func (c Config) ValidateBasic() error {
 	if c.Jobs.WaitConfirmations == 0 {
 		return errors.New("jobs.wait_confirmations not set in config.toml")
 	}
-	if c.Jobs.OooApiUrl == "" {
-		return errors.New("jobs.ooo_api_url not set in config.toml")
-	}
 
 	if c.Keystore.Account == "" {
 		return errors.New("keystorage.account not set in config.toml")
@@ -346,7 +396,7 @@ func (c Config) ValidateBasic() error {
 	}
 
 	if _, err := os.Stat(c.Keystore.File); errors.Is(err, os.ErrNotExist) {
-		return errors.New(fmt.Sprintf(`cannot find %s - check keystorage.file in config.toml`, c.Keystore.File))
+		return fmt.Errorf(`cannot find %s - check keystorage.file in config.toml`, c.Keystore.File)
 	}
 
 	return nil

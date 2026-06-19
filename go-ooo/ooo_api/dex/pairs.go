@@ -1,48 +1,17 @@
 package dex
 
 import (
-	"encoding/json"
 	"fmt"
 	"go-ooo/logger"
-	"go-ooo/ooo_api/dex/types"
 	"strings"
 )
 
-func (dm *Manager) GetSupportedPairs() {
-	for _, module := range dm.modules {
-		var pairMetaData types.PairMetaData
-
-		dataUrl := fmt.Sprintf(`https://raw.githubusercontent.com/unification-com/ooo-adhoc/main/data/%s/%s.json`, module.Chain(), module.Dex())
-
-		logger.InfoWithFields("dex", "GetSupportedPairs", "", "refresh pairs", logger.Fields{
-			"dex": module.Name(),
-			"url": dataUrl,
-		})
-
-		res, err := runQuery(nil, dataUrl)
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "GetSupportedPairs", "run refresh pairs query", err.Error(), logger.Fields{
-				"dex": module.Name(),
-			})
-			continue
-		}
-
-		err = json.Unmarshal(res, &pairMetaData)
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "GetSupportedPairs", "unmarshal result", err.Error(), logger.Fields{
-				"dex": module.Name(),
-			})
-			continue
-		}
-
-		dm.processPairMetaData(pairMetaData)
-	}
-}
-
+// UpdateAllPairsMetaDataFromDexs refreshes the live reserve/tx metadata of the persisted pairs by
+// querying each active source's subgraph - keeping the figures the price-path liquidity gate + the
+// liquidity-weighting depend on current, independent of how stale the dex-pair-verify feed's own
+// reserves are.
 func (dm *Manager) UpdateAllPairsMetaDataFromDexs() {
-	for _, module := range dm.modules {
+	for _, module := range dm.snapshotModules() {
 
 		var contractAddresses []string
 		pairsDb, _ := dm.db.Get100PairsForDataRefresh(module.Chain(), module.Dex())
@@ -67,38 +36,13 @@ func (dm *Manager) UpdateAllPairsMetaDataFromDexs() {
 			"num_pairs": len(pairsDb),
 		})
 
-		query, err := module.GeneratePairsQuery(contractAddressesStr)
+		// The source owns its transport: FetchPairsMetadata runs query + fetch + parse and returns
+		// the refreshed pair metadata, so this loop stays transport-blind. Any failure (generate /
+		// fetch / empty / parse) returns an error and the source is skipped for this cycle.
+		pairs, err := module.FetchPairsMetadata(contractAddressesStr)
 
 		if err != nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "generate pairs query", err.Error(), logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-			continue
-		}
-
-		res, err := runQuery(query, module.SubgraphUrl())
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "run pairs query", err.Error(), logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-			continue
-		}
-
-		if res == nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "run pairs query", "empty response", logger.Fields{
-				"chain": module.Chain(),
-				"dex":   module.Dex(),
-			})
-			continue
-		}
-
-		pairs, err := module.ProcessPairsQueryResult(res)
-
-		if err != nil {
-			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "process pairs query", err.Error(), logger.Fields{
+			logger.ErrorWithFields("dex", "UpdateAllPairsMetaDataFromDexs", "fetch pairs metadata", err.Error(), logger.Fields{
 				"chain": module.Chain(),
 				"dex":   module.Dex(),
 			})

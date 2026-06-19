@@ -2,8 +2,9 @@
 
 A full Docker environment for testing the OoO smart contracts and `go-ooo`.
 
-This is a complete, self-contained `ganache-cli` development environment, which can be used
+This is a complete, self-contained `anvil` (Foundry) development environment, which can be used
 to test contracts, developing and testing Consumer contracts and testing the `go-ooo` Provider Oracle app.
+The chain is a modern London+ EVM, so it exercises EIP-1559 fulfilment pricing like the production networks.
 
 ## Running
 
@@ -13,9 +14,20 @@ To run the development environment, from the **repo root directory**, run
 make dev-env
 ```
 
-This will run a local `ganache-cli` chain, deploy the Router and demo consumer contract, and also initialise
+This will run a local `anvil` chain, deploy the Router and demo consumer contract, and also initialise
 the accounts with some Dev xFUND. The chain's RPC endpoint will be exposed on `http://127.0.0.1:8545`, and can be
 accessed via the `truffle-config`'s `develop` network.
+
+The image (`docker/dev.Dockerfile`) is a multi-stage build on the official `node:12.18.3` image
+(no apt step, so it doesn't depend on an EOL distro's package mirrors), with the deps and the
+contract compile in cached layers and the chain/deploy/seed logic in
+[`assets/entrypoint.sh`](assets/entrypoint.sh). Node 12 + truffle 5 + solc 0.8.3 are pinned by the
+smart-contract toolchain (compile + deploy only); the chain itself is `anvil`, a self-contained
+static binary pulled from Foundry's `stable` channel, so it's independent of the Node version. The
+first build downloads the solc compiler and the anvil binary (needs network).
+
+> For an automated end-to-end run of `go-ooo` against this dev-env (build → init → fulfil → graceful
+> shutdown), see the integration harness in [`go-ooo/scripts/integration`](../go-ooo/scripts/integration).
 
 ## Interaction
 
@@ -31,20 +43,19 @@ for requesting and waiting for data. This script can be called using `docker exe
 docker exec -it ooo_dev_env /root/xfund-router/request.sh <BASE> <TARGET> <TYPE> [SUBTYPE] [SUPP1] [SUPP2]
 ```
 
-For example querying Finchains tracked data:
-
-```bash
-docker exec -it ooo_dev_env /root/xfund-router/request.sh BTC GBP PR AVC 1H
-```
-
-This will request data using the OoO endpoint `BTC.GBP.PR.AVC.1H`, which is the mean GBP price of Bitcoin for the
-past hour, using the Chauvenet Criterion to remove statistical outliers.
-
-Or and Ad-Hoc request:
+For example, an AdHoc DEX price query:
 
 ```bash
 docker exec -it ooo_dev_env /root/xfund-router/request.sh BONE WETH AD
 ```
+
+This requests the OoO endpoint `BONE.WETH.AD` - the liquidity-weighted mean BONE/WETH price across the
+supported DEXs (per-pool outliers removed with a median + MAD filter). An optional trailing minutes
+window (`0`-`60`) averages over that lookback.
+
+> **Legacy Finchains endpoints (`BASE.TARGET.PR...`) are deprecated.** Finchains has been removed;
+> go-ooo now lossily redirects a `.PR` request to the DEX path on `BASE.TARGET`, and returns a clear
+> error if that pair is not on any supported DEX. Migrate consumers to the AdHoc form above.
 
 See the [OoO API Guide](https://docs.unification.io/ooo/guide/ooo_api.html) for more information on endpoint 
 construction.

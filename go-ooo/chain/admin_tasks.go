@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 	"go-ooo/logger"
@@ -11,32 +12,23 @@ import (
 
 func (o *OoORouterService) ProcessAdminTask(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
 
-	err := o.RenewTransactOpts()
-	if err != nil {
-		logger.Error("chain", "ProcessAdminTask", "RenewTransactOpts", err.Error())
-
-		return go_ooo_types.AdminTaskResponse{
-			AdminTask: task,
-			Success:   false,
-			Error:     err.Error(),
-		}
-	}
-
 	switch task.Task {
 	case "register":
-		return o.registerAsProvider(task)
+		return o.runAdminTx(task, o.registerAsProvider)
 	case "set_fee":
-		return o.setGlobalFee(task)
+		return o.runAdminTx(task, o.setGlobalFee)
 	case "set_granular_fee":
-		return o.setGranularFee(task)
+		return o.runAdminTx(task, o.setGranularFee)
 	case "withdraw":
-		return o.withdraw(task)
+		return o.runAdminTx(task, o.withdraw)
 	case "query_withdrawable":
 		return o.queryWithdrawable(task)
 	case "query_fees":
 		return o.queryFees(task)
 	case "query_granular_fees":
 		return o.queryGranularFees(task)
+	case "sync_dex_sources":
+		return o.syncDexSources(task)
 	default:
 		return go_ooo_types.AdminTaskResponse{
 			AdminTask: task,
@@ -45,7 +37,37 @@ func (o *OoORouterService) ProcessAdminTask(task go_ooo_types.AdminTask) go_ooo_
 	}
 }
 
-func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
+// syncDexSources triggers an on-demand refresh of the DEX source catalogue + pair feeds from
+// dex-pair-verify. It runs in a goroutine so it doesn't block the service loop (which also
+// serialises fulfilment); an overlapping run is coalesced by SyncDexSources' own guard.
+func (o *OoORouterService) syncDexSources(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
+	resp := go_ooo_types.AdminTaskResponse{AdminTask: task}
+	go o.oooApi.UpdateDexPairs()
+	resp.Success = true
+	resp.Result = "DEX source sync triggered; it runs in the background - watch the logs / Prometheus metrics for completion"
+	return resp
+}
+
+// runAdminTx builds chain-anchored transaction options (fresh nonce + gas) and runs
+// a sending admin op with them, returning a failure response if the options cannot
+// be built. Keeps every admin send on the single nonce authority (buildTransactOpts).
+func (o *OoORouterService) runAdminTx(
+	task go_ooo_types.AdminTask,
+	fn func(go_ooo_types.AdminTask, *bind.TransactOpts) go_ooo_types.AdminTaskResponse,
+) go_ooo_types.AdminTaskResponse {
+	opts, err := o.buildTransactOpts()
+	if err != nil {
+		logger.Error("chain", "runAdminTx", "build transact opts", err.Error())
+		return go_ooo_types.AdminTaskResponse{
+			AdminTask: task,
+			Success:   false,
+			Error:     err.Error(),
+		}
+	}
+	return fn(task, opts)
+}
+
+func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask, opts *bind.TransactOpts) go_ooo_types.AdminTaskResponse {
 
 	var resp go_ooo_types.AdminTaskResponse
 	resp.AdminTask = task
@@ -56,7 +78,7 @@ func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask) go_oo
 		"fee":     fee,
 	})
 
-	tx, err := o.contractInstance.RegisterAsProvider(o.transactOpts, big.NewInt(int64(fee)))
+	tx, err := o.contractInstance.RegisterAsProvider(opts, big.NewInt(int64(fee)))
 	if err != nil {
 		logger.Error("chain", "registerAsProvider", "register", err.Error())
 		resp.Error = err.Error()
@@ -67,8 +89,6 @@ func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask) go_oo
 			"tx":      tx.Hash(),
 		})
 
-		o.setNextTxNonce(tx.Nonce(), false)
-
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
 	}
@@ -76,7 +96,7 @@ func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask) go_oo
 	return resp
 }
 
-func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
+func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask, opts *bind.TransactOpts) go_ooo_types.AdminTaskResponse {
 
 	var resp go_ooo_types.AdminTaskResponse
 	resp.AdminTask = task
@@ -88,7 +108,7 @@ func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask) go_ooo_type
 		"fee":     fee,
 	})
 
-	tx, err := o.contractInstance.SetProviderMinFee(o.transactOpts, big.NewInt(int64(fee)))
+	tx, err := o.contractInstance.SetProviderMinFee(opts, big.NewInt(int64(fee)))
 	if err != nil {
 		logger.ErrorWithFields("chain", "setGlobalFee", "register", err.Error(), logger.Fields{
 			"address": o.oracleAddress.Hex(),
@@ -106,13 +126,12 @@ func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask) go_ooo_type
 
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
-		o.setNextTxNonce(tx.Nonce(), false)
 	}
 
 	return resp
 }
 
-func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
+func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask, opts *bind.TransactOpts) go_ooo_types.AdminTaskResponse {
 
 	var resp go_ooo_types.AdminTaskResponse
 	resp.AdminTask = task
@@ -125,7 +144,7 @@ func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask) go_ooo_ty
 		"consumer": consumer,
 	})
 
-	tx, err := o.contractInstance.SetProviderGranularFee(o.transactOpts, common.HexToAddress(consumer), big.NewInt(int64(fee)))
+	tx, err := o.contractInstance.SetProviderGranularFee(opts, common.HexToAddress(consumer), big.NewInt(int64(fee)))
 	if err != nil {
 		logger.ErrorWithFields("chain", "setGranularFee", "set in contract", err.Error(), logger.Fields{
 			"address":  o.oracleAddress.Hex(),
@@ -144,13 +163,12 @@ func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask) go_ooo_ty
 
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
-		o.setNextTxNonce(tx.Nonce(), false)
 	}
 
 	return resp
 }
 
-func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
+func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask, opts *bind.TransactOpts) go_ooo_types.AdminTaskResponse {
 	var resp go_ooo_types.AdminTaskResponse
 	resp.AdminTask = task
 
@@ -181,7 +199,7 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask) go_ooo_types.Ad
 		return resp
 	}
 
-	tx, err := o.contractInstance.Withdraw(o.transactOpts, common.HexToAddress(recipient), amountBig)
+	tx, err := o.contractInstance.Withdraw(opts, common.HexToAddress(recipient), amountBig)
 	if err != nil {
 		logger.ErrorWithFields("chain", "withdraw", "send tx to contract", err.Error(), logger.Fields{
 			"recipient": recipient,
@@ -200,7 +218,6 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask) go_ooo_types.Ad
 
 		resp.Result = fmt.Sprintf("Sent! Tx Hash: %s", tx.Hash().String())
 		resp.Success = true
-		o.setNextTxNonce(tx.Nonce(), false)
 	}
 
 	return resp
@@ -225,6 +242,11 @@ func (o *OoORouterService) queryWithdrawable(task go_ooo_types.AdminTask) go_ooo
 	return resp
 }
 
+// gweiString formats a wei amount as a human-readable gwei value.
+func gweiString(wei *big.Int) string {
+	return new(big.Float).Quo(new(big.Float).SetInt(wei), big.NewFloat(params.GWei)).String()
+}
+
 func (o *OoORouterService) queryFees(task go_ooo_types.AdminTask) go_ooo_types.AdminTaskResponse {
 	var resp go_ooo_types.AdminTaskResponse
 	resp.AdminTask = task
@@ -237,9 +259,7 @@ func (o *OoORouterService) queryFees(task go_ooo_types.AdminTask) go_ooo_types.A
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		feeAsBigFloat, _ := new(big.Float).SetString(fee.String())
-		humanFee := new(big.Float).Quo(feeAsBigFloat, big.NewFloat(params.GWei))
-		resp.Result = fmt.Sprintf("global fee: %s (%s)", fee.String(), humanFee.String())
+		resp.Result = fmt.Sprintf("global fee: %s (%s)", fee.String(), gweiString(fee))
 		resp.Success = true
 	}
 
@@ -257,9 +277,7 @@ func (o *OoORouterService) queryGranularFees(task go_ooo_types.AdminTask) go_ooo
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		feeAsBigFloat, _ := new(big.Float).SetString(fee.String())
-		humanFee := new(big.Float).Quo(feeAsBigFloat, big.NewFloat(params.GWei))
-		resp.Result = fmt.Sprintf("granular fee for %s: %s (%s)", task.ToOrConsumer, fee.String(), humanFee.String())
+		resp.Result = fmt.Sprintf("granular fee for %s: %s (%s)", task.ToOrConsumer, fee.String(), gweiString(fee))
 		resp.Success = true
 	}
 

@@ -14,5 +14,21 @@ var rootCmd = &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	rootCmd.PersistentFlags().StringVar(&graphNetApi, FlagGraphNetworkApiKey, "", "Graph Network API Key")
+
+	// dex-pair-verify export API (e.g. a locally-run instance) for `api update-pairs` to sync the
+	// source manifest + pair feeds from. Empty leaves the sync disabled.
+	rootCmd.PersistentFlags().StringVar(&dpvApiBaseUrl, FlagDpvApiBaseUrl, "", "dex-pair-verify export API base, e.g. http://127.0.0.1:3000/api/ooo/v1")
+	rootCmd.PersistentFlags().StringVar(&dpvApiToken, FlagDpvApiToken, "", "dex-pair-verify export API bearer token")
+
+	// DB selection: defaults to a throwaway sqlite file, or point at a Postgres instance
+	// (e.g. a restored production dump) with --db-dialect=postgres + the connection flags.
+	rootCmd.PersistentFlags().StringVar(&dbDialect, "db-dialect", "sqlite", "database dialect: sqlite or postgres")
+	rootCmd.PersistentFlags().StringVar(&dbStorage, "db-storage", "/tmp/go-ooo_testapp.sqlite", "sqlite file path (sqlite only)")
+	rootCmd.PersistentFlags().StringVar(&dbHost, "db-host", "", "postgres host (or unix socket dir, e.g. /tmp)")
+	rootCmd.PersistentFlags().Uint64Var(&dbPort, "db-port", 0, "postgres port")
+	rootCmd.PersistentFlags().StringVar(&dbUser, "db-user", "", "postgres user")
+	rootCmd.PersistentFlags().StringVar(&dbName, "db-name", "", "postgres database name")
+	rootCmd.PersistentFlags().StringVar(&dbPass, "db-pass", "", "postgres password")
+
 	cobra.CheckErr(rootCmd.Execute())
 }

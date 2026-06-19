@@ -10,10 +10,14 @@ import (
 	"go-ooo/database"
 	"go-ooo/logger"
 	"go-ooo/ooo_api"
+	"go-ooo/ooo_api/export"
 	"go-ooo/ooo_router"
 	go_ooo_types "go-ooo/types"
+	"go-ooo/utils"
+	"go-ooo/utils/walletworker"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -31,18 +35,16 @@ type Service struct {
 	echoService *echo.Echo
 	oooApi      *ooo_api.OOOApi
 
+	// Each task carries its own reply channel (Resp), so concurrent requests can't read
+	// each other's responses - no shared response channel.
 	adminTasks     chan go_ooo_types.AdminTask
-	adminTasksResp chan go_ooo_types.AdminTaskResponse
+	analyticsTasks chan go_ooo_types.AnalyticsTask
 
-	// todo - analytics channels, functions and echo endpoint
-	analyticsTasks     chan go_ooo_types.AnalyticsTask
-	analyticsTasksResp chan go_ooo_types.AnalyticsTaskResponse
-
-	authToken string
+	adminTokenHash string
 }
 
 func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
-	db *database.DB, authToken string) (*Service, error) {
+	db *database.DB, adminTokenHash string) (*Service, error) {
 
 	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
 	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
@@ -58,6 +60,12 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 	checkDuration := cfg.Jobs.CheckDuration
 	if checkDuration != 0 {
 		pollInterval = time.Duration(checkDuration)
+	}
+
+	// How often to refresh the DEX source catalogue + pairs from the dex-pair-verify export.
+	pairsPollInterval := cfg.Jobs.DexExport.PollIntervalSec
+	if pairsPollInterval == 0 {
+		pairsPollInterval = 3600
 	}
 
 	logger.Debug("service", "NewService", "", "poll service", logger.Fields{
@@ -82,6 +90,25 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		return nil, err
 	}
 
+	// Provider export auth (T8): when no static EXPORT_API_TOKEN is configured but a provider key + chain
+	// are available, authenticate the dex-pair-verify export pulls with the oracle wallet (the on-chain
+	// registered provider) via challenge-response instead of a shared secret. A configured static token
+	// (the Manager's default) takes precedence as the operator break-glass.
+	exportCfg := cfg.Jobs.DexExport
+	if exportCfg.ApiToken == "" && exportCfg.BaseUrl != "" && len(oraclePrivateKey) > 0 && cfg.Chain.NetworkId > 0 {
+		priv, kerr := crypto.HexToECDSA(utils.RemoveHexPrefix(string(oraclePrivateKey)))
+		if kerr != nil {
+			logger.ErrorWithFields("service", "NewService", "provider export auth", kerr.Error(), logger.Fields{})
+		} else {
+			signer := walletworker.NewEthSigner(priv)
+			oooApi.SetExportAuthenticator(export.NewWalletAuth(exportCfg.BaseUrl, cfg.Chain.NetworkId, signer, nil))
+			logger.InfoWithFields("service", "NewService", "", "using provider wallet-auth for the dex-pair-verify export", logger.Fields{
+				"provider": signer.Address(),
+				"chain_id": cfg.Chain.NetworkId,
+			})
+		}
+	}
+
 	logger.Info("service", "NewService", "", "init ooo router service")
 	oooRouterService, err := chain.NewOoORouter(ctx, cfg, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
 
@@ -97,16 +124,14 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		contractInstance: oooRouterInstance,
 		db:               db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
-		jobTicker:          time.NewTicker(time.Second * pollInterval),
-		updatePairsTicker:  time.NewTicker(time.Minute * 30),
-		oooRouterService:   oooRouterService,
-		adminTasks:         make(chan go_ooo_types.AdminTask),
-		adminTasksResp:     make(chan go_ooo_types.AdminTaskResponse),
-		analyticsTasks:     make(chan go_ooo_types.AnalyticsTask),
-		analyticsTasksResp: make(chan go_ooo_types.AnalyticsTaskResponse),
-		echoService:        echo.New(),
-		oooApi:             oooApi,
-		authToken:          authToken,
+		jobTicker:         time.NewTicker(time.Second * pollInterval),
+		updatePairsTicker: time.NewTicker(time.Second * time.Duration(pairsPollInterval)),
+		oooRouterService:  oooRouterService,
+		adminTasks:        make(chan go_ooo_types.AdminTask),
+		analyticsTasks:    make(chan go_ooo_types.AnalyticsTask),
+		echoService:       echo.New(),
+		oooApi:            oooApi,
+		adminTokenHash:    adminTokenHash,
 	}, nil
 }
 
@@ -116,15 +141,16 @@ func (s *Service) Run() {
 		s.initEcho()
 	}(s)
 
+	// Seed the cumulative fulfilment counters from DB history BEFORE /metrics starts serving,
+	// so the all-time totals (and forward rates) are correct from the first scrape.
+	chain.WarmStartFulfilmentMetrics(s.db)
+
 	go func(s *Service) {
 		s.initPrometheus()
 	}(s)
 
-	// update supported pairs from the Finchains API
-	go func(s *Service) {
-		s.oooApi.UpdateSupportedPairs()
-		s.oooApi.UpdateDexPairs()
-	}(s)
+	// refresh the DEX pair catalogue - initial refresh at startup
+	go s.refreshPairs()
 
 	// pick up from the last block we know about to process
 	// any historical events missed. This will run and complete
@@ -136,23 +162,38 @@ func (s *Service) Run() {
 		s.oooRouterService.RunEventWatchers()
 	}(s)
 
+	// The event watcher signals this channel when it detects a new request, so we process it
+	// immediately instead of waiting for the next jobTicker tick. A nudge buffered during the
+	// historical-event catch-up above is drained on the first iteration, so startup backlog is
+	// processed at once too.
+	jobNudge := s.oooRouterService.JobNudge()
+
 	for {
 		select {
+		case <-s.ctx.Done():
+			logger.Info("service", "Run", "", "context cancelled - shutting down")
+			s.Stop()
+			return
 		case <-s.jobTicker.C:
-			s.oooRouterService.ProcessPendingJobQueue()
+			s.oooRouterService.ProcessPendingJobQueue("ticker")
+		case <-jobNudge:
+			s.oooRouterService.ProcessPendingJobQueue("event")
 		case <-s.updatePairsTicker.C:
-			go func(s *Service) {
-				s.oooApi.UpdateSupportedPairs()
-				s.oooApi.UpdateDexPairs()
-			}(s)
+			go s.refreshPairs()
 		case t := <-s.analyticsTasks:
-			s.analyticsTasksResp <- s.ProcessAnalyticsTask(t)
+			t.Resp <- s.ProcessAnalyticsTask(t)
 		case t := <-s.adminTasks:
 			// At any time we can process a request to add a new admin task
 			// such as changing fees etc.
-			s.adminTasksResp <- s.oooRouterService.ProcessAdminTask(t)
+			t.Resp <- s.oooRouterService.ProcessAdminTask(t)
 		}
 	}
+}
+
+// refreshPairs refreshes the DEX source catalogue + pair set. Shared by the initial refresh + the
+// ticker; overlapping runs are coalesced by SyncDexSources' own guard, so this stays a thin seam.
+func (s *Service) refreshPairs() {
+	s.oooApi.UpdateDexPairs()
 }
 
 func (s *Service) Stop() {
@@ -167,7 +208,11 @@ func (s *Service) Stop() {
 	s.oooRouterService.Shutdown()
 
 	logger.Info("service", "Stop", "", "shutting down echo")
-	err := s.echoService.Shutdown(s.ctx)
+	// s.ctx is already cancelled here, so use a fresh bounded context to let echo
+	// drain in-flight requests rather than aborting immediately.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := s.echoService.Shutdown(shutdownCtx)
 
 	if err != nil {
 		logger.Error("service", "Stop", "shutting down echo", err.Error())

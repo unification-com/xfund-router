@@ -2,6 +2,7 @@ package walletworker_test
 
 import (
 	"crypto/ecdsa"
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -50,4 +51,29 @@ func TestAddressFromPrivateKeyString(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "0xE11BA2b4D45Eaed5996Cd0823791E0C93114882d", addr.Hex())
+}
+
+// TestEthSignerSignTextRecovers proves the provider-auth signer (T8) produces a valid EIP-191
+// personal_sign with the 27/28 V convention that recovers back to the signer's address.
+func TestEthSignerSignTextRecovers(t *testing.T) {
+	priv, _ := walletworker.StringToPrivate("646f1ce2fdad0e6deeeb5c7e8e5543bdde65e86029e2fd9fc169899c440a7913")
+	signer := walletworker.NewEthSigner(priv)
+	require.Equal(t, "0xE11BA2b4D45Eaed5996Cd0823791E0C93114882d", signer.Address())
+
+	msg := "dex-pair-verify — OoO provider authentication\nNonce: abc123"
+	sigHex, err := signer.SignText(msg)
+	require.NoError(t, err)
+
+	sig, err := hexutil.Decode(sigHex)
+	require.NoError(t, err)
+	require.Len(t, sig, 65)
+	require.True(t, sig[64] == 27 || sig[64] == 28, "V must be 27/28 (personal_sign convention)")
+
+	// Recover with go-ethereum: undo the +27 to the 0/1 recovery id, recover over the EIP-191 text hash.
+	rec := make([]byte, 65)
+	copy(rec, sig)
+	rec[64] -= 27
+	pub, err := crypto.SigToPub(accounts.TextHash([]byte(msg)), rec)
+	require.NoError(t, err)
+	require.Equal(t, signer.Address(), crypto.PubkeyToAddress(*pub).Hex())
 }

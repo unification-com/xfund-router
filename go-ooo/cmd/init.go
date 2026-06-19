@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"go-ooo/config"
-	"go-ooo/keystore"
 	"os"
 	"path/filepath"
 
@@ -57,23 +56,30 @@ Examples:
 			fmt.Println(cfgFile, "does not exist. Creating with defaults")
 
 			if _, err := os.Stat(appHomePath); errors.Is(err, os.ErrNotExist) {
-				err := os.MkdirAll(appHomePath, os.ModePerm)
+				// 0700 - the home directory holds the keystore and admin-token hash.
+				err := os.MkdirAll(appHomePath, 0700)
 				if err != nil {
 					panic(err)
 				}
 			}
 
 			conf := config.DefaultConfig()
-			conf.InitForNet(network)
-
-			ks, _ := keystore.NewKeyStorageNoLogger(ksFile)
-
-			err, ksUser := ks.InitNewKeystore(ksFile)
-			if err != nil {
-				panic(err)
+			if err := conf.InitForNet(network); err != nil {
+				fmt.Println(err.Error())
+				return
 			}
 
-			conf.SetKeystore(ksFile, ksUser)
+			account, err := runKeystoreInit(ksFile, initOpts{
+				account:   initAccount,
+				importKey: initImportKey,
+				pass:      initPass,
+			})
+			if err != nil {
+				fmt.Println("keystore initialisation failed:", err.Error())
+				return
+			}
+
+			conf.SetKeystore(ksFile, account)
 
 			conf.SetSqliteDb(dbFile)
 
@@ -90,6 +96,18 @@ Examples:
 	},
 }
 
+var (
+	initAccount   string
+	initImportKey string
+	initPass      string
+)
+
 func init() {
+	// Non-interactive inputs (mainly for automation / integration tests). When unset,
+	// init prompts as normal. Prefer a file over a literal value for the key/passphrase
+	// so secrets don't land in the shell history or process list.
+	initCmd.Flags().StringVar(&initAccount, "account", "", "account name for the key (skips the prompt)")
+	initCmd.Flags().StringVar(&initImportKey, "import-key", "", "private key to import: a file path or 0x hex value (skips the prompt)")
+	initCmd.Flags().StringVar(&initPass, "pass", "", "keystore passphrase: a file path or value (skips the prompt)")
 	rootCmd.AddCommand(initCmd)
 }

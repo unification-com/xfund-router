@@ -1,0 +1,260 @@
+package ooo_api
+
+import (
+	"math"
+	"testing"
+)
+
+// keptByMAD reproduces QueryDexPrice's Stage-B filter so the estimator math can be asserted
+// directly: a value survives when there is no usable spread (scale 0) or its modified z-score
+// is within the threshold.
+func keptByMAD(values []float64) []float64 {
+	median, scale := madCentreAndScale(values)
+	var kept []float64
+	for _, v := range values {
+		if scale == 0 || math.Abs(v-median)/scale <= madRejectThreshold {
+			kept = append(kept, v)
+		}
+	}
+	return kept
+}
+
+func contains(xs []float64, want float64) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMAD_KeepsCleanCluster(t *testing.T) {
+	prices := []float64{1635.1, 1636.8, 1637.0, 1638.2, 1636.0, 1639.1}
+	if kept := keptByMAD(prices); len(kept) != len(prices) {
+		t.Errorf("clean cluster should keep all %d, kept %d (%v)", len(prices), len(kept), kept)
+	}
+}
+
+func TestMAD_RejectsSingleManipulatedExtreme(t *testing.T) {
+	prices := []float64{1636.0, 1637.0, 1636.5, 1638.0, 1637.5, 9000.0}
+	kept := keptByMAD(prices)
+	if contains(kept, 9000.0) {
+		t.Fatalf("the 9000 outlier should have been rejected, kept: %v", kept)
+	}
+	if len(kept) != 5 {
+		t.Errorf("expected 5 survivors, got %d (%v)", len(kept), kept)
+	}
+}
+
+func TestMAD_DoesNotFalselyRejectBimodal(t *testing.T) {
+	// Genuine dispersion (two clusters) is not outliers - the wide MAD must keep both.
+	prices := []float64{100, 101, 102, 200, 201, 202}
+	if kept := keptByMAD(prices); len(kept) != len(prices) {
+		t.Errorf("bimodal spread should not be rejected, kept %d of %d (%v)", len(kept), len(prices), kept)
+	}
+}
+
+func TestMAD_SmallSamples(t *testing.T) {
+	if kept := keptByMAD([]float64{1637.0}); len(kept) != 1 {
+		t.Errorf("N=1 should keep the single value, got %v", kept)
+	}
+	if kept := keptByMAD([]float64{100, 5000}); len(kept) != 2 {
+		t.Errorf("N=2 cannot reject either point, got %v", kept)
+	}
+}
+
+func TestMAD_AllIdenticalHasZeroScale(t *testing.T) {
+	median, scale := madCentreAndScale([]float64{5, 5, 5, 5})
+	if median != 5 || scale != 0 {
+		t.Errorf("all-identical: median=%v scale=%v, want 5/0", median, scale)
+	}
+	if kept := keptByMAD([]float64{5, 5, 5, 5}); len(kept) != 4 {
+		t.Errorf("all-identical should keep all, got %v", kept)
+	}
+}
+
+func TestMAD_MeanADFallbackCatchesOutlier(t *testing.T) {
+	// ≥half identical → MAD is 0; the mean-absolute-deviation fallback must still produce a
+	// non-zero scale so the lone extreme is caught.
+	_, scale := madCentreAndScale([]float64{1, 1, 1, 1, 5000})
+	if scale == 0 {
+		t.Fatal("expected the mean-AD fallback to produce a non-zero scale")
+	}
+	kept := keptByMAD([]float64{1, 1, 1, 1, 5000})
+	if contains(kept, 5000) || len(kept) != 4 {
+		t.Errorf("expected the four 1s to survive and 5000 rejected, got %v", kept)
+	}
+}
+
+func TestMAD_Empty(t *testing.T) {
+	median, scale := madCentreAndScale(nil)
+	if median != 0 || scale != 0 {
+		t.Errorf("empty input should return zeros, got median=%v scale=%v", median, scale)
+	}
+}
+
+func TestWeightedMean_LiquidityWeighting(t *testing.T) {
+	// A deep pool at 1640 with 10x the liquidity of a shallow pool at 1600 should pull the
+	// result close to 1640, not the midpoint.
+	got := weightedMean([]float64{1640, 1600}, []float64{1_000_000, 100_000})
+	want := (1640*1_000_000.0 + 1600*100_000.0) / 1_100_000.0
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("weighted mean = %v, want %v", got, want)
+	}
+	if got < 1635 {
+		t.Errorf("deep pool should dominate, got %v", got)
+	}
+}
+
+func TestWeightedMean_ZeroWeightsFallBackToPlainMean(t *testing.T) {
+	got := weightedMean([]float64{10, 20, 30}, []float64{0, 0, 0})
+	if math.Abs(got-20) > 1e-9 {
+		t.Errorf("zero weights should fall back to plain mean 20, got %v", got)
+	}
+}
+
+func TestWeightedMean_NegativeWeightClamped(t *testing.T) {
+	// A negative weight must not subtract from the estimate; it is clamped to 0.
+	got := weightedMean([]float64{10, 1000}, []float64{5, -3})
+	if math.Abs(got-10) > 1e-9 {
+		t.Errorf("negative weight should be clamped to 0 (→ 10), got %v", got)
+	}
+}
+
+func TestConfidenceWeight(t *testing.T) {
+	cases := []struct {
+		name            string
+		liquidity, conf float64
+		want            float64
+	}{
+		{"full trust keeps full liquidity", 100, 1, 100},
+		{"half trust halves the weight", 100, 0.5, 50},
+		{"low trust heavily down-weights", 1_000_000, 0.1, 100_000},
+		{"unscored (0) is neutral", 100, 0, 100},
+		{"negative is neutral", 100, -0.3, 100},
+		{"above-range is neutral", 100, 1.5, 100},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := confidenceWeight(c.liquidity, c.conf); math.Abs(got-c.want) > 1e-9 {
+				t.Errorf("confidenceWeight(%v, %v) = %v, want %v", c.liquidity, c.conf, got, c.want)
+			}
+		})
+	}
+}
+
+func TestTrustWeightingShiftsTowardTrustedPool(t *testing.T) {
+	// Two equally-deep pools at different prices: the higher-confidence pool should pull the
+	// trust-weighted mean above the 1620 equal-weight midpoint, toward its 1640 price.
+	const liq = 1_000_000.0
+	wHi := confidenceWeight(liq, 1.0)  // trusted pool at 1640
+	wLo := confidenceWeight(liq, 0.25) // low-trust pool at 1600
+	got := weightedMean([]float64{1640, 1600}, []float64{wHi, wLo})
+	if got <= 1620 {
+		t.Errorf("trust weighting should pull above the 1620 midpoint, got %v", got)
+	}
+	want := (1640*wHi + 1600*wLo) / (wHi + wLo)
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("trust-weighted mean = %v, want %v", got, want)
+	}
+}
+
+func TestDropSuspectPools(t *testing.T) {
+	// A tight consensus cluster plus one off-consensus pool. Whether that pool is dropped depends on
+	// its liquidity: shallow → likely manipulation (drop); deep → genuine arbitrage gap (keep).
+	vals := []float64{1640, 1641, 1639, 1680}
+	weights := []float64{1e6, 1e6, 1e6, 5_000} // incidental here
+	sources := []string{"eth|a", "eth|b", "eth|c", "eth|d"}
+	median, scale := madCentreAndScale(vals)
+	if scale <= 0 {
+		t.Fatalf("expected a non-zero scale, got %v", scale)
+	}
+
+	t.Run("drops a shallow outlier", func(t *testing.T) {
+		liq := []float64{1e6, 1e6, 1e6, 5_000} // the outlier pool is shallow ($5k)
+		fv, _, _, fs, dropped := dropSuspectPools(vals, weights, liq, sources, median, scale, 2.0, 10_000)
+		if dropped != 1 || len(fv) != 3 {
+			t.Fatalf("expected 1 dropped / 3 kept, got dropped=%d kept=%v", dropped, fv)
+		}
+		if contains(fv, 1680.0) {
+			t.Errorf("shallow outlier 1680 should be dropped, kept: %v", fv)
+		}
+		for _, s := range fs {
+			if s == "eth|d" {
+				t.Errorf("the dropped pool's source eth|d should be gone, got %v", fs)
+			}
+		}
+	})
+
+	t.Run("keeps a deep outlier (real arbitrage gap)", func(t *testing.T) {
+		liq := []float64{1e6, 1e6, 1e6, 5e7} // the outlier pool is deep ($50M)
+		fv, _, _, _, dropped := dropSuspectPools(vals, weights, liq, sources, median, scale, 2.0, 10_000)
+		if dropped != 0 || len(fv) != 4 {
+			t.Errorf("a deep outlier should be kept, got dropped=%d kept=%v", dropped, fv)
+		}
+	})
+
+	t.Run("zero scale is a no-op", func(t *testing.T) {
+		flat := []float64{5, 5, 5}
+		fv, _, _, _, dropped := dropSuspectPools(flat, flat, flat, []string{"a", "b", "c"}, 5, 0, 2.0, 10_000)
+		if dropped != 0 || len(fv) != 3 {
+			t.Errorf("zero scale should be a no-op, got dropped=%d kept=%v", dropped, fv)
+		}
+	})
+
+	t.Run("never drops every pool", func(t *testing.T) {
+		// All four are shallow + dispersed enough to look suspect; the guard returns them unchanged
+		// rather than wiping the sample.
+		v := []float64{100, 200, 300, 400}
+		liq := []float64{1, 1, 1, 1}
+		m, sc := madCentreAndScale(v)
+		fv, _, _, _, dropped := dropSuspectPools(v, v, liq, []string{"a", "b", "c", "d"}, m, sc, 0.1, 10_000)
+		if dropped != 0 || len(fv) != 4 {
+			t.Errorf("must not drop every pool, got dropped=%d kept=%v", dropped, fv)
+		}
+	})
+}
+
+func TestQualityShortfall(t *testing.T) {
+	// Healthy sample: 5 pools, 3 venues, $1M backing, 0.1% dispersion.
+	const (
+		nPools = 5
+		nVen   = 3
+		liq    = 1_000_000.0
+		disp   = 0.001
+	)
+
+	// All bars disabled (the default) → never a shortfall, however thin the sample.
+	if r := qualityShortfall(0, 0, 0, 0, 1, 1, 0, 0.99); r != "" {
+		t.Errorf("all-disabled bars should never report a shortfall, got %q", r)
+	}
+
+	// Healthy sample passes sensible flag bars.
+	if r := qualityShortfall(2, 2, 100_000, 0.02, nPools, nVen, liq, disp); r != "" {
+		t.Errorf("healthy sample should pass, got shortfall %q", r)
+	}
+
+	cases := []struct {
+		name                        string
+		minPools, minVenues, minLiq uint64
+		maxDisp                     float64
+		nPools, nVenues             int
+		liq, disp                   float64
+		wantHit                     bool
+	}{
+		{"too few pools", 2, 0, 0, 0, 1, 1, 5_000, 0.5, true},
+		{"single venue", 0, 2, 0, 0, 3, 1, 5e6, 0.001, true},
+		{"thin liquidity", 0, 0, 25_000, 0, 4, 2, 10_000, 0.001, true},
+		{"wild dispersion", 0, 0, 0, 0.2, 4, 2, 5e6, 0.35, true},
+		{"liquidity exactly at floor passes", 0, 0, 25_000, 0, 4, 2, 25_000, 0.001, false},
+		{"dispersion exactly at bound passes", 0, 0, 0, 0.2, 4, 2, 5e6, 0.2, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := qualityShortfall(c.minPools, c.minVenues, c.minLiq, c.maxDisp, c.nPools, c.nVenues, c.liq, c.disp)
+			if (r != "") != c.wantHit {
+				t.Errorf("shortfall=%q, wantHit=%v", r, c.wantHit)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package chain
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"math/big"
 	"strings"
 	"time"
@@ -32,8 +33,8 @@ type OoORouterService struct {
 	context          context.Context
 	cfg              *config.Config
 
-	transactOpts *bind.TransactOpts
-	callOpts     *bind.CallOpts
+	baseTransactOpts *bind.TransactOpts
+	callOpts         *bind.CallOpts
 
 	logDataRequestedHash    common.Hash
 	logRequestFulfilledHash common.Hash
@@ -41,6 +42,10 @@ type OoORouterService struct {
 
 	oracleAddress    common.Address
 	oraclePrivateKey *ecdsa.PrivateKey
+
+	// useEip1559 is the effective decision (config AND chain support) on whether fulfilment
+	// and admin txs are priced as EIP-1559 dynamic-fee txs rather than legacy gas-price txs.
+	useEip1559 bool
 
 	db *database.DB
 
@@ -50,6 +55,11 @@ type OoORouterService struct {
 	chanDataRequests     chan *ooo_router.OooRouterDataRequested
 	chanRequestFulfilled chan *ooo_router.OooRouterRequestFulfilled
 
+	// jobNudge signals the service's job loop to process the pending queue immediately when a
+	// new request is detected, instead of waiting for the periodic ticker. Buffered (cap 1) +
+	// non-blocking send, so it coalesces bursts and never blocks the event watcher.
+	jobNudge chan struct{}
+
 	// historical data
 	historicalFilterOpts *bind.FilterOpts
 
@@ -57,8 +67,6 @@ type OoORouterService struct {
 
 	subscriptionDr event.Subscription
 	subscriptionRf event.Subscription
-
-	prevTxNonce uint64
 }
 
 func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Client,
@@ -81,8 +89,12 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 	oraclePublicKey := oraclePrivateKeyECDSA.Public()
 
 	ECDSAoraclePublicKey, err := crypto.UnmarshalPubkey(crypto.FromECDSAPub(oraclePublicKey.(*ecdsa.PublicKey)))
-	if err != nil || ECDSAoraclePublicKey == nil {
+	if err != nil {
 		return nil, err
+	}
+	if ECDSAoraclePublicKey == nil {
+		// Never return (nil, nil): the caller only checks err and would proceed with a nil service.
+		return nil, errors.New("could not derive the oracle public key")
 	}
 	_, oracleAddressStr := walletworker.GenerateAddress(ECDSAoraclePublicKey)
 	oracleAddress := common.HexToAddress(oracleAddressStr)
@@ -96,15 +108,9 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		return nil, err
 	}
 
-	nonce, err := client.PendingNonceAt(ctx, oracleAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	transactOpts.Nonce = big.NewInt(int64(nonce))
+	// Base template only: the per-send Nonce and GasPrice are set by buildTransactOpts
+	// (chain-anchored), so this struct is never mutated after construction.
 	transactOpts.Value = big.NewInt(0)
-
-	transactOpts.GasPrice = nil
 	transactOpts.GasLimit = cfg.Chain.GasLimit // in units
 	transactOpts.Context = ctx
 
@@ -139,6 +145,10 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 
 	historicalFilterOpts := &bind.FilterOpts{Context: ctx, Start: initialFromBlock, End: nil}
 
+	// Decide legacy vs EIP-1559 pricing once at startup: the config toggle gated by an actual
+	// base-fee probe, so a pre-London chain (or an RPC hiccup) safely falls back to legacy.
+	useEip1559 := determineEip1559(ctx, client, cfg.Chain.Eip1559)
+
 	return &OoORouterService{
 		contractAddress:         contractAddress,
 		client:                  client,
@@ -149,7 +159,8 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		logRequestFulfilledHash: logRequestFulfilledHash,
 		contractAbi:             contractAbi,
 		oracleAddress:           oracleAddress,
-		transactOpts:            transactOpts,
+		useEip1559:              useEip1559,
+		baseTransactOpts:        transactOpts,
 		callOpts:                callOpts,
 		db:                      db,
 		oooApi:                  oooApi,
@@ -157,18 +168,26 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		watchOpts:               watchOpts,
 		chanDataRequests:        chanDataRequests,
 		chanRequestFulfilled:    chanRequestFulfilled,
+		jobNudge:                make(chan struct{}, 1),
 		historicalFilterOpts:    historicalFilterOpts,
 		lastBlockNumber:         initialFromBlock,
-		prevTxNonce:             nonce,
 	}, nil
 }
 
-func (o *OoORouterService) GetPrevTxNonce() uint64 {
-	return o.prevTxNonce
+// JobNudge returns the channel the service's job loop selects on to process the pending queue
+// as soon as a new request arrives, rather than waiting for the periodic ticker.
+func (o *OoORouterService) JobNudge() <-chan struct{} {
+	return o.jobNudge
 }
 
-func (o *OoORouterService) GetNonceFromTransactOpts() uint64 {
-	return o.transactOpts.Nonce.Uint64()
+// nudgeJobQueue asks the job loop to run ProcessPendingJobQueue now. The send is non-blocking
+// onto a cap-1 buffer, so a burst of new requests coalesces into a single pending nudge (one
+// run picks up every just-inserted request) and a busy job loop never blocks the event watcher.
+func (o *OoORouterService) nudgeJobQueue() {
+	select {
+	case o.jobNudge <- struct{}{}:
+	default:
+	}
 }
 
 func (o *OoORouterService) GetProviderAddress() common.Address {
@@ -194,7 +213,12 @@ func (o *OoORouterService) setLastBlockNumber(blockNumber uint64) {
 }
 
 func (o *OoORouterService) Shutdown() {
-	currentBlockNum, err := o.client.BlockNumber(o.context)
+	// Use a fresh short-lived context: o.context is already cancelled during a
+	// graceful shutdown, so reusing it here would fail this last block-number read
+	// and lose the resume point for the next start.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	currentBlockNum, err := o.client.BlockNumber(ctx)
 
 	if err != nil {
 		logger.Error("chain", "Shutdown", "get block num", err.Error())
@@ -251,66 +275,46 @@ func (o *OoORouterService) GetHistoricalEvents() {
 
 }
 
-func (o *OoORouterService) subscribeToDataRequested(me []common.Address) {
-
-	if o.subscriptionDr != nil {
-		o.subscriptionDr.Unsubscribe()
+// subscribe (re)establishes one event subscription with retry/backoff: it unsubscribes any existing
+// subscription, retries watch until it connects, and returns the live subscription. It panics if it
+// can't connect within the backoff window - there's no point running the oracle without events. name
+// is the log tag; watch performs the specific WatchXxx call. Shared by the two event subscriptions.
+func (o *OoORouterService) subscribe(name string, existing event.Subscription, watch func() (event.Subscription, error)) event.Subscription {
+	if existing != nil {
+		existing.Unsubscribe()
 	}
 
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = 10 * time.Minute
 
 	var sub event.Subscription
-
 	retryable := func() error {
-		var subErr error
-		sub, subErr = o.contractInstance.WatchDataRequested(o.watchOpts, o.chanDataRequests, nil, me, nil)
-		return subErr
+		s, err := watch()
+		sub = s
+		return err
+	}
+	notify := func(err error, _ time.Duration) {
+		logger.Error("chain", name, "init subscription", err.Error())
 	}
 
-	notify := func(err error, t time.Duration) {
-		logger.Error("chain", "subscribeToDataRequested", "init subscription", err.Error())
-	}
-
-	err := backoff.RetryNotify(retryable, b, notify)
-
-	if err != nil {
+	if err := backoff.RetryNotify(retryable, b, notify); err != nil {
 		// no point continuing if we can't connect after retrying
 		panic(err)
 	}
 
-	o.subscriptionDr = sub
+	return sub
+}
+
+func (o *OoORouterService) subscribeToDataRequested(me []common.Address) {
+	o.subscriptionDr = o.subscribe("subscribeToDataRequested", o.subscriptionDr, func() (event.Subscription, error) {
+		return o.contractInstance.WatchDataRequested(o.watchOpts, o.chanDataRequests, nil, me, nil)
+	})
 }
 
 func (o *OoORouterService) subscribeToRequestFulfilled(me []common.Address) {
-
-	if o.subscriptionRf != nil {
-		o.subscriptionRf.Unsubscribe()
-	}
-
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = 10 * time.Minute
-
-	var sub event.Subscription
-
-	retryable := func() error {
-		var subErr error
-		sub, subErr = o.contractInstance.WatchRequestFulfilled(o.watchOpts, o.chanRequestFulfilled, nil, me, nil)
-		return subErr
-	}
-
-	notify := func(err error, t time.Duration) {
-		logger.Error("chain", "subscribeToRequestFulfilled", "init subscription", err.Error())
-	}
-
-	err := backoff.RetryNotify(retryable, b, notify)
-
-	if err != nil {
-		// no point continuing if we can't connect after retrying
-		panic(err)
-	}
-
-	o.subscriptionRf = sub
+	o.subscriptionRf = o.subscribe("subscribeToRequestFulfilled", o.subscriptionRf, func() (event.Subscription, error) {
+		return o.contractInstance.WatchRequestFulfilled(o.watchOpts, o.chanRequestFulfilled, nil, me, nil)
+	})
 }
 
 func (o *OoORouterService) RunEventWatchers() {
@@ -320,13 +324,16 @@ func (o *OoORouterService) RunEventWatchers() {
 	me = append(me, o.oracleAddress)
 
 	o.subscribeToDataRequested(me)
-	defer o.subscriptionDr.Unsubscribe()
-
 	o.subscribeToRequestFulfilled(me)
-	defer o.subscriptionRf.Unsubscribe()
 
+	// Teardown (Unsubscribe + save resume block) is owned by Shutdown(), which
+	// Stop() calls on the same cancellation — so there is a single unsubscribe
+	// path and no race here.
 	for {
 		select {
+		case <-o.context.Done():
+			logger.Info("chain", "RunEventWatchers", "", "context cancelled - stopping event watchers")
+			return
 		case ev := <-o.chanDataRequests:
 			o.processIncomingRequests(ev)
 		case ev := <-o.chanRequestFulfilled:
@@ -358,25 +365,22 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
 
-	// check status and if requests already exists
-	reqDbRes, _ := o.db.FindByRequestId(requestId)
+	// check status and if request already exists
+	reqDbRes, found, err := o.db.FindByRequestId(requestId)
+	if err != nil {
+		// A real DB error (not just not-found): don't risk a duplicate insert by treating it
+		// as new - log + skip. The block number isn't advanced, so the event is re-seen.
+		logger.ErrorWithFields("chain", "processIncomingRequests", "find request in db", err.Error(),
+			logger.Fields{"requestId": requestId})
+		return
+	}
 
-	if reqDbRes.ID == 0 {
+	if !found {
 		logger.InfoWithFields("chain", "processIncomingRequests", "add job to db", "new request", logger.Fields{
 			"requestId": requestId,
 		})
 
-		isAdHoc, err := ooo_api.IsAdhoc(endpointStr)
-
-		if err != nil {
-			// possibly not in Tx pool yet
-			logger.ErrorWithFields("chain", "processIncomingRequests", "parse and check adhoc", err.Error(),
-				logger.Fields{
-					"requestId": requestId,
-				})
-		}
-
-		_ = o.db.InsertNewRequest(
+		err = o.db.InsertNewRequest(
 			provider.Hex(),
 			consumer.Hex(),
 			requestId,
@@ -387,8 +391,16 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 			gasPrice,
 			event.Fee.Uint64(),
 			event.Raw.BlockNumber,
-			isAdHoc,
 		)
+
+		if err != nil {
+			logger.ErrorWithFields("chain", "processIncomingRequests", "insert new request", err.Error(),
+				logger.Fields{"requestId": requestId})
+		} else {
+			// Process the new request immediately rather than waiting up to a full ticker
+			// interval for the periodic sweep to pick it up.
+			o.nudgeJobQueue()
+		}
 	} else {
 		logger.InfoWithFields("chain", "processIncomingRequests", "check db for request", "request already in db",
 			logger.Fields{
@@ -411,10 +423,17 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 		})
 
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
-	// check status and if requests already exists
-	reqDbRes, _ := o.db.FindByRequestId(requestId)
+	// check status and if request already exists
+	request, found, err := o.db.FindByRequestId(requestId)
+	if err != nil {
+		// A real DB error (not just not-found): log + skip so the block isn't advanced and the
+		// confirmation is retried, rather than the fulfilment being silently lost.
+		logger.ErrorWithFields("chain", "processIncomingFulfilments", "find request in db", err.Error(),
+			logger.Fields{"request_id": requestId})
+		return
+	}
 
-	if reqDbRes.ID != 0 {
+	if found {
 		logger.InfoWithFields("chain", "processIncomingFulfilments", "confirm fulfillment",
 			"confirmed request fulfilment for request",
 			logger.Fields{
@@ -435,6 +454,14 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 					"request_id": requestId,
 				})
 		}
+
+		fulfilmentResultTotal.WithLabelValues("success").Inc()
+		if gasUsed > 0 {
+			fulfilmentGasUsed.Observe(float64(gasUsed))
+		}
+		if request.RequestBlockNumber > 0 && event.Raw.BlockNumber >= request.RequestBlockNumber {
+			fulfilmentBlocks.Observe(float64(event.Raw.BlockNumber - request.RequestBlockNumber))
+		}
 	}
 
 	o.setLastBlockNumber(event.Raw.BlockNumber)
@@ -450,7 +477,7 @@ func (o *OoORouterService) processGasUsage(evLog types.Log) (uint64, uint64) {
 		// todo - need to clean up and gather any missing data if Tx query above fails
 		gasUsed = txRec.GasUsed
 	} else {
-		logger.ErrorWithFields("chain", "processEventLog", "get TransactionReceipt", err.Error(), logger.Fields{
+		logger.ErrorWithFields("chain", "processGasUsage", "get TransactionReceipt", err.Error(), logger.Fields{
 			"tx_hash": evLog.TxHash,
 		})
 	}
@@ -460,7 +487,7 @@ func (o *OoORouterService) processGasUsage(evLog types.Log) (uint64, uint64) {
 		// todo - need to clean up and gather any missing data if Tx query above fails
 		gasPrice = tx.GasPrice().Uint64()
 	} else {
-		logger.ErrorWithFields("chain", "processEventLog", "get TransactionByHash", err.Error(), logger.Fields{
+		logger.ErrorWithFields("chain", "processGasUsage", "get TransactionByHash", err.Error(), logger.Fields{
 			"tx_hash": evLog.TxHash,
 		})
 	}

@@ -74,7 +74,12 @@ func SetCmdServerContext(cmd *cobra.Command, serverCtx *Context) error {
 
 func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) {
 	defer func() {
-		recover()
+		// The VisitAll callback panics to surface a bind error (it can't return one).
+		// Capture the recovered value into err so a bind/setup failure isn't silently
+		// swallowed into a misconfigured-but-"successful" start.
+		if r := recover(); r != nil {
+			err = fmt.Errorf("bindFlags: %v", r)
+		}
 	}()
 
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {

@@ -4,6 +4,10 @@ type AdminTask struct {
 	Task         string // register/withdraw/set_fee/set_granular_fee
 	FeeOrAmount  uint64 // new fee or amount to withdraw
 	ToOrConsumer string // address withdrawing to, or contract address for granular fee
+	// Resp is the per-request reply channel: the worker sends this task's response here,
+	// so concurrent admin requests can't read each other's replies. json:"-" keeps it out
+	// of both request decoding and response marshalling.
+	Resp chan AdminTaskResponse `json:"-"`
 }
 
 type AdminTaskResponse struct {
@@ -25,6 +29,8 @@ type AnalyticsTask struct {
 	Simulate         bool
 	SuggestFee       bool
 	SimulationParams AnalyticsSimulationParams
+	// Resp is the per-request reply channel (see AdminTask.Resp).
+	Resp chan AnalyticsTaskResponse `json:"-"`
 }
 
 type SimValues struct {

@@ -4,8 +4,8 @@
 ![sc unit tests](https://github.com/unification-com/xfund-router/actions/workflows/test-contracts.yml/badge.svg)
 [![Latest go-ooo Release](https://img.shields.io/github/v/release/unification-com/xfund-router?display_name=tag)](https://github.com/unification-com/xfund-router/releases/latest)
 
-A suite of smart contracts to enable price data from external sources (such as Finchains.io, or supported DEXs)
-to be included in your smart contracts. The suite comprises of:
+A suite of smart contracts to enable price data from supported DEXs to be included in your smart
+contracts. The suite comprises of:
 
 1) A deployed Router smart contract. This facilitates receiving and forwarding data requests,
    between Consumers and Providers, in addition to processing xFUND payments for data provision.
