@@ -19,6 +19,7 @@ import (
 	"go-ooo/utils/walletworker"
 
 	"github.com/cenkalti/backoff/v4"
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -281,24 +282,51 @@ const maxScanBatchBlocks uint64 = 2000
 // inclusive block range [from, to] via eth_getLogs over HTTP. It is the shared detection primitive for
 // the startup catch-up and the HTTP poll loop (the websocket path uses live subscriptions instead).
 // Re-processing an already-seen request is harmless - inserts dedupe on request_id.
+//
+// It filters by the Router address + the two event signatures (topic0) ONLY - NOT by the indexed
+// provider - then matches the provider in Go. Filtering on an indexed arg makes go-ethereum send a
+// positional topic filter with empty-array wildcards (e.g. [[sig],[],[provider],[]]), which some
+// limited RPCs (notably block-explorer eth-rpc proxies, e.g. Puppynet's) reject with a non-standard
+// error. A single-position topic0 filter is universally supported, and one getLogs fetches both event
+// types (mirrors the dpv fulfilment-watcher).
 func (o *OoORouterService) scanEventRange(from, to uint64) error {
-	me := []common.Address{o.oracleAddress}
-	opts := &bind.FilterOpts{Context: o.context, Start: from, End: &to}
-
-	itrDr, err := o.contractInstance.FilterDataRequested(opts, nil, me, nil)
+	logs, err := o.client.FilterLogs(o.context, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(from),
+		ToBlock:   new(big.Int).SetUint64(to),
+		Addresses: []common.Address{o.contractAddress},
+		Topics:    [][]common.Hash{{o.logDataRequestedHash, o.logRequestFulfilledHash}},
+	})
 	if err != nil {
-		return fmt.Errorf("filter DataRequested [%d,%d]: %w", from, to, err)
-	}
-	for itrDr.Next() {
-		o.processIncomingRequests(itrDr.Event)
+		return fmt.Errorf("getLogs [%d,%d]: %w", from, to, err)
 	}
 
-	itrFr, err := o.contractInstance.FilterRequestFulfilled(opts, nil, me, nil)
-	if err != nil {
-		return fmt.Errorf("filter RequestFulfilled [%d,%d]: %w", from, to, err)
-	}
-	for itrFr.Next() {
-		o.processIncomingFulfilments(itrFr.Event)
+	for i := range logs {
+		lg := logs[i]
+		if len(lg.Topics) == 0 {
+			continue
+		}
+		switch lg.Topics[0] {
+		case o.logDataRequestedHash:
+			ev, perr := o.contractInstance.ParseDataRequested(lg)
+			if perr != nil {
+				logger.ErrorWithFields("chain", "scanEventRange", "parse DataRequested", perr.Error(), logger.Fields{"tx": lg.TxHash.Hex()})
+				continue
+			}
+			if ev.Provider != o.oracleAddress {
+				continue // another provider's request - not ours to fulfil
+			}
+			o.processIncomingRequests(ev)
+		case o.logRequestFulfilledHash:
+			ev, perr := o.contractInstance.ParseRequestFulfilled(lg)
+			if perr != nil {
+				logger.ErrorWithFields("chain", "scanEventRange", "parse RequestFulfilled", perr.Error(), logger.Fields{"tx": lg.TxHash.Hex()})
+				continue
+			}
+			if ev.Provider != o.oracleAddress {
+				continue
+			}
+			o.processIncomingFulfilments(ev)
+		}
 	}
 	return nil
 }
