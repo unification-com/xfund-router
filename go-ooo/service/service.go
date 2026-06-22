@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"github.com/labstack/echo/v4"
 	"time"
 
@@ -62,25 +63,40 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 	// are available, authenticate the dex-pair-verify export pulls with the oracle wallet (the on-chain
 	// registered provider) via challenge-response instead of a shared secret. A configured static token
 	// (the Manager's default) takes precedence as the operator break-glass.
+	// The export wallet-auth is process-level (one OOOApi); the provider (one key) is registered on
+	// every chain, so any configured chain's id works for the challenge - use the first.
+	authChainId := cfg.ChainList()[0].NetworkId
 	exportCfg := cfg.Jobs.DexExport
-	if exportCfg.ApiToken == "" && exportCfg.BaseUrl != "" && len(oraclePrivateKey) > 0 && cfg.Chain.NetworkId > 0 {
+	if exportCfg.ApiToken == "" && exportCfg.BaseUrl != "" && len(oraclePrivateKey) > 0 && authChainId > 0 {
 		priv, kerr := crypto.HexToECDSA(utils.RemoveHexPrefix(string(oraclePrivateKey)))
 		if kerr != nil {
 			logger.ErrorWithFields("service", "NewService", "provider export auth", kerr.Error(), logger.Fields{})
 		} else {
 			signer := walletworker.NewEthSigner(priv)
-			oooApi.SetExportAuthenticator(export.NewWalletAuth(exportCfg.BaseUrl, cfg.Chain.NetworkId, signer, nil))
+			oooApi.SetExportAuthenticator(export.NewWalletAuth(exportCfg.BaseUrl, authChainId, signer, nil))
 			logger.InfoWithFields("service", "NewService", "", "using provider wallet-auth for the dex-pair-verify export", logger.Fields{
 				"provider": signer.Address(),
-				"chain_id": cfg.Chain.NetworkId,
+				"chain_id": authChainId,
 			})
 		}
 	}
 
 	logger.Info("service", "NewService", "", "init chain workers")
-	worker, err := buildChainWorker(ctx, cfg, oraclePrivateKey, db, oooApi)
-	if err != nil {
-		return nil, err
+	var workers []*chain.OoORouterService
+	for _, chainCfg := range cfg.ChainList() {
+		worker, werr := buildChainWorker(ctx, cfg, chainCfg, oraclePrivateKey, db, oooApi)
+		if werr != nil {
+			// Start-up failure isolation: a chain that can't be built logs + is skipped, so one bad
+			// RPC/config can't abort the whole fleet. Fatal only if NONE come up.
+			logger.ErrorWithFields("service", "NewService", "build chain worker", werr.Error(), logger.Fields{
+				"network_id": chainCfg.NetworkId,
+			})
+			continue
+		}
+		workers = append(workers, worker)
+	}
+	if len(workers) == 0 {
+		return nil, errors.New("no chain workers could be started - check the [chain]/[[chains]] RPC endpoints")
 	}
 
 	return &Service{
@@ -89,7 +105,7 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		db:  db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
 		updatePairsTicker: time.NewTicker(time.Second * time.Duration(pairsPollInterval)),
-		workers:           []*chain.OoORouterService{worker},
+		workers:           workers,
 		adminTasks:        make(chan go_ooo_types.AdminTask),
 		analyticsTasks:    make(chan go_ooo_types.AnalyticsTask),
 		echoService:       echo.New(),
@@ -98,23 +114,22 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 	}, nil
 }
 
-// buildChainWorker dials a chain and constructs the per-chain worker. One worker is built per
-// configured network; today there is a single [chain] block, so one worker. Running several networks
-// from one process loops this over the configured chains.
+// buildChainWorker dials one chain (chainCfg) and constructs its worker. NewService calls it once per
+// entry in the config's chain list, so the supervisor ends up with one independent worker per network.
 //
 // Two transports: the HTTP endpoint (required) carries every call, the getLogs event detection and the
 // tx sends; the websocket endpoint (optional) is used only for live event subscriptions. A blank or
 // unreachable websocket is NOT fatal - the worker degrades to HTTP polling, since most operators run on
 // free RPCs where WSS is flaky or absent.
-func buildChainWorker(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
-	db *database.DB, oooApi *ooo_api.OOOApi) (*chain.OoORouterService, error) {
+func buildChainWorker(ctx context.Context, cfg *config.Config, chainCfg config.ChainConfig,
+	oraclePrivateKey []byte, db *database.DB, oooApi *ooo_api.OOOApi) (*chain.OoORouterService, error) {
 
-	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
+	contractAddress := common.HexToAddress(chainCfg.ContractAddress)
 
 	logger.InfoWithFields("service", "buildChainWorker", "", "dial eth http client", logger.Fields{
-		"address": cfg.Chain.EthHttpHost,
+		"address": chainCfg.EthHttpHost,
 	})
-	httpClient, err := ethclient.Dial(cfg.Chain.EthHttpHost)
+	httpClient, err := ethclient.Dial(chainCfg.EthHttpHost)
 	if err != nil {
 		return nil, err
 	}
@@ -126,15 +141,15 @@ func buildChainWorker(ctx context.Context, cfg *config.Config, oraclePrivateKey 
 	// Optional websocket transport for live subscriptions. A failed dial degrades to polling.
 	var wsClient *ethclient.Client
 	var wsContract *ooo_router.OooRouter
-	if cfg.Chain.EthWsHost != "" {
+	if chainCfg.EthWsHost != "" {
 		logger.InfoWithFields("service", "buildChainWorker", "", "dial eth ws client", logger.Fields{
-			"address": cfg.Chain.EthWsHost,
+			"address": chainCfg.EthWsHost,
 		})
-		wsClient, err = ethclient.Dial(cfg.Chain.EthWsHost)
+		wsClient, err = ethclient.Dial(chainCfg.EthWsHost)
 		if err != nil {
 			logger.WarnWithFields("service", "buildChainWorker", "",
 				"could not connect the websocket endpoint - the worker will detect events via HTTP polling", logger.Fields{
-					"address": cfg.Chain.EthWsHost,
+					"address": chainCfg.EthWsHost,
 					"error":   err.Error(),
 				})
 			wsClient = nil
@@ -150,7 +165,7 @@ func buildChainWorker(ctx context.Context, cfg *config.Config, oraclePrivateKey 
 		logger.Info("service", "buildChainWorker", "", "no eth_ws_host configured - the worker will detect events via HTTP polling")
 	}
 
-	return chain.NewOoORouter(ctx, cfg, httpClient, httpContract, wsClient, wsContract, contractAddress, oraclePrivateKey, db, oooApi)
+	return chain.NewOoORouter(ctx, cfg, chainCfg, httpClient, httpContract, wsClient, wsContract, contractAddress, oraclePrivateKey, db, oooApi)
 }
 
 func (s *Service) Run() {

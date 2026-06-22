@@ -14,6 +14,21 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 ## Chain                                ##
 ##########################################
 
+# Single network: the [chain] block below. To run SEVERAL networks from this one process, replace
+# [chain] with a [[chains]] array-of-tables - one block per network, each with the same fields shown
+# here (contract_address, network_id, RPCs, gas, first_block, event_* ). Network ids must be distinct.
+# Example:
+#   [[chains]]
+#   network_id = 11155111
+#   contract_address = "0x..."
+#   eth_http_host = "https://..."
+#   ... (gas_limit, max_gas_price, etc.)
+#   [[chains]]
+#   network_id = 137
+#   contract_address = "0x..."
+#   ...
+# One keystore/provider key, DB and pricing engine are shared; each chain runs as an independent worker.
+
 [chain]
 # Address of the Router smart contract
 contract_address = "{{ .Chain.ContractAddress }}"

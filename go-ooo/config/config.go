@@ -135,10 +135,14 @@ type PriceQualityConfig struct {
 }
 
 type Config struct {
-	Jobs         JobsConfig         `mapstructure:"jobs"`
-	Serve        ServeConfig        `mapstructure:"serve"`
-	Keystore     KeystoreConfig     `mapstructure:"keystorage"`
+	Jobs     JobsConfig     `mapstructure:"jobs"`
+	Serve    ServeConfig    `mapstructure:"serve"`
+	Keystore KeystoreConfig `mapstructure:"keystorage"`
+	// Chain is the legacy single-network block ([chain]). Chains is the multi-network form
+	// ([[chains]]); when set it takes precedence (see ChainList). One go-ooo process runs every chain
+	// in ChainList, each as an independent worker sharing the keystore, DB and pricing engine.
 	Chain        ChainConfig        `mapstructure:"chain"`
+	Chains       []ChainConfig      `mapstructure:"chains"`
 	Database     DatabaseConfig     `mapstructure:"database"`
 	Prometheus   PrometheusConfig   `mapstructure:"prometheus"`
 	Log          LogConfig          `mapstructure:"log"`
@@ -349,28 +353,69 @@ func (c *Config) SetSqliteDb(path string) {
 	c.Database.Storage = path
 }
 
-func (c Config) ValidateBasic() error {
-
-	if c.Chain.ContractAddress == "" {
-		return errors.New("chain.contract_address not set in config.toml")
+// ChainList returns the effective set of chains to run: the multi-network [[chains]] when present,
+// otherwise the single legacy [chain] wrapped as a one-element list. Every consumer iterates this, so
+// single- and multi-network configs share one path.
+func (c Config) ChainList() []ChainConfig {
+	if len(c.Chains) > 0 {
+		return c.Chains
 	}
+	return []ChainConfig{c.Chain}
+}
 
+// BackfillNetworkId is the chain id used to stamp legacy (pre-chain_id) rows during the DB migration.
+// It is the legacy [chain].network_id, or - for a single [[chains]] entry - that chain's id. With
+// several [[chains]] it is 0 (an already-v5 DB has nothing to backfill; a populated pre-v5 DB must be
+// migrated single-chain first, or keep [chain] set to the legacy network).
+func (c Config) BackfillNetworkId() int64 {
+	if c.Chain.NetworkId != 0 {
+		return c.Chain.NetworkId
+	}
+	if len(c.Chains) == 1 {
+		return c.Chains[0].NetworkId
+	}
+	return 0
+}
+
+// validateChain checks one chain block; label scopes the error message (e.g. "chain", "chains[1]").
+func validateChain(ch ChainConfig, label string) error {
+	if ch.ContractAddress == "" {
+		return fmt.Errorf("%s.contract_address not set in config.toml", label)
+	}
 	// eth_ws_host is OPTIONAL: when blank (or the websocket later drops), the worker detects events by
 	// polling eth_getLogs over the HTTP endpoint. eth_http_host is the foundation and stays required.
-	if c.Chain.EthHttpHost == "" {
-		return errors.New("chain.eth_http_host not set in config.toml")
+	if ch.EthHttpHost == "" {
+		return fmt.Errorf("%s.eth_http_host not set in config.toml", label)
 	}
-
-	if c.Chain.NetworkId == 0 {
-		return errors.New("chain.network_id not set in config.toml")
+	if ch.NetworkId == 0 {
+		return fmt.Errorf("%s.network_id not set in config.toml", label)
 	}
-
-	if c.Chain.GasLimit == 0 {
-		return errors.New("chain.gas_limit not set in config.toml")
+	if ch.GasLimit == 0 {
+		return fmt.Errorf("%s.gas_limit not set in config.toml", label)
 	}
+	if ch.MaxGasPrice == 0 {
+		return fmt.Errorf("%s.max_gas_price not set in config.toml", label)
+	}
+	return nil
+}
 
-	if c.Chain.MaxGasPrice == 0 {
-		return errors.New("chain.max_gas_price not set in config.toml")
+func (c Config) ValidateBasic() error {
+
+	// Validate every configured chain and reject duplicate network ids (each worker is keyed by its id).
+	usingList := len(c.Chains) > 0
+	seen := map[int64]bool{}
+	for i, ch := range c.ChainList() {
+		label := "chain"
+		if usingList {
+			label = fmt.Sprintf("chains[%d]", i)
+		}
+		if err := validateChain(ch, label); err != nil {
+			return err
+		}
+		if seen[ch.NetworkId] {
+			return fmt.Errorf("duplicate network_id %d in config.toml - each chain must be distinct", ch.NetworkId)
+		}
+		seen[ch.NetworkId] = true
 	}
 
 	if c.Database.Dialect == "sqlite" {

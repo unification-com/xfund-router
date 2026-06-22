@@ -81,6 +81,83 @@ func TestEventPollIntervalRoundTrip(t *testing.T) {
 	require.EqualValues(t, DefaultEventPollIntervalSec, got.Chain.EventPollIntervalSec)
 }
 
+// ChainList returns the legacy single [chain] as a one-element list, or the [[chains]] list when set.
+func TestChainList(t *testing.T) {
+	c := DefaultConfig()
+	c.Chain.NetworkId = 1
+	require.Len(t, c.ChainList(), 1)
+	require.EqualValues(t, 1, c.ChainList()[0].NetworkId)
+
+	c.Chains = []ChainConfig{{NetworkId: 11155111}, {NetworkId: 137}}
+	require.Len(t, c.ChainList(), 2)
+	require.EqualValues(t, 11155111, c.ChainList()[0].NetworkId, "[[chains]] takes precedence over [chain]")
+}
+
+// BackfillNetworkId resolves the id used to stamp legacy rows: the legacy [chain], a single [[chains]]
+// entry, or 0 for several chains.
+func TestBackfillNetworkId(t *testing.T) {
+	c := DefaultConfig()
+	c.Chain.NetworkId = 11155111
+	require.EqualValues(t, 11155111, c.BackfillNetworkId())
+
+	c.Chain.NetworkId = 0
+	c.Chains = []ChainConfig{{NetworkId: 137}}
+	require.EqualValues(t, 137, c.BackfillNetworkId())
+
+	c.Chains = []ChainConfig{{NetworkId: 137}, {NetworkId: 1}}
+	require.EqualValues(t, 0, c.BackfillNetworkId())
+}
+
+// ValidateBasic validates every [[chains]] entry and rejects duplicate network ids.
+func TestValidateBasicMultiChain(t *testing.T) {
+	c := baseValidConfig(t) // a valid single [chain]
+	mk := func(id int64) ChainConfig { ch := c.Chain; ch.NetworkId = id; return ch }
+
+	c.Chains = []ChainConfig{mk(11155111), mk(137)}
+	require.NoError(t, c.ValidateBasic(), "two distinct valid chains should pass")
+
+	c.Chains = []ChainConfig{mk(137), mk(137)}
+	require.ErrorContains(t, c.ValidateBasic(), "duplicate network_id")
+
+	bad := mk(137)
+	bad.ContractAddress = ""
+	c.Chains = []ChainConfig{mk(11155111), bad}
+	require.ErrorContains(t, c.ValidateBasic(), "chains[1].contract_address")
+}
+
+// A [[chains]] config parses into Chains via the viper round-trip.
+func TestParseMultiChainToml(t *testing.T) {
+	toml := `
+[[chains]]
+network_id = 11155111
+contract_address = "0xaaa"
+eth_http_host = "https://sepolia"
+gas_limit = 500000
+max_gas_price = 150
+
+[[chains]]
+network_id = 137
+contract_address = "0xbbb"
+eth_http_host = "https://polygon"
+gas_limit = 500000
+max_gas_price = 200
+`
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(toml), 0o600))
+
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadInConfig())
+	got, err := ParseConfig(v)
+	require.NoError(t, err)
+	require.Len(t, got.Chains, 2)
+	require.EqualValues(t, 11155111, got.Chains[0].NetworkId)
+	require.Equal(t, "0xbbb", got.Chains[1].ContractAddress)
+	require.EqualValues(t, 200, got.Chains[1].MaxGasPrice)
+	require.Len(t, got.ChainList(), 2)
+}
+
 func TestWriteConfigDexThresholdsUnquoted(t *testing.T) {
 	def := DefaultConfig()
 	want := def.Dexs.EthUniswapV2.MinReserveUsd

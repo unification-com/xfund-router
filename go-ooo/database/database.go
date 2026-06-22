@@ -62,7 +62,7 @@ func NewSqliteDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{DB: db, networkId: cfg.Chain.NetworkId}, nil
+	return &DB{DB: db, networkId: cfg.BackfillNetworkId()}, nil
 }
 
 func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
@@ -88,7 +88,7 @@ func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{DB: db, networkId: cfg.Chain.NetworkId}, nil
+	return &DB{DB: db, networkId: cfg.BackfillNetworkId()}, nil
 }
 
 func (d *DB) Migrate() error {

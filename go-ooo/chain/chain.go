@@ -41,7 +41,10 @@ type OoORouterService struct {
 	wsClient           *ethclient.Client
 	wsContractInstance *ooo_router.OooRouter
 	context            context.Context
-	cfg                *config.Config
+	// cfg is the process config (used for the global jobs settings); chainCfg is THIS worker's chain
+	// block - gas/eip1559/first_block/RPC/poll settings - so every chain reads its own values.
+	cfg      *config.Config
+	chainCfg config.ChainConfig
 
 	// networkId is the EVM chain id this worker is bound to. With one worker per chain in a
 	// single process, it identifies the worker (logging, admin-task routing, future metrics label).
@@ -88,8 +91,8 @@ type OoORouterService struct {
 	subscriptionRf event.Subscription
 }
 
-func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Client,
-	contractInstance *ooo_router.OooRouter, wsClient *ethclient.Client,
+func NewOoORouter(ctx context.Context, cfg *config.Config, chainCfg config.ChainConfig,
+	client *ethclient.Client, contractInstance *ooo_router.OooRouter, wsClient *ethclient.Client,
 	wsContractInstance *ooo_router.OooRouter, contractAddress common.Address,
 	oraclePrivateKey []byte, db *database.DB, oooApi *ooo_api.OOOApi) (*OoORouterService, error) {
 
@@ -123,7 +126,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		"address": oracleAddressStr,
 	})
 
-	transactOpts, err := bind.NewKeyedTransactorWithChainID(oraclePrivateKeyECDSA, big.NewInt(cfg.Chain.NetworkId))
+	transactOpts, err := bind.NewKeyedTransactorWithChainID(oraclePrivateKeyECDSA, big.NewInt(chainCfg.NetworkId))
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +134,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 	// Base template only: the per-send Nonce and GasPrice are set by buildTransactOpts
 	// (chain-anchored), so this struct is never mutated after construction.
 	transactOpts.Value = big.NewInt(0)
-	transactOpts.GasLimit = cfg.Chain.GasLimit // in units
+	transactOpts.GasLimit = chainCfg.GasLimit // in units
 	transactOpts.Context = ctx
 
 	callOpts := &bind.CallOpts{From: common.HexToAddress(oracleAddressStr), Context: ctx}
@@ -139,15 +142,14 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 	// fromBlock - set first to 0
 	initialFromBlock := uint64(0)
 
-	// todo - have a cmd flag to use from block to override all
 	// check conf
-	firstBlockFromConf := cfg.Chain.FirstBlock
+	firstBlockFromConf := chainCfg.FirstBlock
 	if firstBlockFromConf > 0 {
 		initialFromBlock = firstBlockFromConf
 	}
 
 	// check DB
-	tb, err := db.GetLastBlockNumQueried(cfg.Chain.NetworkId)
+	tb, err := db.GetLastBlockNumQueried(chainCfg.NetworkId)
 	if err == nil {
 		if tb.GetBlockNum() > firstBlockFromConf {
 			initialFromBlock = tb.GetBlockNum()
@@ -167,7 +169,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 
 	// Decide legacy vs EIP-1559 pricing once at startup: the config toggle gated by an actual
 	// base-fee probe, so a pre-London chain (or an RPC hiccup) safely falls back to legacy.
-	useEip1559 := determineEip1559(ctx, client, cfg.Chain.Eip1559)
+	useEip1559 := determineEip1559(ctx, client, chainCfg.Eip1559)
 
 	return &OoORouterService{
 		contractAddress:         contractAddress,
@@ -177,7 +179,8 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		wsContractInstance:      wsContractInstance,
 		context:                 ctx,
 		cfg:                     cfg,
-		networkId:               cfg.Chain.NetworkId,
+		chainCfg:                chainCfg,
+		networkId:               chainCfg.NetworkId,
 		logDataRequestedHash:    logDataRequestedHash,
 		logRequestFulfilledHash: logRequestFulfilledHash,
 		contractAbi:             contractAbi,
@@ -286,7 +289,7 @@ const (
 
 // scanBatchBlocks is the configured eth_getLogs block-range batch size, defaulted.
 func (o *OoORouterService) scanBatchBlocks() uint64 {
-	if n := o.cfg.Chain.EventScanBatchBlocks; n > 0 {
+	if n := o.chainCfg.EventScanBatchBlocks; n > 0 {
 		return n
 	}
 	return config.DefaultEventScanBatchBlocks
@@ -570,7 +573,7 @@ func (o *OoORouterService) runPollMode() {
 
 // eventPollInterval is the HTTP event-poll cadence from chain.event_poll_interval_sec, defaulted.
 func (o *OoORouterService) eventPollInterval() time.Duration {
-	secs := o.cfg.Chain.EventPollIntervalSec
+	secs := o.chainCfg.EventPollIntervalSec
 	if secs == 0 {
 		secs = config.DefaultEventPollIntervalSec
 	}
