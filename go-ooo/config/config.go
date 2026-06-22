@@ -5,6 +5,8 @@ import (
 	"fmt"
 	oooapidextypes "go-ooo/ooo_api/dex/types"
 	"os"
+	"strconv"
+	"strings"
 )
 
 type JobsConfig struct {
@@ -52,6 +54,9 @@ const DefaultEventPollIntervalSec uint64 = 6
 const DefaultEventScanBatchBlocks uint64 = 2000
 
 type ChainConfig struct {
+	// Name is a human label for the chain (e.g. "sepolia"), used by the --chain CLI selector to pick
+	// this chain among several. Optional; the selector also accepts the network_id.
+	Name            string `mapstructure:"name"`
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
 	GasBumpPercent  uint64 `mapstructure:"gas_bump_percent"`
@@ -299,6 +304,7 @@ func (c *Config) InitForNet(network string) error {
 }
 
 func (c *Config) InitForDevNet() {
+	c.Chain.Name = "dev"
 	c.Chain.ContractAddress = "0x5b1869D9A4C187F2EAa108f3062412ecf0526b24"
 	c.Chain.EthHttpHost = "http://127.0.0.1:8545"
 	c.Chain.EthWsHost = "ws://127.0.0.1:8545"
@@ -313,6 +319,7 @@ func (c *Config) InitForDevNet() {
 }
 
 func (c *Config) InitForSepolia() {
+	c.Chain.Name = "sepolia"
 	c.Chain.ContractAddress = "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -321,6 +328,7 @@ func (c *Config) InitForSepolia() {
 }
 
 func (c *Config) InitForMainnet() {
+	c.Chain.Name = "mainnet"
 	c.Chain.ContractAddress = "0x9ac9AE20a17779c17b069b48A8788e3455fC6121"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -329,6 +337,7 @@ func (c *Config) InitForMainnet() {
 }
 
 func (c *Config) InitForPolygon() {
+	c.Chain.Name = "polygon"
 	c.Chain.ContractAddress = "0x5E9405888255C142207Ab692C72A8cd6fc85C3A2"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -337,6 +346,7 @@ func (c *Config) InitForPolygon() {
 }
 
 func (c *Config) InitForShibarium() {
+	c.Chain.Name = "shibarium"
 	c.Chain.ContractAddress = "0x2E9ade949900e19735689686E61BF6338a65B881"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -345,6 +355,7 @@ func (c *Config) InitForShibarium() {
 }
 
 func (c *Config) InitForShibariumPuppynet() {
+	c.Chain.Name = "puppynet"
 	c.Chain.ContractAddress = "0x7a99f98EfC7C1313E3a8FA4Be36aE2b100a1622F"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -383,6 +394,46 @@ func (c Config) BackfillNetworkId() int64 {
 		return c.Chains[0].NetworkId
 	}
 	return 0
+}
+
+// ResolveChain picks one chain from the configured list by the --chain selector: a name (case-
+// insensitive, matching ChainConfig.Name) or a numeric network id. An empty selector returns the sole
+// chain when only one is configured. Errors if the selector is empty with several chains, or matches
+// nothing.
+func (c Config) ResolveChain(selector string) (ChainConfig, error) {
+	chains := c.ChainList()
+	if selector == "" {
+		if len(chains) == 1 {
+			return chains[0], nil
+		}
+		return ChainConfig{}, fmt.Errorf("several chains configured - specify --chain <name|network_id> (one of: %s)", chainNames(chains))
+	}
+	if id, err := strconv.ParseInt(selector, 10, 64); err == nil {
+		for _, ch := range chains {
+			if ch.NetworkId == id {
+				return ch, nil
+			}
+		}
+	}
+	for _, ch := range chains {
+		if ch.Name != "" && strings.EqualFold(ch.Name, selector) {
+			return ch, nil
+		}
+	}
+	return ChainConfig{}, fmt.Errorf("no chain matches --chain %q (configured: %s)", selector, chainNames(chains))
+}
+
+// chainNames is a short comma list of the configured chains, for error messages and CLI help.
+func chainNames(chains []ChainConfig) string {
+	parts := make([]string, len(chains))
+	for i, ch := range chains {
+		if ch.Name != "" {
+			parts[i] = fmt.Sprintf("%s(%d)", ch.Name, ch.NetworkId)
+		} else {
+			parts[i] = strconv.FormatInt(ch.NetworkId, 10)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // validateChain checks one chain block; label scopes the error message (e.g. "chain", "chains[1]").

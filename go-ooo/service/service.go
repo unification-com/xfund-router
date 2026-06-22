@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/labstack/echo/v4"
 	"time"
 
@@ -212,18 +213,51 @@ func (s *Service) Run() {
 	}
 }
 
-// dispatchAdminTask routes an admin task to the worker for its target chain and returns at once;
-// the worker serialises it with that chain's fulfilment transactions and replies on t.Resp. With
-// a single chain configured the routing is unambiguous; selecting by the task's target network
-// when several chains run in one process arrives with the --network work (MULTI_NETWORK_CLIENT
-// Phase 3).
+// dispatchAdminTask routes an admin task to the worker for its target chain (t.Network) and returns at
+// once; the worker serialises it with that chain's fulfilment transactions and replies on t.Resp.
 func (s *Service) dispatchAdminTask(t go_ooo_types.AdminTask) {
-	if len(s.workers) == 0 {
-		t.Resp <- go_ooo_types.AdminTaskResponse{AdminTask: t, Success: false, Error: "no chain workers running"}
+	worker := s.workerForTask(t)
+	if worker == nil {
+		msg := fmt.Sprintf("no chain worker for network %d", t.Network)
+		if t.Network == 0 {
+			msg = "several chains are running - specify --chain <name|network_id>"
+		}
+		t.Resp <- go_ooo_types.AdminTaskResponse{AdminTask: t, Success: false, Error: msg}
 		return
 	}
-	worker := s.workers[0]
 	go worker.SubmitAdminTask(t)
+}
+
+// workerForTask resolves the worker for an admin task's target network, or nil if none applies (the
+// caller turns that into an "ask for --chain" error). The routing decision itself lives in the pure
+// routeWorkerIndex so it can be unit-tested without dialling a chain.
+func (s *Service) workerForTask(t go_ooo_types.AdminTask) *chain.OoORouterService {
+	ids := make([]int64, len(s.workers))
+	for i, w := range s.workers {
+		ids[i] = w.NetworkId()
+	}
+	if idx := routeWorkerIndex(ids, t.Network); idx >= 0 {
+		return s.workers[idx]
+	}
+	return nil
+}
+
+// routeWorkerIndex picks the worker (by index into networkIds) that should handle a task for the target
+// network, or -1 if none applies. Target 0 (unspecified) routes to the sole worker when exactly one
+// chain runs; with several it is ambiguous (-1). A set target matches a worker by network id.
+func routeWorkerIndex(networkIds []int64, target int64) int {
+	if target == 0 {
+		if len(networkIds) == 1 {
+			return 0
+		}
+		return -1
+	}
+	for i, id := range networkIds {
+		if id == target {
+			return i
+		}
+	}
+	return -1
 }
 
 // refreshPairs refreshes the DEX source catalogue + pair set. Shared by the initial refresh + the

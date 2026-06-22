@@ -30,6 +30,9 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # One keystore/provider key, DB and pricing engine are shared; each chain runs as an independent worker.
 
 [chain]
+# Human label for this chain, used by the --chain CLI selector (the network id also works).
+name = "{{ .Chain.Name }}"
+
 # Address of the Router smart contract
 contract_address = "{{ .Chain.ContractAddress }}"
 

@@ -162,6 +162,75 @@ max_gas_price = 200
 	require.Len(t, got.ChainList(), 2)
 }
 
+// ResolveChain maps the --chain selector to one configured chain: empty → the sole chain, a numeric
+// network id, or a case-insensitive name. It errors when the selector is empty with several chains, or
+// matches nothing.
+func TestResolveChain(t *testing.T) {
+	// Single legacy [chain]: an empty selector resolves to it.
+	single := DefaultConfig()
+	single.Chain.Name = "sepolia"
+	single.Chain.NetworkId = 11155111
+	ch, err := single.ResolveChain("")
+	require.NoError(t, err)
+	require.EqualValues(t, 11155111, ch.NetworkId)
+
+	// Several [[chains]]: resolve by name (case-insensitive) and by network id.
+	multi := DefaultConfig()
+	multi.Chain = ChainConfig{}
+	multi.Chains = []ChainConfig{
+		{Name: "sepolia", NetworkId: 11155111},
+		{Name: "polygon", NetworkId: 137},
+	}
+
+	byName, err := multi.ResolveChain("Polygon")
+	require.NoError(t, err)
+	require.EqualValues(t, 137, byName.NetworkId)
+
+	byId, err := multi.ResolveChain("11155111")
+	require.NoError(t, err)
+	require.Equal(t, "sepolia", byId.Name)
+
+	// Empty selector with several chains is ambiguous - the error lists the choices.
+	_, err = multi.ResolveChain("")
+	require.ErrorContains(t, err, "specify --chain")
+	require.ErrorContains(t, err, "sepolia(11155111)")
+
+	// An unknown selector errors and lists the configured chains.
+	_, err = multi.ResolveChain("optimism")
+	require.ErrorContains(t, err, `--chain "optimism"`)
+	require.ErrorContains(t, err, "polygon(137)")
+}
+
+// The chain name renders into the written config and survives the round-trip, so --chain works after init.
+func TestChainNameRoundTrip(t *testing.T) {
+	c := DefaultConfig()
+	c.InitForSepolia()
+	require.Equal(t, "sepolia", c.Chain.Name)
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	WriteConfigFile(path, c)
+
+	out, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(out), `name = "sepolia"`)
+
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadInConfig())
+	got, err := ParseConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, "sepolia", got.Chain.Name)
+}
+
+// chainNames renders "name(id)" for named chains and the bare id for unnamed ones.
+func TestChainNames(t *testing.T) {
+	require.Equal(t, "sepolia(11155111), 137", chainNames([]ChainConfig{
+		{Name: "sepolia", NetworkId: 11155111},
+		{NetworkId: 137},
+	}))
+}
+
 func TestWriteConfigDexThresholdsUnquoted(t *testing.T) {
 	def := DefaultConfig()
 	want := def.Dexs.EthUniswapV2.MinReserveUsd
