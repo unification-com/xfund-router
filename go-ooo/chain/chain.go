@@ -13,6 +13,7 @@ import (
 	"go-ooo/logger"
 	"go-ooo/ooo_api"
 	"go-ooo/ooo_router"
+	go_ooo_types "go-ooo/types"
 	"go-ooo/utils"
 	"go-ooo/utils/walletworker"
 
@@ -32,6 +33,10 @@ type OoORouterService struct {
 	contractInstance *ooo_router.OooRouter
 	context          context.Context
 	cfg              *config.Config
+
+	// networkId is the EVM chain id this worker is bound to. With one worker per chain in a
+	// single process, it identifies the worker (logging, admin-task routing, future metrics label).
+	networkId int64
 
 	baseTransactOpts *bind.TransactOpts
 	callOpts         *bind.CallOpts
@@ -55,10 +60,15 @@ type OoORouterService struct {
 	chanDataRequests     chan *ooo_router.OooRouterDataRequested
 	chanRequestFulfilled chan *ooo_router.OooRouterRequestFulfilled
 
-	// jobNudge signals the service's job loop to process the pending queue immediately when a
+	// jobNudge signals this worker's job loop to process the pending queue immediately when a
 	// new request is detected, instead of waiting for the periodic ticker. Buffered (cap 1) +
 	// non-blocking send, so it coalesces bursts and never blocks the event watcher.
 	jobNudge chan struct{}
+
+	// adminTasks carries admin operations (register/set_fee/withdraw/…) onto this worker's own
+	// run loop, so they are serialised with this chain's fulfilment transactions - the provider
+	// account's nonce on this chain is never raced. The supervisor routes each task here.
+	adminTasks chan go_ooo_types.AdminTask
 
 	// historical data
 	historicalFilterOpts *bind.FilterOpts
@@ -155,6 +165,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		contractInstance:        contractInstance,
 		context:                 ctx,
 		cfg:                     cfg,
+		networkId:               cfg.Chain.NetworkId,
 		logDataRequestedHash:    logDataRequestedHash,
 		logRequestFulfilledHash: logRequestFulfilledHash,
 		contractAbi:             contractAbi,
@@ -169,6 +180,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		chanDataRequests:        chanDataRequests,
 		chanRequestFulfilled:    chanRequestFulfilled,
 		jobNudge:                make(chan struct{}, 1),
+		adminTasks:              make(chan go_ooo_types.AdminTask),
 		historicalFilterOpts:    historicalFilterOpts,
 		lastBlockNumber:         initialFromBlock,
 	}, nil

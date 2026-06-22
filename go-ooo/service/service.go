@@ -21,16 +21,17 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+// Service is the process-level supervisor. It owns the shared spine - the database, the DEX
+// pricing engine (origin-chain-agnostic), the HTTP/admin + Prometheus servers and the pair
+// catalogue refresh - and supervises one chain worker per configured network. Each worker runs
+// its own event watchers and serialises its own chain's transactions; the supervisor wires them
+// together and routes admin tasks to the right one.
 type Service struct {
-	contractAddress   common.Address
-	client            *ethclient.Client
-	contractInstance  *ooo_router.OooRouter
 	db                *database.DB
 	ctx               context.Context
 	cfg               *config.Config
-	jobTicker         *time.Ticker // periodic jobTicker
 	updatePairsTicker *time.Ticker
-	oooRouterService  *chain.OoORouterService
+	workers           []*chain.OoORouterService
 
 	echoService *echo.Echo
 	oooApi      *ooo_api.OOOApi
@@ -46,46 +47,13 @@ type Service struct {
 func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
 	db *database.DB, adminTokenHash string) (*Service, error) {
 
-	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
-	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
-		"address": cfg.Chain.EthWsHost,
-	})
-	client, err := ethclient.Dial(cfg.Chain.EthWsHost)
-
-	if err != nil {
-		return nil, err
-	}
-
-	var pollInterval = time.Duration(30)
-	checkDuration := cfg.Jobs.CheckDuration
-	if checkDuration != 0 {
-		pollInterval = time.Duration(checkDuration)
-	}
-
 	// How often to refresh the DEX source catalogue + pairs from the dex-pair-verify export.
 	pairsPollInterval := cfg.Jobs.DexExport.PollIntervalSec
 	if pairsPollInterval == 0 {
 		pairsPollInterval = 3600
 	}
 
-	logger.Debug("service", "NewService", "", "poll service", logger.Fields{
-		"poll_interval": time.Second * pollInterval,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	logger.InfoWithFields("service", "NewService", "", "create ooo router instance", logger.Fields{
-		"contract": contractAddress,
-	})
-	oooRouterInstance, err := ooo_router.NewOooRouter(contractAddress, client)
-	if err != nil {
-		return nil, err
-	}
-
 	oooApi, err := ooo_api.NewApi(ctx, cfg, db)
-
 	if err != nil {
 		return nil, err
 	}
@@ -109,30 +77,51 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 		}
 	}
 
-	logger.Info("service", "NewService", "", "init ooo router service")
-	oooRouterService, err := chain.NewOoORouter(ctx, cfg, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
-
+	logger.Info("service", "NewService", "", "init chain workers")
+	worker, err := buildChainWorker(ctx, cfg, oraclePrivateKey, db, oooApi)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Service{
-		ctx:              ctx,
-		cfg:              cfg,
-		client:           client,
-		contractAddress:  contractAddress,
-		contractInstance: oooRouterInstance,
-		db:               db,
+		ctx: ctx,
+		cfg: cfg,
+		db:  db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
-		jobTicker:         time.NewTicker(time.Second * pollInterval),
 		updatePairsTicker: time.NewTicker(time.Second * time.Duration(pairsPollInterval)),
-		oooRouterService:  oooRouterService,
+		workers:           []*chain.OoORouterService{worker},
 		adminTasks:        make(chan go_ooo_types.AdminTask),
 		analyticsTasks:    make(chan go_ooo_types.AnalyticsTask),
 		echoService:       echo.New(),
 		oooApi:            oooApi,
 		adminTokenHash:    adminTokenHash,
 	}, nil
+}
+
+// buildChainWorker dials a chain, binds the Router contract and constructs the per-chain worker.
+// One worker is built per configured network; today there is a single [chain] block, so one
+// worker. Running several networks from one process loops this over the configured chains.
+func buildChainWorker(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
+	db *database.DB, oooApi *ooo_api.OOOApi) (*chain.OoORouterService, error) {
+
+	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
+	logger.InfoWithFields("service", "buildChainWorker", "", "dial eth client", logger.Fields{
+		"address": cfg.Chain.EthWsHost,
+	})
+	client, err := ethclient.Dial(cfg.Chain.EthWsHost)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.InfoWithFields("service", "buildChainWorker", "", "create ooo router instance", logger.Fields{
+		"contract": contractAddress,
+	})
+	oooRouterInstance, err := ooo_router.NewOooRouter(contractAddress, client)
+	if err != nil {
+		return nil, err
+	}
+
+	return chain.NewOoORouter(ctx, cfg, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
 }
 
 func (s *Service) Run() {
@@ -149,24 +138,16 @@ func (s *Service) Run() {
 		s.initPrometheus()
 	}(s)
 
-	// refresh the DEX pair catalogue - initial refresh at startup
+	// refresh the DEX pair catalogue - initial refresh at startup. The catalogue is shared across
+	// all chains (pricing is origin-chain-agnostic), so one refresh serves every worker.
 	go s.refreshPairs()
 
-	// pick up from the last block we know about to process
-	// any historical events missed. This will run and complete
-	// before the event subscriptions initialise in order to
-	// process any potentially missed and/or processed requests
-	s.oooRouterService.GetHistoricalEvents()
-
-	go func(s *Service) {
-		s.oooRouterService.RunEventWatchers()
-	}(s)
-
-	// The event watcher signals this channel when it detects a new request, so we process it
-	// immediately instead of waiting for the next jobTicker tick. A nudge buffered during the
-	// historical-event catch-up above is drained on the first iteration, so startup backlog is
-	// processed at once too.
-	jobNudge := s.oooRouterService.JobNudge()
+	// Start each chain's worker on its own goroutine. Each replays missed events, runs its event
+	// watchers and serialises its own fulfilment + admin transactions; the chains run concurrently
+	// (independent nonce spaces + RPC clients), so none blocks another.
+	for _, w := range s.workers {
+		go w.Run()
+	}
 
 	for {
 		select {
@@ -174,20 +155,31 @@ func (s *Service) Run() {
 			logger.Info("service", "Run", "", "context cancelled - shutting down")
 			s.Stop()
 			return
-		case <-s.jobTicker.C:
-			s.oooRouterService.ProcessPendingJobQueue("ticker")
-		case <-jobNudge:
-			s.oooRouterService.ProcessPendingJobQueue("event")
 		case <-s.updatePairsTicker.C:
 			go s.refreshPairs()
 		case t := <-s.analyticsTasks:
 			t.Resp <- s.ProcessAnalyticsTask(t)
 		case t := <-s.adminTasks:
-			// At any time we can process a request to add a new admin task
-			// such as changing fees etc.
-			t.Resp <- s.oooRouterService.ProcessAdminTask(t)
+			// At any time we can process a request to add a new admin task such as changing fees.
+			// It is routed to the worker for its target chain, which serialises the send with that
+			// chain's fulfilments and replies on t.Resp.
+			s.dispatchAdminTask(t)
 		}
 	}
+}
+
+// dispatchAdminTask routes an admin task to the worker for its target chain and returns at once;
+// the worker serialises it with that chain's fulfilment transactions and replies on t.Resp. With
+// a single chain configured the routing is unambiguous; selecting by the task's target network
+// when several chains run in one process arrives with the --network work (MULTI_NETWORK_CLIENT
+// Phase 3).
+func (s *Service) dispatchAdminTask(t go_ooo_types.AdminTask) {
+	if len(s.workers) == 0 {
+		t.Resp <- go_ooo_types.AdminTaskResponse{AdminTask: t, Success: false, Error: "no chain workers running"}
+		return
+	}
+	worker := s.workers[0]
+	go worker.SubmitAdminTask(t)
 }
 
 // refreshPairs refreshes the DEX source catalogue + pair set. Shared by the initial refresh + the
@@ -198,14 +190,17 @@ func (s *Service) refreshPairs() {
 
 func (s *Service) Stop() {
 	// clean up and shut down
-	logger.Info("service", "Stop", "", "shutting down jobTicker")
-	s.jobTicker.Stop()
-
 	logger.Info("service", "Stop", "", "shutting down updatePairsTicker")
 	s.updatePairsTicker.Stop()
 
-	logger.Info("service", "Stop", "", "shutting down oooRouterService")
-	s.oooRouterService.Shutdown()
+	// Each worker's own job loop stops itself on the shared context cancellation; Shutdown
+	// unsubscribes its event watchers and saves its resume block.
+	for _, w := range s.workers {
+		logger.InfoWithFields("service", "Stop", "", "shutting down chain worker", logger.Fields{
+			"network_id": w.NetworkId(),
+		})
+		w.Shutdown()
+	}
 
 	logger.Info("service", "Stop", "", "shutting down echo")
 	// s.ctx is already cancelled here, so use a fresh bounded context to let echo
