@@ -41,6 +41,11 @@ type KeystoreConfig struct {
 // wait_confirmations and the job sweep before going out.
 const DefaultEventPollIntervalSec uint64 = 6
 
+// DefaultEventScanBatchBlocks is the eth_getLogs block-range batch size used when
+// event_scan_batch_blocks is unset. A wide range can be rejected (or throttled) by limited RPCs, so
+// the catch-up is split into batches of at most this many blocks.
+const DefaultEventScanBatchBlocks uint64 = 2000
+
 type ChainConfig struct {
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
@@ -54,6 +59,9 @@ type ChainConfig struct {
 	// EventPollIntervalSec is how often (seconds) the worker scans eth_getLogs for events when it is
 	// running in HTTP-poll mode (no eth_ws_host, or the websocket dropped). 0 → DefaultEventPollIntervalSec.
 	EventPollIntervalSec uint64 `mapstructure:"event_poll_interval_sec"`
+	// EventScanBatchBlocks caps the eth_getLogs block range per request. Lower it for RPCs that reject
+	// or throttle wide ranges (e.g. block-explorer eth-rpc proxies). 0 → DefaultEventScanBatchBlocks.
+	EventScanBatchBlocks uint64 `mapstructure:"event_scan_batch_blocks"`
 }
 
 type DatabaseConfig struct {
@@ -174,6 +182,7 @@ func DefaultConfig() *Config {
 			NetworkId:            0,
 			FirstBlock:           0,
 			EventPollIntervalSec: DefaultEventPollIntervalSec,
+			EventScanBatchBlocks: DefaultEventScanBatchBlocks,
 		},
 		Database: DatabaseConfig{
 			Dialect:  "sqlite",

@@ -26,6 +26,7 @@ Examples:
   go-ooo start
   go-ooo start --home=/home/user/some-other-go-ooo
   go-ooo start --home=/home/user/some-other-go-ooo --pass=/path/to/pass.txt
+  go-ooo start --first-block=15114000
 `,
 	PreRunE: func(cmd *cobra.Command, _ []string) error {
 		serverCtx := server.GetServerContextFromCmd(cmd)
@@ -37,7 +38,7 @@ Examples:
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		serverCtx := server.GetServerContextFromCmd(cmd)
-		server, err := server.NewServer(serverCtx, keystorePass)
+		server, err := server.NewServer(serverCtx, keystorePass, startFirstBlock)
 		if err != nil {
 			panic(err)
 		}
@@ -47,7 +48,13 @@ Examples:
 	},
 }
 
+var startFirstBlock uint64
+
 func init() {
 	startCmd.PersistentFlags().StringVar(&keystorePass, "pass", "", "keystore password or password file location")
+	// One-shot resume-point override: advance the event-scan cursor to this block before starting, to
+	// skip a stale gap (e.g. when far behind on a rate-limited RPC). Advance-only; persisted, so drop
+	// the flag on the next start. 0 = use the saved cursor / first_block as normal.
+	startCmd.PersistentFlags().Uint64Var(&startFirstBlock, "first-block", 0, "advance the event-scan cursor to this block before starting (skip a stale gap)")
 	rootCmd.AddCommand(startCmd)
 }

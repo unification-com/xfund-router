@@ -16,25 +16,27 @@ import (
 )
 
 type Server struct {
-	srv         *service.Service
-	ctx         context.Context
-	cancel      context.CancelFunc
-	srvCtx      *Context
-	Vers        version.Info
-	privateKey  string
-	db          *database.DB
-	decryptPass string
+	srv             *service.Service
+	ctx             context.Context
+	cancel          context.CancelFunc
+	srvCtx          *Context
+	Vers            version.Info
+	privateKey      string
+	db              *database.DB
+	decryptPass     string
+	forceFirstBlock uint64
 }
 
-func NewServer(srcCtx *Context, decryptPass string) (*Server, error) {
+func NewServer(srcCtx *Context, decryptPass string, forceFirstBlock uint64) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
-		ctx:         ctx,
-		cancel:      cancel,
-		srvCtx:      srcCtx,
-		Vers:        version.NewInfo(),
-		decryptPass: decryptPass,
+		ctx:             ctx,
+		cancel:          cancel,
+		srvCtx:          srcCtx,
+		Vers:            version.NewInfo(),
+		decryptPass:     decryptPass,
+		forceFirstBlock: forceFirstBlock,
 	}, nil
 }
 
@@ -50,9 +52,26 @@ func (s *Server) Run() {
 
 func (s *Server) initServer() {
 	s.initDatabase()
+	s.applyForceFirstBlock()
 	s.initKeystore()
 	s.initService()
 	s.initSignal()
+}
+
+// applyForceFirstBlock advances the event-scan resume cursor to the --first-block value before the
+// service reads it, so the worker starts polling from there instead of grinding a stale gap. It is
+// advance-only (InsertNewToBlock ignores a lower value) and persisted, so the override survives the
+// next restart - drop the flag once it has taken effect.
+func (s *Server) applyForceFirstBlock() {
+	if s.forceFirstBlock == 0 {
+		return
+	}
+	if err := s.db.InsertNewToBlock(s.forceFirstBlock); err != nil {
+		panic(fmt.Errorf("could not apply --first-block %d: %w", s.forceFirstBlock, err))
+	}
+	logger.InfoWithFields("app", "applyForceFirstBlock", "",
+		"advanced the event-scan cursor (--first-block) - the saved gap below this block is skipped",
+		logger.Fields{"first_block": s.forceFirstBlock})
 }
 
 func (s *Server) initSignal() {

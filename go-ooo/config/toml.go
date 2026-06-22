@@ -34,6 +34,10 @@ eth_ws_host = "{{ .Chain.EthWsHost }}"
 # wait_confirmations and the job sweep before it goes out anyway.
 event_poll_interval_sec = {{ .Chain.EventPollIntervalSec }}
 
+# Max block range per eth_getLogs request when scanning for events. Default 2000. Lower it for RPCs
+# that reject or throttle wide ranges (e.g. block-explorer eth-rpc proxies).
+event_scan_batch_blocks = {{ .Chain.EventScanBatchBlocks }}
+
 # First block to start checking for jobs.
 # Generally, the block you registered as a provider.
 # Defaults to the block the Router contract was deployed

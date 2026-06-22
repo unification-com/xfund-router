@@ -274,9 +274,23 @@ func (o *OoORouterService) GetHistoricalEvents() {
 	o.drainFrom(o.lastBlockNumber)
 }
 
-// maxScanBatchBlocks bounds a single eth_getLogs range. Free RPCs throttle (or reject) wide ranges, so
-// a catch-up over many blocks is split into batches of at most this many.
-const maxScanBatchBlocks uint64 = 2000
+const (
+	// maxScanRetries is how many times a single getLogs batch is retried (exponential backoff) before
+	// the catch-up pass gives up for this tick. Lets a transient RPC throttle clear without dropping
+	// the whole pass; the next poll tick retries from the same cursor regardless.
+	maxScanRetries uint64 = 3
+	// scanBatchPause spaces consecutive getLogs batches during a multi-batch catch-up, so a wide
+	// catch-up doesn't storm a rate-limited RPC. Single-batch steady-state polling never hits it.
+	scanBatchPause = 250 * time.Millisecond
+)
+
+// scanBatchBlocks is the configured eth_getLogs block-range batch size, defaulted.
+func (o *OoORouterService) scanBatchBlocks() uint64 {
+	if n := o.cfg.Chain.EventScanBatchBlocks; n > 0 {
+		return n
+	}
+	return config.DefaultEventScanBatchBlocks
+}
 
 // scanEventRange fetches and processes this provider's DataRequested + RequestFulfilled events in the
 // inclusive block range [from, to] via eth_getLogs over HTTP. It is the shared detection primitive for
@@ -342,12 +356,15 @@ func (o *OoORouterService) drainFrom(start uint64) {
 		logger.Error("chain", "drainFrom", "get block number", err.Error())
 		return
 	}
+	batch := o.scanBatchBlocks()
 	for from := start; from <= head; {
-		to := from + maxScanBatchBlocks - 1
+		to := from + batch - 1
 		if to > head {
 			to = head
 		}
-		if err := o.scanEventRange(from, to); err != nil {
+		if err := o.scanRangeWithRetry(from, to); err != nil {
+			// Still failing after retries: stop this pass without advancing the cursor, so the next
+			// poll tick resumes from here. Avoids skipping events on a persistent RPC error.
 			logger.ErrorWithFields("chain", "drainFrom", "scan event range", err.Error(), logger.Fields{
 				"from": from, "to": to,
 			})
@@ -355,6 +372,39 @@ func (o *OoORouterService) drainFrom(start uint64) {
 		}
 		o.setLastBlockNumber(to)
 		from = to + 1
+		// Pace a multi-batch catch-up so a rate-limited RPC isn't stormed; interruptible by shutdown.
+		if from <= head && !o.sleepCtx(scanBatchPause) {
+			return
+		}
+	}
+}
+
+// scanRangeWithRetry runs scanEventRange with bounded exponential backoff, so a transient RPC error
+// (a rate-limit throttle, a blip) retries within the tick instead of dropping the whole catch-up.
+func (o *OoORouterService) scanRangeWithRetry(from, to uint64) error {
+	b := backoff.WithContext(backoff.WithMaxRetries(backoff.NewExponentialBackOff(), maxScanRetries), o.context)
+	attempt := 0
+	return backoff.RetryNotify(
+		func() error { return o.scanEventRange(from, to) },
+		b,
+		func(err error, d time.Duration) {
+			attempt++
+			logger.WarnWithFields("chain", "scanRangeWithRetry", "getLogs error - retrying", err.Error(), logger.Fields{
+				"from": from, "to": to, "attempt": attempt, "backoff": d.String(),
+			})
+		},
+	)
+}
+
+// sleepCtx waits for d, returning false if the context is cancelled first.
+func (o *OoORouterService) sleepCtx(d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-o.context.Done():
+		return false
 	}
 }
 
