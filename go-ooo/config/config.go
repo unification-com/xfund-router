@@ -219,7 +219,7 @@ func DefaultConfig() *Config {
 			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
 			XdaiHttpRpc:      "https://rpc.gnosischain.com",
 			FantomHttpRpc:    "https://finchains.io/api",
-			ShibariumHttpRpc: "https://rpc.shibrpc.com",
+			ShibariumHttpRpc: "https://shibariumscan.io/api/eth-rpc",
 		},
 		ApiKeys: ApiKeysConfig{
 			GraphNetwork: "",
