@@ -36,6 +36,11 @@ type KeystoreConfig struct {
 	Account string `mapstructure:"account"`
 }
 
+// DefaultEventPollIntervalSec is the HTTP event-poll cadence used when event_poll_interval_sec is
+// unset. A few seconds' detection latency is immaterial - a fulfilment already waits for
+// wait_confirmations and the job sweep before going out.
+const DefaultEventPollIntervalSec uint64 = 6
+
 type ChainConfig struct {
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
@@ -46,6 +51,9 @@ type ChainConfig struct {
 	EthWsHost       string `mapstructure:"eth_ws_host"`
 	NetworkId       int64  `mapstructure:"network_id"`
 	FirstBlock      uint64 `mapstructure:"first_block"`
+	// EventPollIntervalSec is how often (seconds) the worker scans eth_getLogs for events when it is
+	// running in HTTP-poll mode (no eth_ws_host, or the websocket dropped). 0 → DefaultEventPollIntervalSec.
+	EventPollIntervalSec uint64 `mapstructure:"event_poll_interval_sec"`
 }
 
 type DatabaseConfig struct {
@@ -159,12 +167,13 @@ func DefaultConfig() *Config {
 			GasBumpPercent: 13,
 			// Modern default: send EIP-1559 dynamic-fee txs. Auto-falls-back to legacy on a
 			// pre-London chain (one with no base fee), so this is safe even on a migrated config.
-			Eip1559:         true,
-			ContractAddress: "",
-			EthHttpHost:     "",
-			EthWsHost:       "",
-			NetworkId:       0,
-			FirstBlock:      0,
+			Eip1559:              true,
+			ContractAddress:      "",
+			EthHttpHost:          "",
+			EthWsHost:            "",
+			NetworkId:            0,
+			FirstBlock:           0,
+			EventPollIntervalSec: DefaultEventPollIntervalSec,
 		},
 		Database: DatabaseConfig{
 			Dialect:  "sqlite",
@@ -337,10 +346,8 @@ func (c Config) ValidateBasic() error {
 		return errors.New("chain.contract_address not set in config.toml")
 	}
 
-	if c.Chain.EthWsHost == "" {
-		return errors.New("chain.eth_ws_host not set in config.toml")
-	}
-
+	// eth_ws_host is OPTIONAL: when blank (or the websocket later drops), the worker detects events by
+	// polling eth_getLogs over the HTTP endpoint. eth_http_host is the foundation and stays required.
 	if c.Chain.EthHttpHost == "" {
 		return errors.New("chain.eth_http_host not set in config.toml")
 	}

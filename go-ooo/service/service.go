@@ -98,30 +98,59 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 	}, nil
 }
 
-// buildChainWorker dials a chain, binds the Router contract and constructs the per-chain worker.
-// One worker is built per configured network; today there is a single [chain] block, so one
-// worker. Running several networks from one process loops this over the configured chains.
+// buildChainWorker dials a chain and constructs the per-chain worker. One worker is built per
+// configured network; today there is a single [chain] block, so one worker. Running several networks
+// from one process loops this over the configured chains.
+//
+// Two transports: the HTTP endpoint (required) carries every call, the getLogs event detection and the
+// tx sends; the websocket endpoint (optional) is used only for live event subscriptions. A blank or
+// unreachable websocket is NOT fatal - the worker degrades to HTTP polling, since most operators run on
+// free RPCs where WSS is flaky or absent.
 func buildChainWorker(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
 	db *database.DB, oooApi *ooo_api.OOOApi) (*chain.OoORouterService, error) {
 
 	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
-	logger.InfoWithFields("service", "buildChainWorker", "", "dial eth client", logger.Fields{
-		"address": cfg.Chain.EthWsHost,
+
+	logger.InfoWithFields("service", "buildChainWorker", "", "dial eth http client", logger.Fields{
+		"address": cfg.Chain.EthHttpHost,
 	})
-	client, err := ethclient.Dial(cfg.Chain.EthWsHost)
+	httpClient, err := ethclient.Dial(cfg.Chain.EthHttpHost)
+	if err != nil {
+		return nil, err
+	}
+	httpContract, err := ooo_router.NewOooRouter(contractAddress, httpClient)
 	if err != nil {
 		return nil, err
 	}
 
-	logger.InfoWithFields("service", "buildChainWorker", "", "create ooo router instance", logger.Fields{
-		"contract": contractAddress,
-	})
-	oooRouterInstance, err := ooo_router.NewOooRouter(contractAddress, client)
-	if err != nil {
-		return nil, err
+	// Optional websocket transport for live subscriptions. A failed dial degrades to polling.
+	var wsClient *ethclient.Client
+	var wsContract *ooo_router.OooRouter
+	if cfg.Chain.EthWsHost != "" {
+		logger.InfoWithFields("service", "buildChainWorker", "", "dial eth ws client", logger.Fields{
+			"address": cfg.Chain.EthWsHost,
+		})
+		wsClient, err = ethclient.Dial(cfg.Chain.EthWsHost)
+		if err != nil {
+			logger.WarnWithFields("service", "buildChainWorker", "",
+				"could not connect the websocket endpoint - the worker will detect events via HTTP polling", logger.Fields{
+					"address": cfg.Chain.EthWsHost,
+					"error":   err.Error(),
+				})
+			wsClient = nil
+		} else if wsContract, err = ooo_router.NewOooRouter(contractAddress, wsClient); err != nil {
+			logger.WarnWithFields("service", "buildChainWorker", "",
+				"could not bind the router on the websocket client - the worker will detect events via HTTP polling", logger.Fields{
+					"error": err.Error(),
+				})
+			wsClient = nil
+			wsContract = nil
+		}
+	} else {
+		logger.Info("service", "buildChainWorker", "", "no eth_ws_host configured - the worker will detect events via HTTP polling")
 	}
 
-	return chain.NewOoORouter(ctx, cfg, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
+	return chain.NewOoORouter(ctx, cfg, httpClient, httpContract, wsClient, wsContract, contractAddress, oraclePrivateKey, db, oooApi)
 }
 
 func (s *Service) Run() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"time"
@@ -28,11 +29,18 @@ import (
 )
 
 type OoORouterService struct {
-	contractAddress  common.Address
+	contractAddress common.Address
+	// client + contractInstance are the HTTP transport: every call (nonce, receipts, gas, getLogs),
+	// the poll-mode event detection and the fulfilment/admin tx sends go over HTTP.
 	client           *ethclient.Client
 	contractInstance *ooo_router.OooRouter
-	context          context.Context
-	cfg              *config.Config
+	// wsClient + wsContractInstance are the OPTIONAL websocket transport, used only for live event
+	// subscriptions. Both are nil when no eth_ws_host is configured (or it couldn't be dialled), in
+	// which case the worker detects events by polling getLogs over HTTP instead.
+	wsClient           *ethclient.Client
+	wsContractInstance *ooo_router.OooRouter
+	context            context.Context
+	cfg                *config.Config
 
 	// networkId is the EVM chain id this worker is bound to. With one worker per chain in a
 	// single process, it identifies the worker (logging, admin-task routing, future metrics label).
@@ -80,7 +88,8 @@ type OoORouterService struct {
 }
 
 func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Client,
-	contractInstance *ooo_router.OooRouter, contractAddress common.Address,
+	contractInstance *ooo_router.OooRouter, wsClient *ethclient.Client,
+	wsContractInstance *ooo_router.OooRouter, contractAddress common.Address,
 	oraclePrivateKey []byte, db *database.DB, oooApi *ooo_api.OOOApi) (*OoORouterService, error) {
 
 	logDataRequestedHash := crypto.Keccak256Hash([]byte("DataRequested(address,address,uint256,bytes32,bytes32)"))
@@ -163,6 +172,8 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 		contractAddress:         contractAddress,
 		client:                  client,
 		contractInstance:        contractInstance,
+		wsClient:                wsClient,
+		wsContractInstance:      wsContractInstance,
 		context:                 ctx,
 		cfg:                     cfg,
 		networkId:               cfg.Chain.NetworkId,
@@ -252,52 +263,86 @@ func (o *OoORouterService) Shutdown() {
 	}
 }
 
+// GetHistoricalEvents replays this provider's DataRequested + RequestFulfilled events emitted while the
+// oracle was offline, from the resume cursor up to the current head. It runs once at startup, before
+// live detection begins, so a request raised (and maybe fulfilled) during downtime is reconciled first.
+// The scan is batched (see drainFrom), so a wide gap after a long outage never asks the RPC for an
+// unbounded getLogs range.
 func (o *OoORouterService) GetHistoricalEvents() {
-
 	logger.Info("chain", "GetHistoricalEvents", "", "get event history")
+	o.drainFrom(o.lastBlockNumber)
+}
 
-	me := make([]common.Address, 0, 1)
-	me = append(me, o.oracleAddress)
+// maxScanBatchBlocks bounds a single eth_getLogs range. Free RPCs throttle (or reject) wide ranges, so
+// a catch-up over many blocks is split into batches of at most this many.
+const maxScanBatchBlocks uint64 = 2000
 
-	itrDr, err := o.contractInstance.FilterDataRequested(o.historicalFilterOpts, nil, me, nil)
+// scanEventRange fetches and processes this provider's DataRequested + RequestFulfilled events in the
+// inclusive block range [from, to] via eth_getLogs over HTTP. It is the shared detection primitive for
+// the startup catch-up and the HTTP poll loop (the websocket path uses live subscriptions instead).
+// Re-processing an already-seen request is harmless - inserts dedupe on request_id.
+func (o *OoORouterService) scanEventRange(from, to uint64) error {
+	me := []common.Address{o.oracleAddress}
+	opts := &bind.FilterOpts{Context: o.context, Start: from, End: &to}
 
+	itrDr, err := o.contractInstance.FilterDataRequested(opts, nil, me, nil)
 	if err != nil {
-		logger.Error("chain", "GetHistoricalEvents", "get FilterDataRequested events", err.Error())
-
-		return
+		return fmt.Errorf("filter DataRequested [%d,%d]: %w", from, to, err)
 	}
-
 	for itrDr.Next() {
-		ev := itrDr.Event
-		o.processIncomingRequests(ev)
+		o.processIncomingRequests(itrDr.Event)
 	}
 
-	itrFr, err := o.contractInstance.FilterRequestFulfilled(o.historicalFilterOpts, nil, me, nil)
-
+	itrFr, err := o.contractInstance.FilterRequestFulfilled(opts, nil, me, nil)
 	if err != nil {
-		logger.Error("chain", "GetHistoricalEvents", "get FilterRequestFulfilled events", err.Error())
+		return fmt.Errorf("filter RequestFulfilled [%d,%d]: %w", from, to, err)
+	}
+	for itrFr.Next() {
+		o.processIncomingFulfilments(itrFr.Event)
+	}
+	return nil
+}
 
+// drainFrom scans every block from start up to the current head, in bounded batches, advancing the
+// resume cursor per batch (so progress survives a mid-scan RPC error - the next call retries from the
+// cursor). Shared by the startup catch-up (start = cursor, inclusive) and each poll tick (start =
+// cursor + 1, strictly-new blocks - so a confirmed fulfilment, whose re-processing would re-count
+// success metrics, is never re-scanned).
+func (o *OoORouterService) drainFrom(start uint64) {
+	head, err := o.client.BlockNumber(o.context)
+	if err != nil {
+		logger.Error("chain", "drainFrom", "get block number", err.Error())
 		return
 	}
-
-	for itrFr.Next() {
-		ev := itrFr.Event
-		o.processIncomingFulfilments(ev)
+	for from := start; from <= head; {
+		to := from + maxScanBatchBlocks - 1
+		if to > head {
+			to = head
+		}
+		if err := o.scanEventRange(from, to); err != nil {
+			logger.ErrorWithFields("chain", "drainFrom", "scan event range", err.Error(), logger.Fields{
+				"from": from, "to": to,
+			})
+			return
+		}
+		o.setLastBlockNumber(to)
+		from = to + 1
 	}
-
 }
 
 // subscribe (re)establishes one event subscription with retry/backoff: it unsubscribes any existing
-// subscription, retries watch until it connects, and returns the live subscription. It panics if it
-// can't connect within the backoff window - there's no point running the oracle without events. name
-// is the log tag; watch performs the specific WatchXxx call. Shared by the two event subscriptions.
-func (o *OoORouterService) subscribe(name string, existing event.Subscription, watch func() (event.Subscription, error)) event.Subscription {
+// subscription and retries watch until it connects. Unlike a hard dependency it RETURNS an error if it
+// still can't connect within the backoff window, so the caller can fall back to HTTP polling rather
+// than taking the oracle down. name is the log tag; watch performs the specific WatchXxx call.
+func (o *OoORouterService) subscribe(name string, existing event.Subscription, watch func() (event.Subscription, error)) (event.Subscription, error) {
 	if existing != nil {
 		existing.Unsubscribe()
 	}
 
 	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = 10 * time.Minute
+	// Keep this short: HTTP polling is a ready fallback, so it is better to degrade to polling quickly
+	// than to spend many minutes retrying a websocket a free RPC may simply not offer.
+	b.MaxElapsedTime = 2 * time.Minute
 
 	var sub event.Subscription
 	retryable := func() error {
@@ -310,59 +355,148 @@ func (o *OoORouterService) subscribe(name string, existing event.Subscription, w
 	}
 
 	if err := backoff.RetryNotify(retryable, b, notify); err != nil {
-		// no point continuing if we can't connect after retrying
-		panic(err)
+		return nil, err
 	}
 
-	return sub
+	return sub, nil
 }
 
-func (o *OoORouterService) subscribeToDataRequested(me []common.Address) {
-	o.subscriptionDr = o.subscribe("subscribeToDataRequested", o.subscriptionDr, func() (event.Subscription, error) {
-		return o.contractInstance.WatchDataRequested(o.watchOpts, o.chanDataRequests, nil, me, nil)
+func (o *OoORouterService) subscribeToDataRequested(me []common.Address) error {
+	sub, err := o.subscribe("subscribeToDataRequested", o.subscriptionDr, func() (event.Subscription, error) {
+		return o.wsContractInstance.WatchDataRequested(o.watchOpts, o.chanDataRequests, nil, me, nil)
 	})
+	if err != nil {
+		return err
+	}
+	o.subscriptionDr = sub
+	return nil
 }
 
-func (o *OoORouterService) subscribeToRequestFulfilled(me []common.Address) {
-	o.subscriptionRf = o.subscribe("subscribeToRequestFulfilled", o.subscriptionRf, func() (event.Subscription, error) {
-		return o.contractInstance.WatchRequestFulfilled(o.watchOpts, o.chanRequestFulfilled, nil, me, nil)
+func (o *OoORouterService) subscribeToRequestFulfilled(me []common.Address) error {
+	sub, err := o.subscribe("subscribeToRequestFulfilled", o.subscriptionRf, func() (event.Subscription, error) {
+		return o.wsContractInstance.WatchRequestFulfilled(o.watchOpts, o.chanRequestFulfilled, nil, me, nil)
 	})
+	if err != nil {
+		return err
+	}
+	o.subscriptionRf = sub
+	return nil
 }
 
+// unsubscribeAll tears down any live event subscriptions. Called when degrading from websocket to poll
+// mode so a half-established subscription doesn't dangle. Unsubscribe is idempotent, so Shutdown
+// calling it again later is harmless.
+func (o *OoORouterService) unsubscribeAll() {
+	if o.subscriptionDr != nil {
+		o.subscriptionDr.Unsubscribe()
+	}
+	if o.subscriptionRf != nil {
+		o.subscriptionRf.Unsubscribe()
+	}
+}
+
+// RunEventWatchers detects on-chain events for this worker until the context is cancelled, choosing the
+// transport automatically: live websocket subscriptions when a working eth_ws_host is configured,
+// otherwise periodic HTTP polling. If the websocket path is configured but fails - at startup, or by
+// dropping mid-run and not re-establishing within the backoff - it degrades to polling rather than
+// taking the worker down. Most operators run on free RPCs where WSS is flaky or absent.
 func (o *OoORouterService) RunEventWatchers() {
-	logger.Info("chain", "RunEventWatchers", "", "initialise event subscriptions")
+	if o.wsContractInstance != nil {
+		logger.Info("chain", "RunEventWatchers", "", "detecting events via websocket subscriptions")
+		if o.runSubscribeMode() {
+			return // clean shutdown (context cancelled)
+		}
+		o.unsubscribeAll()
+		logger.Warn("chain", "RunEventWatchers", "",
+			"websocket subscriptions unavailable - falling back to HTTP polling")
+	} else {
+		logger.Info("chain", "RunEventWatchers", "",
+			"no websocket endpoint configured - detecting events via HTTP polling")
+	}
+	o.runPollMode()
+}
 
-	me := make([]common.Address, 0, 1)
-	me = append(me, o.oracleAddress)
+// runSubscribeMode runs the live websocket event loop. It returns true when it exits cleanly (context
+// cancelled) and false when the websocket fails terminally (initial subscribe or a re-subscribe gives
+// up), signalling the caller to fall back to polling.
+//
+// Teardown (Unsubscribe + save resume block) on a clean shutdown is owned by Shutdown(), which Stop()
+// calls on the same cancellation - so there is a single unsubscribe path and no race there.
+func (o *OoORouterService) runSubscribeMode() bool {
+	me := []common.Address{o.oracleAddress}
 
-	o.subscribeToDataRequested(me)
-	o.subscribeToRequestFulfilled(me)
+	if err := o.subscribeToDataRequested(me); err != nil {
+		logger.Error("chain", "runSubscribeMode", "subscribe to DataRequested", err.Error())
+		return false
+	}
+	if err := o.subscribeToRequestFulfilled(me); err != nil {
+		logger.Error("chain", "runSubscribeMode", "subscribe to RequestFulfilled", err.Error())
+		return false
+	}
 
-	// Teardown (Unsubscribe + save resume block) is owned by Shutdown(), which
-	// Stop() calls on the same cancellation — so there is a single unsubscribe
-	// path and no race here.
 	for {
 		select {
 		case <-o.context.Done():
-			logger.Info("chain", "RunEventWatchers", "", "context cancelled - stopping event watchers")
-			return
+			logger.Info("chain", "runSubscribeMode", "", "context cancelled - stopping event watchers")
+			return true
 		case ev := <-o.chanDataRequests:
 			o.processIncomingRequests(ev)
 		case ev := <-o.chanRequestFulfilled:
 			o.processIncomingFulfilments(ev)
 		case subErr := <-o.subscriptionDr.Err():
 			if subErr != nil {
-				logger.Error("chain", "RunEventWatchers", "DataRequested subscription connection error", subErr.Error())
-				o.subscribeToDataRequested(me)
+				logger.Error("chain", "runSubscribeMode", "DataRequested subscription connection error", subErr.Error())
+				if err := o.subscribeToDataRequested(me); err != nil {
+					logger.Error("chain", "runSubscribeMode", "re-subscribe to DataRequested", err.Error())
+					return false
+				}
 			}
-
 		case subErr := <-o.subscriptionRf.Err():
 			if subErr != nil {
-				logger.Error("chain", "RunEventWatchers", "RequestFulfilled subscription connection error", subErr.Error())
-				o.subscribeToRequestFulfilled(me)
+				logger.Error("chain", "runSubscribeMode", "RequestFulfilled subscription connection error", subErr.Error())
+				if err := o.subscribeToRequestFulfilled(me); err != nil {
+					logger.Error("chain", "runSubscribeMode", "re-subscribe to RequestFulfilled", err.Error())
+					return false
+				}
 			}
 		}
 	}
+}
+
+// runPollMode detects events by scanning eth_getLogs over HTTP on a ticker, from the last-seen block up
+// to head. It is the fallback when no websocket is available; a few seconds' detection latency is
+// immaterial given the confirmation wait before fulfilment. In poll mode the resume cursor is persisted
+// every tick, so there is no separate save on shutdown. Returns when the context is cancelled.
+func (o *OoORouterService) runPollMode() {
+	interval := o.eventPollInterval()
+	logger.InfoWithFields("chain", "runPollMode", "", "polling for events over HTTP", logger.Fields{
+		"interval":   interval.String(),
+		"network_id": o.networkId,
+	})
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Catch up immediately, then on every tick.
+	o.drainFrom(o.lastBlockNumber + 1)
+	for {
+		select {
+		case <-o.context.Done():
+			logger.Info("chain", "runPollMode", "", "context cancelled - stopping event poller")
+			return
+		case <-ticker.C:
+			o.drainFrom(o.lastBlockNumber + 1)
+		}
+	}
+}
+
+// eventPollInterval is the HTTP event-poll cadence from chain.event_poll_interval_sec, defaulted.
+func (o *OoORouterService) eventPollInterval() time.Duration {
+	secs := o.cfg.Chain.EventPollIntervalSec
+	if secs == 0 {
+		secs = config.DefaultEventPollIntervalSec
+	}
+	return time.Second * time.Duration(secs)
 }
 
 func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDataRequested) {

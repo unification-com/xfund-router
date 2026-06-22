@@ -26,6 +26,61 @@ func TestInitForNet(t *testing.T) {
 	require.Error(t, typo.InitForNet("mainet"))
 }
 
+// baseValidConfig returns a config that passes ValidateBasic, with a real temp keystore file (the
+// validator stats it). Tests tweak individual fields from here.
+func baseValidConfig(t *testing.T) Config {
+	t.Helper()
+	ksf, err := os.CreateTemp(t.TempDir(), "keystore-*.json")
+	require.NoError(t, err)
+	require.NoError(t, ksf.Close())
+
+	c := *DefaultConfig()
+	c.Chain.ContractAddress = "0x0000000000000000000000000000000000000001"
+	c.Chain.EthHttpHost = "https://rpc.example"
+	c.Chain.EthWsHost = "wss://rpc.example"
+	c.Chain.NetworkId = 1
+	c.Database.Dialect = "sqlite"
+	c.Database.Storage = filepath.Join(t.TempDir(), "go-ooo.db")
+	c.Keystore.Account = "oracle"
+	c.Keystore.File = ksf.Name()
+	return c
+}
+
+// A blank eth_ws_host is valid: the worker detects events by polling eth_getLogs over HTTP instead.
+func TestValidateBasicWebsocketOptional(t *testing.T) {
+	c := baseValidConfig(t)
+	c.Chain.EthWsHost = ""
+	require.NoError(t, c.ValidateBasic(), "blank eth_ws_host should be valid (HTTP-poll mode)")
+}
+
+// eth_http_host stays required - it is the foundation transport (calls, getLogs, tx sends).
+func TestValidateBasicHttpRequired(t *testing.T) {
+	c := baseValidConfig(t)
+	c.Chain.EthHttpHost = ""
+	err := c.ValidateBasic()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "eth_http_host")
+}
+
+// The new event_poll_interval_sec renders with its default and survives the round-trip.
+func TestEventPollIntervalRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	WriteConfigFile(path, DefaultConfig())
+
+	out, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(out), "event_poll_interval_sec = ")
+	require.NotContains(t, string(out), `event_poll_interval_sec = "`)
+
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadInConfig())
+	got, err := ParseConfig(v)
+	require.NoError(t, err)
+	require.EqualValues(t, DefaultEventPollIntervalSec, got.Chain.EventPollIntervalSec)
+}
+
 func TestWriteConfigDexThresholdsUnquoted(t *testing.T) {
 	def := DefaultConfig()
 	want := def.Dexs.EthUniswapV2.MinReserveUsd

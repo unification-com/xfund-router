@@ -21,9 +21,18 @@ contract_address = "{{ .Chain.ContractAddress }}"
 # Network Id, e.g. 1 for mainnet etc.
 network_id = {{ .Chain.NetworkId }}
 
-# RPC nodes - e.g. Infura/Alchemy
+# RPC nodes - e.g. Infura/Alchemy/PublicNode.
+# eth_http_host (required) carries all calls, getLogs event detection and tx sends.
+# eth_ws_host (optional) is used only for low-latency event subscriptions; leave it blank, or when it
+# is unavailable, go-ooo detects events by polling eth_getLogs over HTTP instead. Free RPCs often
+# throttle or omit WSS, so HTTP-only is a fully supported mode.
 eth_http_host = "{{ .Chain.EthHttpHost }}"
 eth_ws_host = "{{ .Chain.EthWsHost }}"
+
+# Seconds between eth_getLogs event polls when running in HTTP-poll mode (no/await eth_ws_host).
+# Default 6. A few seconds' detection latency is immaterial - a fulfilment waits for
+# wait_confirmations and the job sweep before it goes out anyway.
+event_poll_interval_sec = {{ .Chain.EventPollIntervalSec }}
 
 # First block to start checking for jobs.
 # Generally, the block you registered as a provider.
