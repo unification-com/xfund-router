@@ -14,12 +14,13 @@ import (
   DataRequests table
 */
 
-func (d *DB) InsertNewRequest(provider string,
+func (d *DB) InsertNewRequest(chainId int64, provider string,
 	consumer string, requestId string,
 	endpoint string, endpointDecoded string,
 	txHash string, gasUsed uint64, gasPrice uint64,
 	fee uint64, blockNumber uint64) (err error) {
 	err = d.Omit("FulfilTx").Create(&models.DataRequests{
+		ChainId:             chainId,
 		Provider:            provider,
 		Consumer:            consumer,
 		RequestId:           requestId,
@@ -40,18 +41,18 @@ func (d *DB) InsertNewRequest(provider string,
 // updateRequest loads a request by id, applies mutate, and saves it - factoring the
 // load + save boilerplate the simple Update* methods share. The read-modify-write is fine
 // here: fulfilment runs on the single serialised job ticker, so there's no concurrent writer.
-func (d *DB) updateRequest(requestId string, mutate func(*models.DataRequests)) error {
+func (d *DB) updateRequest(chainId int64, requestId string, mutate func(*models.DataRequests)) error {
 	req := models.DataRequests{}
-	if err := d.Where("request_id = ?", requestId).First(&req).Error; err != nil {
+	if err := d.Where("chain_id = ? AND request_id = ?", chainId, requestId).First(&req).Error; err != nil {
 		return err
 	}
 	mutate(&req)
 	return d.Save(&req).Error
 }
 
-func (d *DB) UpdateFulfillmentSuccess(requestId string, blockNumber uint64,
+func (d *DB) UpdateFulfillmentSuccess(chainId int64, requestId string, blockNumber uint64,
 	txHash string, gasUsed uint64, gasPrice uint64) error {
-	return d.updateRequest(requestId, func(req *models.DataRequests) {
+	return d.updateRequest(chainId, requestId, func(req *models.DataRequests) {
 		req.RequestStatus = models.REQUEST_STATUS_SUCCESS
 		req.JobStatus = models.JOB_STATUS_SUCCESS
 		req.FulfillConfirmedBlockNumber = blockNumber
@@ -61,8 +62,8 @@ func (d *DB) UpdateFulfillmentSuccess(requestId string, blockNumber uint64,
 	})
 }
 
-func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber uint64, nonce uint64, gasPrice uint64, gasTipCap uint64) error {
-	return d.updateRequest(requestId, func(req *models.DataRequests) {
+func (d *DB) UpdateFulfillmentSent(chainId int64, requestId string, txHash string, blockNumber uint64, nonce uint64, gasPrice uint64, gasTipCap uint64) error {
+	return d.updateRequest(chainId, requestId, func(req *models.DataRequests) {
 		req.FulfillTxHash = txHash
 		req.LastFulfillSentBlockNumber = blockNumber
 		req.FulfillNonce = nonce
@@ -71,17 +72,17 @@ func (d *DB) UpdateFulfillmentSent(requestId string, txHash string, blockNumber 
 	})
 }
 
-func (d *DB) IncrementFulfillmentAttempts(requestId string) error {
+func (d *DB) IncrementFulfillmentAttempts(chainId int64, requestId string) error {
 	// Atomic increment in one statement, rather than read-modify-write (Save), so the
 	// counter can't lose an update and it's a single round-trip.
 	return d.Model(&models.DataRequests{}).
-		Where("request_id = ?", requestId).
+		Where("chain_id = ? AND request_id = ?", chainId, requestId).
 		Update("fulfillment_attempts", gorm.Expr("fulfillment_attempts + ?", 1)).Error
 }
 
-func (d *DB) UpdateRequestStatus(requestId string, status int, reason string) error {
+func (d *DB) UpdateRequestStatus(chainId int64, requestId string, status int, reason string) error {
 	req := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&req).Error
+	err := d.Where("chain_id = ? AND request_id = ?", chainId, requestId).First(&req).Error
 	if err != nil {
 		return err
 	}
@@ -111,21 +112,21 @@ func (d *DB) UpdateRequestStatus(requestId string, status int, reason string) er
 	return d.Save(&req).Error
 }
 
-func (d *DB) UpdateJobStatus(requestId string, status int) error {
-	return d.updateRequest(requestId, func(req *models.DataRequests) {
+func (d *DB) UpdateJobStatus(chainId int64, requestId string, status int) error {
+	return d.updateRequest(chainId, requestId, func(req *models.DataRequests) {
 		req.JobStatus = status
 	})
 }
 
-func (d *DB) UpdateDataFetched(requestId string, price string) error {
-	return d.updateRequest(requestId, func(req *models.DataRequests) {
+func (d *DB) UpdateDataFetched(chainId int64, requestId string, price string) error {
+	return d.updateRequest(chainId, requestId, func(req *models.DataRequests) {
 		req.RequestStatus = models.REQUEST_STATUS_DATA_READY_TO_SEND
 		req.PriceResult = price
 	})
 }
 
-func (d *DB) UpdateLastDataFetchBlockNumber(requestId string, blockNum uint64) error {
-	return d.updateRequest(requestId, func(req *models.DataRequests) {
+func (d *DB) UpdateLastDataFetchBlockNumber(chainId int64, requestId string, blockNum uint64) error {
+	return d.updateRequest(chainId, requestId, func(req *models.DataRequests) {
 		req.LastDataFetchBlockNumber = blockNum
 	})
 }
@@ -134,8 +135,8 @@ func (d *DB) UpdateLastDataFetchBlockNumber(requestId string, blockNum uint64) e
   ToBlocks table
 */
 
-func (d *DB) InsertNewToBlock(toBlock uint64) error {
-	last, err := d.GetLastBlockNumQueried()
+func (d *DB) InsertNewToBlock(chainId int64, toBlock uint64) error {
+	last, err := d.GetLastBlockNumQueried(chainId)
 	// An empty table (no rows yet) is fine - that's the first insert. Any other error
 	// means we don't know the current head, so don't write a resume point on top of it.
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -143,7 +144,7 @@ func (d *DB) InsertNewToBlock(toBlock uint64) error {
 	}
 
 	if last.GetBlockNum() < toBlock {
-		return d.Create(&models.ToBlocks{BlockNum: toBlock}).Error
+		return d.Create(&models.ToBlocks{ChainId: chainId, BlockNum: toBlock}).Error
 	}
 
 	return nil

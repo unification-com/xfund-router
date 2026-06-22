@@ -13,12 +13,12 @@ func TestIncrementFulfillmentAttempts(t *testing.T) {
 	require.NoError(t, d.Migrate())
 
 	const reqId = "0xreq1"
-	require.NoError(t, d.InsertNewRequest("0xprov", "0xcons", reqId, "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 100))
+	require.NoError(t, d.InsertNewRequest(1, "0xprov", "0xcons", reqId, "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 100))
 
-	require.NoError(t, d.IncrementFulfillmentAttempts(reqId))
-	require.NoError(t, d.IncrementFulfillmentAttempts(reqId))
+	require.NoError(t, d.IncrementFulfillmentAttempts(1, reqId))
+	require.NoError(t, d.IncrementFulfillmentAttempts(1, reqId))
 
-	req, found, err := d.FindByRequestId(reqId)
+	req, found, err := d.FindByRequestId(1, reqId)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.EqualValues(t, 2, req.FulfillmentAttempts)
@@ -30,12 +30,12 @@ func TestFindByRequestId(t *testing.T) {
 	d := newTestDB(t)
 	require.NoError(t, d.Migrate())
 
-	_, found, err := d.FindByRequestId("0xmissing")
+	_, found, err := d.FindByRequestId(1, "0xmissing")
 	require.NoError(t, err)
 	require.False(t, found)
 
-	require.NoError(t, d.InsertNewRequest("0xp", "0xc", "0xreqX", "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 1))
-	row, found, err := d.FindByRequestId("0xreqX")
+	require.NoError(t, d.InsertNewRequest(1, "0xp", "0xc", "0xreqX", "WETH.USDC", "WETH.USDC", "0xtx", 0, 0, 1, 1))
+	row, found, err := d.FindByRequestId(1, "0xreqX")
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "0xreqX", row.RequestId)
@@ -48,18 +48,18 @@ func TestInsertNewToBlock(t *testing.T) {
 	d := newTestDB(t)
 	require.NoError(t, d.Migrate())
 
-	require.NoError(t, d.InsertNewToBlock(100)) // first insert on an empty table
-	last, err := d.GetLastBlockNumQueried()
+	require.NoError(t, d.InsertNewToBlock(1, 100)) // first insert on an empty table
+	last, err := d.GetLastBlockNumQueried(1)
 	require.NoError(t, err)
 	require.EqualValues(t, 100, last.GetBlockNum())
 
-	require.NoError(t, d.InsertNewToBlock(50)) // lower → no-op
-	last, err = d.GetLastBlockNumQueried()
+	require.NoError(t, d.InsertNewToBlock(1, 50)) // lower → no-op
+	last, err = d.GetLastBlockNumQueried(1)
 	require.NoError(t, err)
 	require.EqualValues(t, 100, last.GetBlockNum())
 
-	require.NoError(t, d.InsertNewToBlock(200)) // higher → advances
-	last, err = d.GetLastBlockNumQueried()
+	require.NoError(t, d.InsertNewToBlock(1, 200)) // higher → advances
+	last, err = d.GetLastBlockNumQueried(1)
 	require.NoError(t, err)
 	require.EqualValues(t, 200, last.GetBlockNum())
 }

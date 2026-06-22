@@ -66,7 +66,7 @@ func (s *Server) applyForceFirstBlock() {
 	if s.forceFirstBlock == 0 {
 		return
 	}
-	if err := s.db.InsertNewToBlock(s.forceFirstBlock); err != nil {
+	if err := s.db.InsertNewToBlock(s.srvCtx.Config.Chain.NetworkId, s.forceFirstBlock); err != nil {
 		panic(fmt.Errorf("could not apply --first-block %d: %w", s.forceFirstBlock, err))
 	}
 	logger.InfoWithFields("app", "applyForceFirstBlock", "",

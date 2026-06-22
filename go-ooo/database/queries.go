@@ -14,9 +14,9 @@ import (
   ToBlocks Queries
 */
 
-func (d DB) GetLastBlockNumQueried() (models.ToBlocks, error) {
+func (d DB) GetLastBlockNumQueried(chainId int64) (models.ToBlocks, error) {
 	toBlock := models.ToBlocks{}
-	err := d.Last(&toBlock).Error
+	err := d.Where("chain_id = ?", chainId).Last(&toBlock).Error
 	return toBlock, err
 }
 
@@ -27,19 +27,19 @@ func (d DB) GetLastBlockNumQueried() (models.ToBlocks, error) {
 // FindByRequestId looks up a request. The bool reports whether a row was found, so callers
 // can tell "not found" apart from a real DB error (GORM's First conflates them via the zero
 // struct) and not treat a transient failure as a brand-new request.
-func (d *DB) FindByRequestId(requestId string) (models.DataRequests, bool, error) {
+func (d *DB) FindByRequestId(chainId int64, requestId string) (models.DataRequests, bool, error) {
 	result := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&result).Error
+	err := d.Where("chain_id = ? AND request_id = ?", chainId, requestId).First(&result).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return result, false, nil
 	}
 	return result, err == nil, err
 }
 
-func (d *DB) GetPendingJobs() ([]models.DataRequests, error) {
+func (d *DB) GetPendingJobs(chainId int64) ([]models.DataRequests, error) {
 	var jobs = []models.DataRequests{}
-	err := d.Where("job_status = ?",
-		models.JOB_STATUS_PENDING).Order(fmt.Sprintf("id %s", "asc")).Find(&jobs).Error
+	err := d.Where("chain_id = ? AND job_status = ?",
+		chainId, models.JOB_STATUS_PENDING).Order(fmt.Sprintf("id %s", "asc")).Find(&jobs).Error
 	return jobs, err
 }
 

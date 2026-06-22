@@ -23,9 +23,14 @@ const (
 
 type DataRequests struct {
 	gorm.Model
+	// ChainId is the EVM chain id the request was raised on. With (chain_id, request_id) as the unique
+	// key, the same bare request_id can recur across chains without colliding, and each chain's worker
+	// scopes its queries by it. It is the leading column of the composite index, so the index also
+	// serves chain_id-only lookups (the pending-job scan).
+	ChainId                     int64  `gorm:"uniqueIndex:idx_data_requests_chain_request,priority:1"`
 	Consumer                    string `gorm:"index"`
 	Provider                    string `gorm:"index"`
-	RequestId                   string `gorm:"uniqueIndex"`
+	RequestId                   string `gorm:"uniqueIndex:idx_data_requests_chain_request,priority:2"`
 	RequestBlockNumber          uint64 `gorm:"index"`
 	LastDataFetchBlockNumber    uint64
 	RequestTxHash               string `gorm:"index"`
@@ -66,6 +71,10 @@ func (d *DataRequests) GetProvider() string {
 
 func (d *DataRequests) GetRequestId() string {
 	return d.RequestId
+}
+
+func (d *DataRequests) GetChainId() int64 {
+	return d.ChainId
 }
 
 func (d *DataRequests) GetRequestBlockNumber() uint64 {

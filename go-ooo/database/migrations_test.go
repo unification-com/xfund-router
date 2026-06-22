@@ -17,7 +17,7 @@ func newTestDB(t *testing.T) *DB {
 		Logger: glog.Default.LogMode(glog.Silent),
 	})
 	require.NoError(t, err)
-	return &DB{gdb}
+	return &DB{DB: gdb}
 }
 
 func TestMigrateFreshDatabase(t *testing.T) {

@@ -24,7 +24,7 @@ func (o *OoORouterService) ProcessPendingJobQueue(trigger string) {
 	logger.Info("chain", "ProcessPendingJobQueue", "check job queue", "")
 
 	// get pending requests from data_requests table
-	requests, err := o.db.GetPendingJobs()
+	requests, err := o.db.GetPendingJobs(o.networkId)
 
 	if err != nil {
 		logger.Error("chain", "ProcessPendingJobQueue", "get job queue", err.Error())
@@ -123,7 +123,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 	// (via the DATA_READY_TO_SEND state). This fetch goroutine intentionally does NOT
 	// touch the transaction options - doing so here raced concurrent fetch goroutines on
 	// shared mutable state for no benefit.
-	err := o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FETCHING_DATA, "")
+	err := o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FETCHING_DATA, "")
 
 	if err != nil {
 		// possibly not in Tx pool yet
@@ -136,7 +136,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 		return
 	}
 
-	err = o.db.IncrementFulfillmentAttempts(requestId)
+	err = o.db.IncrementFulfillmentAttempts(o.networkId, requestId)
 
 	if err != nil {
 		// possibly not in Tx pool yet
@@ -148,7 +148,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 		return
 	}
 
-	err = o.db.UpdateLastDataFetchBlockNumber(requestId, currentBlockNum)
+	err = o.db.UpdateLastDataFetchBlockNumber(o.networkId, requestId, currentBlockNum)
 
 	if err != nil {
 		// possibly not in Tx pool yet
@@ -172,7 +172,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 				"request_id": requestId,
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_API_ERROR, err.Error())
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_API_ERROR, err.Error())
 		return
 	}
 
@@ -184,7 +184,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 				"request_id": requestId,
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_API_ERROR, "empty price returned")
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_API_ERROR, "empty price returned")
 		return
 	}
 
@@ -196,7 +196,7 @@ func (o *OoORouterService) processFulfillmentFetchData(job models.DataRequests, 
 			"price":      price,
 		})
 
-	_ = o.db.UpdateDataFetched(requestId, price)
+	_ = o.db.UpdateDataFetched(o.networkId, requestId, price)
 
 	return
 }
@@ -214,7 +214,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 				"request_id": requestId,
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
 		return
 	}
 
@@ -265,7 +265,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 				"request_id": requestId,
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
 		return
 	}
 
@@ -282,7 +282,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 				"request_id": requestId,
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_TX_FAILED, err.Error())
 		return
 	}
 
@@ -299,10 +299,10 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 			"nonce":      tx.Nonce(),
 		})
 
-	_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_TX_SENT, "")
+	_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_TX_SENT, "")
 	// Persist both the fee cap (GasPrice) and the tip (GasTipCap) so a stuck-tx replacement can
 	// bump both, as EIP-1559 requires. For a legacy tx the two are equal and the tip is unused.
-	_ = o.db.UpdateFulfillmentSent(requestId, tx.Hash().Hex(), currentBlockNum, tx.Nonce(), tx.GasPrice().Uint64(), tx.GasTipCap().Uint64())
+	_ = o.db.UpdateFulfillmentSent(o.networkId, requestId, tx.Hash().Hex(), currentBlockNum, tx.Nonce(), tx.GasPrice().Uint64(), tx.GasTipCap().Uint64())
 }
 
 // replaceStuckFulfilmentTx rebroadcasts the fulfilment for job at the SAME nonce as the
@@ -313,7 +313,7 @@ func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, cur
 	requestId := job.GetRequestId()
 
 	if giveUp, reason := o.shouldGiveUp(job); giveUp {
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
@@ -327,7 +327,7 @@ func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, cur
 		return
 	}
 
-	_ = o.db.IncrementFulfillmentAttempts(requestId)
+	_ = o.db.IncrementFulfillmentAttempts(o.networkId, requestId)
 	o.submitFulfilment(job, opts, currentBlockNum)
 }
 
@@ -348,7 +348,7 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
@@ -388,7 +388,7 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 
@@ -515,7 +515,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 				"num_attempts": job.GetFulfillmentAttempts(),
 			})
 
-		_ = o.db.UpdateRequestStatus(requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
 		return
 	}
 

@@ -147,7 +147,7 @@ func NewOoORouter(ctx context.Context, cfg *config.Config, client *ethclient.Cli
 	}
 
 	// check DB
-	tb, err := db.GetLastBlockNumQueried()
+	tb, err := db.GetLastBlockNumQueried(cfg.Chain.NetworkId)
 	if err == nil {
 		if tb.GetBlockNum() > firstBlockFromConf {
 			initialFromBlock = tb.GetBlockNum()
@@ -226,7 +226,7 @@ func (o *OoORouterService) setLastBlockNumber(blockNumber uint64) {
 		})
 
 		o.lastBlockNumber = blockNumber
-		err := o.db.InsertNewToBlock(blockNumber)
+		err := o.db.InsertNewToBlock(o.networkId, blockNumber)
 
 		if err != nil {
 			logger.ErrorWithFields("chain", "setLastBlockNumber", "update db", err.Error(), logger.Fields{
@@ -590,7 +590,7 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
 
 	// check status and if request already exists
-	reqDbRes, found, err := o.db.FindByRequestId(requestId)
+	reqDbRes, found, err := o.db.FindByRequestId(o.networkId, requestId)
 	if err != nil {
 		// A real DB error (not just not-found): don't risk a duplicate insert by treating it
 		// as new - log + skip. The block number isn't advanced, so the event is re-seen.
@@ -605,6 +605,7 @@ func (o *OoORouterService) processIncomingRequests(event *ooo_router.OooRouterDa
 		})
 
 		err = o.db.InsertNewRequest(
+			o.networkId,
 			provider.Hex(),
 			consumer.Hex(),
 			requestId,
@@ -648,7 +649,7 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 
 	gasPrice, gasUsed := o.processGasUsage(event.Raw)
 	// check status and if request already exists
-	request, found, err := o.db.FindByRequestId(requestId)
+	request, found, err := o.db.FindByRequestId(o.networkId, requestId)
 	if err != nil {
 		// A real DB error (not just not-found): log + skip so the block isn't advanced and the
 		// confirmation is retried, rather than the fulfilment being silently lost.
@@ -665,6 +666,7 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 			})
 
 		err := o.db.UpdateFulfillmentSuccess(
+			o.networkId,
 			requestId,
 			event.Raw.BlockNumber,
 			event.Raw.TxHash.Hex(),
