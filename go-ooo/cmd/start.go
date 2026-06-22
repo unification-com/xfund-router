@@ -27,6 +27,7 @@ Examples:
   go-ooo start --home=/home/user/some-other-go-ooo
   go-ooo start --home=/home/user/some-other-go-ooo --pass=/path/to/pass.txt
   go-ooo start --first-block=15114000
+  go-ooo start --first-block=15114000 --chain=puppynet
 `,
 	PreRunE: func(cmd *cobra.Command, _ []string) error {
 		serverCtx := server.GetServerContextFromCmd(cmd)
@@ -38,7 +39,7 @@ Examples:
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		serverCtx := server.GetServerContextFromCmd(cmd)
-		server, err := server.NewServer(serverCtx, keystorePass, startFirstBlock)
+		server, err := server.NewServer(serverCtx, keystorePass, startFirstBlock, startFirstBlockChain)
 		if err != nil {
 			panic(err)
 		}
@@ -48,7 +49,10 @@ Examples:
 	},
 }
 
-var startFirstBlock uint64
+var (
+	startFirstBlock      uint64
+	startFirstBlockChain string
+)
 
 func init() {
 	startCmd.PersistentFlags().StringVar(&keystorePass, "pass", "", "keystore password or password file location")
@@ -56,5 +60,8 @@ func init() {
 	// skip a stale gap (e.g. when far behind on a rate-limited RPC). Advance-only; persisted, so drop
 	// the flag on the next start. 0 = use the saved cursor / first_block as normal.
 	startCmd.PersistentFlags().Uint64Var(&startFirstBlock, "first-block", 0, "advance the event-scan cursor to this block before starting (skip a stale gap)")
+	// Each chain has its own cursor, so --first-block targets one chain. Optional with a single chain
+	// configured; required (name or network id) once several [[chains]] run.
+	startCmd.PersistentFlags().StringVar(&startFirstBlockChain, "chain", "", "chain (name or network id) the --first-block override applies to; optional with a single chain")
 	rootCmd.AddCommand(startCmd)
 }
