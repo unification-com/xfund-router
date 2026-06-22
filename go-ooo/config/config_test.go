@@ -231,6 +231,53 @@ func TestChainNames(t *testing.T) {
 	}))
 }
 
+// AddChain converts a legacy single [chain] into [[chains]] and appends, rejecting a duplicate id.
+func TestAddChain(t *testing.T) {
+	c := DefaultConfig()
+	c.Chain.Name = "sepolia"
+	c.Chain.NetworkId = 11155111
+
+	require.NoError(t, c.AddChain(ChainConfig{Name: "polygon", NetworkId: 137}))
+	require.Len(t, c.Chains, 2, "the legacy [chain] was folded in and the new chain appended")
+	require.EqualValues(t, 11155111, c.Chains[0].NetworkId)
+	require.EqualValues(t, 137, c.Chains[1].NetworkId)
+	require.Empty(t, c.Chain.NetworkId, "the legacy single block is cleared once [[chains]] is authoritative")
+
+	// A third distinct chain appends to the existing list.
+	require.NoError(t, c.AddChain(ChainConfig{Name: "mainnet", NetworkId: 1}))
+	require.Len(t, c.Chains, 3)
+
+	// A duplicate network id is rejected.
+	require.ErrorContains(t, c.AddChain(ChainConfig{Name: "polygon-again", NetworkId: 137}), "already configured")
+	require.Len(t, c.Chains, 3, "the rejected chain was not added")
+}
+
+// A [[chains]] config survives the full write -> read round-trip through the template (the multi-chain
+// rendering path), so 'init --add' produces a file go-ooo can read back.
+func TestWriteReadMultiChainRoundTrip(t *testing.T) {
+	c := DefaultConfig()
+	c.Chain = ChainConfig{}
+	c.Chains = []ChainConfig{
+		{Name: "sepolia", NetworkId: 11155111, ContractAddress: "0xaaa", EthHttpHost: "https://s", GasLimit: 500000, MaxGasPrice: 150, EventPollIntervalSec: 6, EventScanBatchBlocks: 2000},
+		{Name: "polygon", NetworkId: 137, ContractAddress: "0xbbb", EthHttpHost: "https://p", GasLimit: 500000, MaxGasPrice: 200, EventPollIntervalSec: 4, EventScanBatchBlocks: 2000},
+	}
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	WriteConfigFile(path, c)
+
+	out, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(out), "[[chains]]")
+	require.NotContains(t, string(out), "[chain]\n", "the single [chain] block must not also render")
+
+	got, err := LoadConfigFile(path)
+	require.NoError(t, err)
+	require.Len(t, got.Chains, 2)
+	require.Equal(t, "polygon", got.Chains[1].Name)
+	require.EqualValues(t, 137, got.Chains[1].NetworkId)
+	require.EqualValues(t, 4, got.Chains[1].EventPollIntervalSec)
+}
+
 func TestWriteConfigDexThresholdsUnquoted(t *testing.T) {
 	def := DefaultConfig()
 	want := def.Dexs.EthUniswapV2.MinReserveUsd

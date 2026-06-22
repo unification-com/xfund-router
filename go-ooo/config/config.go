@@ -382,6 +382,22 @@ func (c Config) ChainList() []ChainConfig {
 	return []ChainConfig{c.Chain}
 }
 
+// AddChain appends ch as an additional network, converting a legacy single [chain] into the [[chains]]
+// list first so the config ends up uniformly multi-network. It rejects a duplicate network id (the same
+// guard ValidateBasic applies). Used by 'init <network> --add'.
+func (c *Config) AddChain(ch ChainConfig) error {
+	chains := c.ChainList()
+	for _, existing := range chains {
+		if existing.NetworkId == ch.NetworkId {
+			return fmt.Errorf("network %d is already configured", ch.NetworkId)
+		}
+	}
+	// ChainList may alias c.Chains; copy so the append can't mutate the source slice in place.
+	c.Chains = append(append([]ChainConfig{}, chains...), ch)
+	c.Chain = ChainConfig{} // the [[chains]] list is now authoritative - clear the legacy single block
+	return nil
+}
+
 // BackfillNetworkId is the chain id used to stamp legacy (pre-chain_id) rows during the DB migration.
 // It is the legacy [chain].network_id, or - for a single [[chains]] entry - that chain's id. With
 // several [[chains]] it is 0 (an already-v5 DB has nothing to backfill; a populated pre-v5 DB must be

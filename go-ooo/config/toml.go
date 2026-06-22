@@ -7,77 +7,79 @@ import (
 	"text/template"
 )
 
-const DefaultConfigTemplate = `# This is a TOML config file.
-# For more information, see https://github.com/toml-lang/toml
-
-##########################################
-## Chain                                ##
-##########################################
-
-# Single network: the [chain] block below. To run SEVERAL networks from this one process, replace
-# [chain] with a [[chains]] array-of-tables - one block per network, each with the same fields shown
-# here (contract_address, network_id, RPCs, gas, first_block, event_* ). Network ids must be distinct.
-# Example:
-#   [[chains]]
-#   network_id = 11155111
-#   contract_address = "0x..."
-#   eth_http_host = "https://..."
-#   ... (gas_limit, max_gas_price, etc.)
-#   [[chains]]
-#   network_id = 137
-#   contract_address = "0x..."
-#   ...
-# One keystore/provider key, DB and pricing engine are shared; each chain runs as an independent worker.
-
-[chain]
+// chainBody renders one chain's settings from a ChainConfig. It is shared by the single [chain] block
+// and every [[chains]] entry, so the field set + its documentation live in exactly one place.
+const DefaultConfigTemplate = `{{define "chainBody" -}}
 # Human label for this chain, used by the --chain CLI selector (the network id also works).
-name = "{{ .Chain.Name }}"
+name = "{{ .Name }}"
 
 # Address of the Router smart contract
-contract_address = "{{ .Chain.ContractAddress }}"
+contract_address = "{{ .ContractAddress }}"
 
 # Network Id, e.g. 1 for mainnet etc.
-network_id = {{ .Chain.NetworkId }}
+network_id = {{ .NetworkId }}
 
 # RPC nodes - e.g. Infura/Alchemy/PublicNode.
 # eth_http_host (required) carries all calls, getLogs event detection and tx sends.
 # eth_ws_host (optional) is used only for low-latency event subscriptions; leave it blank, or when it
 # is unavailable, go-ooo detects events by polling eth_getLogs over HTTP instead. Free RPCs often
 # throttle or omit WSS, so HTTP-only is a fully supported mode.
-eth_http_host = "{{ .Chain.EthHttpHost }}"
-eth_ws_host = "{{ .Chain.EthWsHost }}"
+eth_http_host = "{{ .EthHttpHost }}"
+eth_ws_host = "{{ .EthWsHost }}"
 
 # Seconds between eth_getLogs event polls when running in HTTP-poll mode (no/await eth_ws_host).
 # Default 6. A few seconds' detection latency is immaterial - a fulfilment waits for
 # wait_confirmations and the job sweep before it goes out anyway.
-event_poll_interval_sec = {{ .Chain.EventPollIntervalSec }}
+event_poll_interval_sec = {{ .EventPollIntervalSec }}
 
 # Max block range per eth_getLogs request when scanning for events. Default 2000. Lower it for RPCs
 # that reject or throttle wide ranges (e.g. block-explorer eth-rpc proxies).
-event_scan_batch_blocks = {{ .Chain.EventScanBatchBlocks }}
+event_scan_batch_blocks = {{ .EventScanBatchBlocks }}
 
 # First block to start checking for jobs.
 # Generally, the block you registered as a provider.
 # Defaults to the block the Router contract was deployed
-first_block = {{ .Chain.FirstBlock }}
+first_block = {{ .FirstBlock }}
 
 # Gas limit for fulfilling requests
-gas_limit = {{ .Chain.GasLimit }}
+gas_limit = {{ .GasLimit }}
 
 # Max gas price you are willing to pay to fulfil a request
-max_gas_price = {{ .Chain.MaxGasPrice }}
+max_gas_price = {{ .MaxGasPrice }}
 
 # Percentage to bump the gas price by when replacing a stuck (still-pending) fulfilment
 # tx at the same nonce. Must be >= 10 - the network requires at least a 10% increase to
 # replace a transaction; values below 10 fall back to a safe default.
-gas_bump_percent = {{ .Chain.GasBumpPercent }}
+gas_bump_percent = {{ .GasBumpPercent }}
 
 # Send EIP-1559 (type-2) dynamic-fee transactions, pricing each fulfilment with a priority
 # fee (tip) plus a base-fee-derived max fee instead of a single legacy gas price. max_gas_price
 # still caps the total. Automatically falls back to legacy pricing on a pre-London chain (one
 # whose latest block carries no base fee), so leaving this true is safe everywhere.
-eip1559 = {{ .Chain.Eip1559 }}
+eip1559 = {{ .Eip1559 }}
+{{end -}}
+# This is a TOML config file.
+# For more information, see https://github.com/toml-lang/toml
 
+##########################################
+## Chain                                ##
+##########################################
+
+# Run ONE network with the [chain] block, or SEVERAL from this one process with a [[chains]]
+# array-of-tables - one block per network, each carrying the same fields (name, contract_address,
+# network_id, the RPCs, gas, first_block, event_*). Network ids must be distinct. 'go-ooo init
+# <network> --add' appends a [[chains]] entry, converting an existing [chain]. One keystore/provider
+# key, DB and pricing engine are shared; each chain runs as an independent worker. Select a chain on
+# the admin/query/start commands with --chain <name|network_id>.
+
+{{if .Chains -}}
+{{range .Chains}}[[chains]]
+{{template "chainBody" .}}
+{{end -}}
+{{else -}}
+[chain]
+{{template "chainBody" .Chain}}
+{{end}}
 ##########################################
 ## Database                             ##
 ##########################################
