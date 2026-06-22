@@ -14,9 +14,9 @@ import (
   ToBlocks Queries
 */
 
-func (d DB) GetLastBlockNumQueried() (models.ToBlocks, error) {
+func (d DB) GetLastBlockNumQueried(chainId int64) (models.ToBlocks, error) {
 	toBlock := models.ToBlocks{}
-	err := d.Last(&toBlock).Error
+	err := d.Where("chain_id = ?", chainId).Last(&toBlock).Error
 	return toBlock, err
 }
 
@@ -27,41 +27,41 @@ func (d DB) GetLastBlockNumQueried() (models.ToBlocks, error) {
 // FindByRequestId looks up a request. The bool reports whether a row was found, so callers
 // can tell "not found" apart from a real DB error (GORM's First conflates them via the zero
 // struct) and not treat a transient failure as a brand-new request.
-func (d *DB) FindByRequestId(requestId string) (models.DataRequests, bool, error) {
+func (d *DB) FindByRequestId(chainId int64, requestId string) (models.DataRequests, bool, error) {
 	result := models.DataRequests{}
-	err := d.Where("request_id = ?", requestId).First(&result).Error
+	err := d.Where("chain_id = ? AND request_id = ?", chainId, requestId).First(&result).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return result, false, nil
 	}
 	return result, err == nil, err
 }
 
-func (d *DB) GetPendingJobs() ([]models.DataRequests, error) {
+func (d *DB) GetPendingJobs(chainId int64) ([]models.DataRequests, error) {
 	var jobs = []models.DataRequests{}
-	err := d.Where("job_status = ?",
-		models.JOB_STATUS_PENDING).Order(fmt.Sprintf("id %s", "asc")).Find(&jobs).Error
+	err := d.Where("chain_id = ? AND job_status = ?",
+		chainId, models.JOB_STATUS_PENDING).Order(fmt.Sprintf("id %s", "asc")).Find(&jobs).Error
 	return jobs, err
 }
 
 // CountFulfilmentsSent counts requests that have been broadcast at least once (have a fulfil tx
 // hash). Used to warm-start the fulfilment metrics from history.
-func (d *DB) CountFulfilmentsSent() (int64, error) {
+func (d *DB) CountFulfilmentsSent(chainId int64) (int64, error) {
 	var n int64
-	err := d.Model(&models.DataRequests{}).Where("fulfill_tx_hash <> ''").Count(&n).Error
+	err := d.Model(&models.DataRequests{}).Where("chain_id = ? AND fulfill_tx_hash <> ''", chainId).Count(&n).Error
 	return n, err
 }
 
-// CountRequestsByStatus counts requests in a given RequestStatus.
-func (d *DB) CountRequestsByStatus(status int) (int64, error) {
+// CountRequestsByStatus counts a chain's requests in a given RequestStatus.
+func (d *DB) CountRequestsByStatus(chainId int64, status int) (int64, error) {
 	var n int64
-	err := d.Model(&models.DataRequests{}).Where("request_status = ?", status).Count(&n).Error
+	err := d.Model(&models.DataRequests{}).Where("chain_id = ? AND request_status = ?", chainId, status).Count(&n).Error
 	return n, err
 }
 
-// CountFailedFulfilments counts failed (reverted) fulfilment-tx attempts recorded in history.
-func (d *DB) CountFailedFulfilments() (int64, error) {
+// CountFailedFulfilments counts a chain's failed (reverted) fulfilment-tx attempts recorded in history.
+func (d *DB) CountFailedFulfilments(chainId int64) (int64, error) {
 	var n int64
-	err := d.Model(&models.FailedFulfilment{}).Count(&n).Error
+	err := d.Model(&models.FailedFulfilment{}).Where("chain_id = ?", chainId).Count(&n).Error
 	return n, err
 }
 

@@ -29,27 +29,34 @@ func TestPostgresWarmStartSmoke(t *testing.T) {
 	require.NoError(t, err)
 	d := &database.DB{DB: gdb}
 
-	sent, err := d.CountFulfilmentsSent()
+	// Pick a chain id present in the dump - the counts + warm-start are per-chain.
+	var chainIds []int64
+	require.NoError(t, d.Model(&models.DataRequests{}).Distinct().Pluck("chain_id", &chainIds).Error)
+	require.NotEmpty(t, chainIds, "the dump has at least one request")
+	chainId := chainIds[0]
+	label := metricChainLabel(chainId)
+
+	sent, err := d.CountFulfilmentsSent(chainId)
 	require.NoError(t, err)
-	success, err := d.CountRequestsByStatus(models.REQUEST_STATUS_SUCCESS)
+	success, err := d.CountRequestsByStatus(chainId, models.REQUEST_STATUS_SUCCESS)
 	require.NoError(t, err)
-	reverted, err := d.CountFailedFulfilments()
+	reverted, err := d.CountFailedFulfilments(chainId)
 	require.NoError(t, err)
-	t.Logf("postgres fulfilment history: sent=%d success=%d reverted=%d", sent, success, reverted)
+	t.Logf("postgres fulfilment history (chain %d): sent=%d success=%d reverted=%d", chainId, sent, success, reverted)
 
 	// Invariants that hold for any real database.
 	require.GreaterOrEqual(t, sent, success, "every success was broadcast at least once")
 	require.GreaterOrEqual(t, sent, int64(0))
 	require.GreaterOrEqual(t, reverted, int64(0))
 
-	// The warm-start must seed each counter with exactly the count it read from the DB.
-	sentBefore := testutil.ToFloat64(fulfilmentSentTotal)
-	successBefore := testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues("success"))
-	revertedBefore := testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues("reverted"))
+	// The warm-start must seed each per-chain counter with exactly the count it read from the DB.
+	sentBefore := testutil.ToFloat64(fulfilmentSentTotal.WithLabelValues(label))
+	successBefore := testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues(label, "success"))
+	revertedBefore := testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues(label, "reverted"))
 
-	WarmStartFulfilmentMetrics(d)
+	WarmStartFulfilmentMetrics(d, []int64{chainId})
 
-	require.EqualValues(t, sent, testutil.ToFloat64(fulfilmentSentTotal)-sentBefore, "sent seeded")
-	require.EqualValues(t, success, testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues("success"))-successBefore, "success seeded")
-	require.EqualValues(t, reverted, testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues("reverted"))-revertedBefore, "reverted seeded")
+	require.EqualValues(t, sent, testutil.ToFloat64(fulfilmentSentTotal.WithLabelValues(label))-sentBefore, "sent seeded")
+	require.EqualValues(t, success, testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues(label, "success"))-successBefore, "success seeded")
+	require.EqualValues(t, reverted, testutil.ToFloat64(fulfilmentResultTotal.WithLabelValues(label, "reverted"))-revertedBefore, "reverted seeded")
 }

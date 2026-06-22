@@ -16,25 +16,29 @@ import (
 )
 
 type Server struct {
-	srv         *service.Service
-	ctx         context.Context
-	cancel      context.CancelFunc
-	srvCtx      *Context
-	Vers        version.Info
-	privateKey  string
-	db          *database.DB
-	decryptPass string
+	srv                  *service.Service
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	srvCtx               *Context
+	Vers                 version.Info
+	privateKey           string
+	db                   *database.DB
+	decryptPass          string
+	forceFirstBlock      uint64
+	forceFirstBlockChain string
 }
 
-func NewServer(srcCtx *Context, decryptPass string) (*Server, error) {
+func NewServer(srcCtx *Context, decryptPass string, forceFirstBlock uint64, forceFirstBlockChain string) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
-		ctx:         ctx,
-		cancel:      cancel,
-		srvCtx:      srcCtx,
-		Vers:        version.NewInfo(),
-		decryptPass: decryptPass,
+		ctx:                  ctx,
+		cancel:               cancel,
+		srvCtx:               srcCtx,
+		Vers:                 version.NewInfo(),
+		decryptPass:          decryptPass,
+		forceFirstBlock:      forceFirstBlock,
+		forceFirstBlockChain: forceFirstBlockChain,
 	}, nil
 }
 
@@ -50,9 +54,31 @@ func (s *Server) Run() {
 
 func (s *Server) initServer() {
 	s.initDatabase()
+	s.applyForceFirstBlock()
 	s.initKeystore()
 	s.initService()
 	s.initSignal()
+}
+
+// applyForceFirstBlock advances ONE chain's event-scan resume cursor to the --first-block value before
+// the service reads it, so that worker starts polling from there instead of grinding a stale gap. Each
+// chain has its own chain_id-keyed cursor, so --first-block targets a chain via --chain; with a single
+// chain configured the selector is optional. It is advance-only (InsertNewToBlock ignores a lower value)
+// and persisted, so the override survives the next restart - drop the flag once it has taken effect.
+func (s *Server) applyForceFirstBlock() {
+	if s.forceFirstBlock == 0 {
+		return
+	}
+	ch, err := s.srvCtx.Config.ResolveChain(s.forceFirstBlockChain)
+	if err != nil {
+		panic(fmt.Errorf("could not apply --first-block %d: %w", s.forceFirstBlock, err))
+	}
+	if err := s.db.InsertNewToBlock(ch.NetworkId, s.forceFirstBlock); err != nil {
+		panic(fmt.Errorf("could not apply --first-block %d on network %d: %w", s.forceFirstBlock, ch.NetworkId, err))
+	}
+	logger.InfoWithFields("app", "applyForceFirstBlock", "",
+		"advanced the event-scan cursor (--first-block) - the saved gap below this block is skipped",
+		logger.Fields{"first_block": s.forceFirstBlock, "network_id": ch.NetworkId})
 }
 
 func (s *Server) initSignal() {

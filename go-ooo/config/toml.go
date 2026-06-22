@@ -7,46 +7,79 @@ import (
 	"text/template"
 )
 
-const DefaultConfigTemplate = `# This is a TOML config file.
+// chainBody renders one chain's settings from a ChainConfig. It is shared by the single [chain] block
+// and every [[chains]] entry, so the field set + its documentation live in exactly one place.
+const DefaultConfigTemplate = `{{define "chainBody" -}}
+# Human label for this chain, used by the --chain CLI selector (the network id also works).
+name = "{{ .Name }}"
+
+# Address of the Router smart contract
+contract_address = "{{ .ContractAddress }}"
+
+# Network Id, e.g. 1 for mainnet etc.
+network_id = {{ .NetworkId }}
+
+# RPC nodes - e.g. Infura/Alchemy/PublicNode.
+# eth_http_host (required) carries all calls, getLogs event detection and tx sends.
+# eth_ws_host (optional) is used only for low-latency event subscriptions; leave it blank, or when it
+# is unavailable, go-ooo detects events by polling eth_getLogs over HTTP instead. Free RPCs often
+# throttle or omit WSS, so HTTP-only is a fully supported mode.
+eth_http_host = "{{ .EthHttpHost }}"
+eth_ws_host = "{{ .EthWsHost }}"
+
+# Seconds between eth_getLogs event polls when running in HTTP-poll mode (no/await eth_ws_host).
+# Default 6. A few seconds' detection latency is immaterial - a fulfilment waits for
+# wait_confirmations and the job sweep before it goes out anyway.
+event_poll_interval_sec = {{ .EventPollIntervalSec }}
+
+# Max block range per eth_getLogs request when scanning for events. Default 2000. Lower it for RPCs
+# that reject or throttle wide ranges (e.g. block-explorer eth-rpc proxies).
+event_scan_batch_blocks = {{ .EventScanBatchBlocks }}
+
+# First block to start checking for jobs.
+# Generally, the block you registered as a provider.
+# Defaults to the block the Router contract was deployed
+first_block = {{ .FirstBlock }}
+
+# Gas limit for fulfilling requests
+gas_limit = {{ .GasLimit }}
+
+# Max gas price you are willing to pay to fulfil a request
+max_gas_price = {{ .MaxGasPrice }}
+
+# Percentage to bump the gas price by when replacing a stuck (still-pending) fulfilment
+# tx at the same nonce. Must be >= 10 - the network requires at least a 10% increase to
+# replace a transaction; values below 10 fall back to a safe default.
+gas_bump_percent = {{ .GasBumpPercent }}
+
+# Send EIP-1559 (type-2) dynamic-fee transactions, pricing each fulfilment with a priority
+# fee (tip) plus a base-fee-derived max fee instead of a single legacy gas price. max_gas_price
+# still caps the total. Automatically falls back to legacy pricing on a pre-London chain (one
+# whose latest block carries no base fee), so leaving this true is safe everywhere.
+eip1559 = {{ .Eip1559 }}
+{{end -}}
+# This is a TOML config file.
 # For more information, see https://github.com/toml-lang/toml
 
 ##########################################
 ## Chain                                ##
 ##########################################
 
+# Run ONE network with the [chain] block, or SEVERAL from this one process with a [[chains]]
+# array-of-tables - one block per network, each carrying the same fields (name, contract_address,
+# network_id, the RPCs, gas, first_block, event_*). Network ids must be distinct. 'go-ooo init
+# <network> --add' appends a [[chains]] entry, converting an existing [chain]. One keystore/provider
+# key, DB and pricing engine are shared; each chain runs as an independent worker. Select a chain on
+# the admin/query/start commands with --chain <name|network_id>.
+
+{{if .Chains -}}
+{{range .Chains}}[[chains]]
+{{template "chainBody" .}}
+{{end -}}
+{{else -}}
 [chain]
-# Address of the Router smart contract
-contract_address = "{{ .Chain.ContractAddress }}"
-
-# Network Id, e.g. 1 for mainnet etc.
-network_id = {{ .Chain.NetworkId }}
-
-# RPC nodes - e.g. Infura/Alchemy
-eth_http_host = "{{ .Chain.EthHttpHost }}"
-eth_ws_host = "{{ .Chain.EthWsHost }}"
-
-# First block to start checking for jobs.
-# Generally, the block you registered as a provider.
-# Defaults to the block the Router contract was deployed
-first_block = {{ .Chain.FirstBlock }}
-
-# Gas limit for fulfilling requests
-gas_limit = {{ .Chain.GasLimit }}
-
-# Max gas price you are willing to pay to fulfil a request
-max_gas_price = {{ .Chain.MaxGasPrice }}
-
-# Percentage to bump the gas price by when replacing a stuck (still-pending) fulfilment
-# tx at the same nonce. Must be >= 10 - the network requires at least a 10% increase to
-# replace a transaction; values below 10 fall back to a safe default.
-gas_bump_percent = {{ .Chain.GasBumpPercent }}
-
-# Send EIP-1559 (type-2) dynamic-fee transactions, pricing each fulfilment with a priority
-# fee (tip) plus a base-fee-derived max fee instead of a single legacy gas price. max_gas_price
-# still caps the total. Automatically falls back to legacy pricing on a pre-London chain (one
-# whose latest block carries no base fee), so leaving this true is safe everywhere.
-eip1559 = {{ .Chain.Eip1559 }}
-
+{{template "chainBody" .Chain}}
+{{end}}
 ##########################################
 ## Database                             ##
 ##########################################
@@ -93,8 +126,9 @@ max_job_age = {{ .Jobs.MaxJobAge }}
 # verified-pair feeds go-ooo polls to know which DEXs + pairs it can price. The fetched manifest is
 # persisted, so the oracle keeps pricing from the last sync if the API is briefly unreachable.
 [jobs.dex_export]
-# Export API base, e.g. https://dex-pair-verify.example.io/api/ooo/v1
-# Empty = skip the sync and price from the catalogue already persisted in the database.
+# Export API base. Defaults to the Unification dpv (https://ooo-dex.unification.io/api/ooo/v1) for the
+# real networks; the provider authenticates with its on-chain-registered wallet. Point at your own dpv,
+# or leave EMPTY to skip the sync and price from the catalogue already persisted in the database.
 base_url = "{{ .Jobs.DexExport.BaseUrl }}"
 # Export bearer token for the API (interim; the wallet challenge-response replaces it).
 api_token = "{{ .Jobs.DexExport.ApiToken }}"

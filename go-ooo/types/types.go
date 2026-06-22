@@ -4,6 +4,9 @@ type AdminTask struct {
 	Task         string // register/withdraw/set_fee/set_granular_fee
 	FeeOrAmount  uint64 // new fee or amount to withdraw
 	ToOrConsumer string // address withdrawing to, or contract address for granular fee
+	// Network is the target chain's network id. The --chain CLI selector resolves a name/id to this;
+	// the daemon routes the task to that chain's worker. 0 = unspecified → the sole chain (back-compat).
+	Network int64
 	// Resp is the per-request reply channel: the worker sends this task's response here,
 	// so concurrent admin requests can't read each other's replies. json:"-" keeps it out
 	// of both request decoding and response marshalling.

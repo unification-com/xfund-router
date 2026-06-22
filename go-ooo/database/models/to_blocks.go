@@ -4,6 +4,8 @@ import "gorm.io/gorm"
 
 type ToBlocks struct {
 	gorm.Model
+	// ChainId scopes the resume cursor per chain, so each worker tracks its own last-scanned block.
+	ChainId  int64 `gorm:"index"`
 	BlockNum uint64
 }
 

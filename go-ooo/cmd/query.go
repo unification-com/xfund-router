@@ -15,5 +15,7 @@ var queryCmd = &cobra.Command{
 }
 
 func init() {
+	// Shares the --chain selector with the admin commands (both go through processAdminTask).
+	queryCmd.PersistentFlags().StringVar(&chainFlag, "chain", "", "target chain (name or network id; 'all' for every chain). Optional with a single chain configured")
 	rootCmd.AddCommand(queryCmd)
 }

@@ -114,7 +114,8 @@ func TestSyncManifestAndFeedsNoBaseUrl(t *testing.T) {
 	db := &database.DB{DB: gdb}
 	require.NoError(t, db.Migrate())
 
-	cfg := config.DefaultConfig() // BaseUrl defaults to ""
+	cfg := config.DefaultConfig()
+	cfg.Jobs.DexExport.BaseUrl = "" // exercise the no-base-url path (the default is now the prod dpv)
 	dm := NewDexManager(context.Background(), cfg, db)
 	require.NoError(t, dm.syncManifestAndFeeds())
 

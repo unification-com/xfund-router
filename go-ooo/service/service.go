@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"github.com/labstack/echo/v4"
 	"time"
 
@@ -21,16 +23,17 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+// Service is the process-level supervisor. It owns the shared spine - the database, the DEX
+// pricing engine (origin-chain-agnostic), the HTTP/admin + Prometheus servers and the pair
+// catalogue refresh - and supervises one chain worker per configured network. Each worker runs
+// its own event watchers and serialises its own chain's transactions; the supervisor wires them
+// together and routes admin tasks to the right one.
 type Service struct {
-	contractAddress   common.Address
-	client            *ethclient.Client
-	contractInstance  *ooo_router.OooRouter
 	db                *database.DB
 	ctx               context.Context
 	cfg               *config.Config
-	jobTicker         *time.Ticker // periodic jobTicker
 	updatePairsTicker *time.Ticker
-	oooRouterService  *chain.OoORouterService
+	workers           []*chain.OoORouterService
 
 	echoService *echo.Echo
 	oooApi      *ooo_api.OOOApi
@@ -46,46 +49,13 @@ type Service struct {
 func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte,
 	db *database.DB, adminTokenHash string) (*Service, error) {
 
-	contractAddress := common.HexToAddress(cfg.Chain.ContractAddress)
-	logger.InfoWithFields("service", "NewService", "", "dial eth client", logger.Fields{
-		"address": cfg.Chain.EthWsHost,
-	})
-	client, err := ethclient.Dial(cfg.Chain.EthWsHost)
-
-	if err != nil {
-		return nil, err
-	}
-
-	var pollInterval = time.Duration(30)
-	checkDuration := cfg.Jobs.CheckDuration
-	if checkDuration != 0 {
-		pollInterval = time.Duration(checkDuration)
-	}
-
 	// How often to refresh the DEX source catalogue + pairs from the dex-pair-verify export.
 	pairsPollInterval := cfg.Jobs.DexExport.PollIntervalSec
 	if pairsPollInterval == 0 {
 		pairsPollInterval = 3600
 	}
 
-	logger.Debug("service", "NewService", "", "poll service", logger.Fields{
-		"poll_interval": time.Second * pollInterval,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	logger.InfoWithFields("service", "NewService", "", "create ooo router instance", logger.Fields{
-		"contract": contractAddress,
-	})
-	oooRouterInstance, err := ooo_router.NewOooRouter(contractAddress, client)
-	if err != nil {
-		return nil, err
-	}
-
 	oooApi, err := ooo_api.NewApi(ctx, cfg, db)
-
 	if err != nil {
 		return nil, err
 	}
@@ -94,39 +64,49 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 	// are available, authenticate the dex-pair-verify export pulls with the oracle wallet (the on-chain
 	// registered provider) via challenge-response instead of a shared secret. A configured static token
 	// (the Manager's default) takes precedence as the operator break-glass.
+	// The export wallet-auth is process-level (one OOOApi); the provider (one key) is registered on
+	// every chain, so any configured chain's id works for the challenge - use the first.
+	authChainId := cfg.ChainList()[0].NetworkId
 	exportCfg := cfg.Jobs.DexExport
-	if exportCfg.ApiToken == "" && exportCfg.BaseUrl != "" && len(oraclePrivateKey) > 0 && cfg.Chain.NetworkId > 0 {
+	if exportCfg.ApiToken == "" && exportCfg.BaseUrl != "" && len(oraclePrivateKey) > 0 && authChainId > 0 {
 		priv, kerr := crypto.HexToECDSA(utils.RemoveHexPrefix(string(oraclePrivateKey)))
 		if kerr != nil {
 			logger.ErrorWithFields("service", "NewService", "provider export auth", kerr.Error(), logger.Fields{})
 		} else {
 			signer := walletworker.NewEthSigner(priv)
-			oooApi.SetExportAuthenticator(export.NewWalletAuth(exportCfg.BaseUrl, cfg.Chain.NetworkId, signer, nil))
+			oooApi.SetExportAuthenticator(export.NewWalletAuth(exportCfg.BaseUrl, authChainId, signer, nil))
 			logger.InfoWithFields("service", "NewService", "", "using provider wallet-auth for the dex-pair-verify export", logger.Fields{
 				"provider": signer.Address(),
-				"chain_id": cfg.Chain.NetworkId,
+				"chain_id": authChainId,
 			})
 		}
 	}
 
-	logger.Info("service", "NewService", "", "init ooo router service")
-	oooRouterService, err := chain.NewOoORouter(ctx, cfg, client, oooRouterInstance, contractAddress, oraclePrivateKey, db, oooApi)
-
-	if err != nil {
-		return nil, err
+	logger.Info("service", "NewService", "", "init chain workers")
+	var workers []*chain.OoORouterService
+	for _, chainCfg := range cfg.ChainList() {
+		worker, werr := buildChainWorker(ctx, cfg, chainCfg, oraclePrivateKey, db, oooApi)
+		if werr != nil {
+			// Start-up failure isolation: a chain that can't be built logs + is skipped, so one bad
+			// RPC/config can't abort the whole fleet. Fatal only if NONE come up.
+			logger.ErrorWithFields("service", "NewService", "build chain worker", werr.Error(), logger.Fields{
+				"network_id": chainCfg.NetworkId,
+			})
+			continue
+		}
+		workers = append(workers, worker)
+	}
+	if len(workers) == 0 {
+		return nil, errors.New("no chain workers could be started - check the [chain]/[[chains]] RPC endpoints")
 	}
 
 	return &Service{
-		ctx:              ctx,
-		cfg:              cfg,
-		client:           client,
-		contractAddress:  contractAddress,
-		contractInstance: oooRouterInstance,
-		db:               db,
+		ctx: ctx,
+		cfg: cfg,
+		db:  db,
 		// https://stackoverflow.com/questions/16903348/scheduled-polling-task-in-go
-		jobTicker:         time.NewTicker(time.Second * pollInterval),
 		updatePairsTicker: time.NewTicker(time.Second * time.Duration(pairsPollInterval)),
-		oooRouterService:  oooRouterService,
+		workers:           workers,
 		adminTasks:        make(chan go_ooo_types.AdminTask),
 		analyticsTasks:    make(chan go_ooo_types.AnalyticsTask),
 		echoService:       echo.New(),
@@ -135,38 +115,84 @@ func NewService(ctx context.Context, cfg *config.Config, oraclePrivateKey []byte
 	}, nil
 }
 
+// buildChainWorker dials one chain (chainCfg) and constructs its worker. NewService calls it once per
+// entry in the config's chain list, so the supervisor ends up with one independent worker per network.
+//
+// Two transports: the HTTP endpoint (required) carries every call, the getLogs event detection and the
+// tx sends; the websocket endpoint (optional) is used only for live event subscriptions. A blank or
+// unreachable websocket is NOT fatal - the worker degrades to HTTP polling, since most operators run on
+// free RPCs where WSS is flaky or absent.
+func buildChainWorker(ctx context.Context, cfg *config.Config, chainCfg config.ChainConfig,
+	oraclePrivateKey []byte, db *database.DB, oooApi *ooo_api.OOOApi) (*chain.OoORouterService, error) {
+
+	contractAddress := common.HexToAddress(chainCfg.ContractAddress)
+
+	logger.InfoWithFields("service", "buildChainWorker", "", "dial eth http client", logger.Fields{
+		"address": chainCfg.EthHttpHost,
+	})
+	httpClient, err := ethclient.Dial(chainCfg.EthHttpHost)
+	if err != nil {
+		return nil, err
+	}
+	httpContract, err := ooo_router.NewOooRouter(contractAddress, httpClient)
+	if err != nil {
+		return nil, err
+	}
+
+	// Optional websocket transport for live subscriptions. A failed dial degrades to polling.
+	var wsClient *ethclient.Client
+	var wsContract *ooo_router.OooRouter
+	if chainCfg.EthWsHost != "" {
+		logger.InfoWithFields("service", "buildChainWorker", "", "dial eth ws client", logger.Fields{
+			"address": chainCfg.EthWsHost,
+		})
+		wsClient, err = ethclient.Dial(chainCfg.EthWsHost)
+		if err != nil {
+			logger.WarnWithFields("service", "buildChainWorker", "",
+				"could not connect the websocket endpoint - the worker will detect events via HTTP polling", logger.Fields{
+					"address": chainCfg.EthWsHost,
+					"error":   err.Error(),
+				})
+			wsClient = nil
+		} else if wsContract, err = ooo_router.NewOooRouter(contractAddress, wsClient); err != nil {
+			logger.WarnWithFields("service", "buildChainWorker", "",
+				"could not bind the router on the websocket client - the worker will detect events via HTTP polling", logger.Fields{
+					"error": err.Error(),
+				})
+			wsClient = nil
+			wsContract = nil
+		}
+	} else {
+		logger.Info("service", "buildChainWorker", "", "no eth_ws_host configured - the worker will detect events via HTTP polling")
+	}
+
+	return chain.NewOoORouter(ctx, cfg, chainCfg, httpClient, httpContract, wsClient, wsContract, contractAddress, oraclePrivateKey, db, oooApi)
+}
+
 func (s *Service) Run() {
 
 	go func(s *Service) {
 		s.initEcho()
 	}(s)
 
-	// Seed the cumulative fulfilment counters from DB history BEFORE /metrics starts serving,
-	// so the all-time totals (and forward rates) are correct from the first scrape.
-	chain.WarmStartFulfilmentMetrics(s.db)
+	// Seed each chain's cumulative fulfilment counters from DB history BEFORE /metrics starts
+	// serving, so the all-time totals (and forward rates) are correct per chain from the first scrape.
+	chain.WarmStartFulfilmentMetrics(s.db, s.workerNetworkIds())
 
 	go func(s *Service) {
 		s.initPrometheus()
 	}(s)
 
-	// refresh the DEX pair catalogue - initial refresh at startup
+	// refresh the DEX pair catalogue - initial refresh at startup. The catalogue is shared across
+	// all chains (pricing is origin-chain-agnostic), so one refresh serves every worker.
 	go s.refreshPairs()
 
-	// pick up from the last block we know about to process
-	// any historical events missed. This will run and complete
-	// before the event subscriptions initialise in order to
-	// process any potentially missed and/or processed requests
-	s.oooRouterService.GetHistoricalEvents()
-
-	go func(s *Service) {
-		s.oooRouterService.RunEventWatchers()
-	}(s)
-
-	// The event watcher signals this channel when it detects a new request, so we process it
-	// immediately instead of waiting for the next jobTicker tick. A nudge buffered during the
-	// historical-event catch-up above is drained on the first iteration, so startup backlog is
-	// processed at once too.
-	jobNudge := s.oooRouterService.JobNudge()
+	// Start each chain's worker on its own goroutine. Each replays missed events, runs its event
+	// watchers and serialises its own fulfilment + admin transactions; the chains run concurrently
+	// (independent nonce spaces + RPC clients), so none blocks another.
+	for _, w := range s.workers {
+		go w.Run()
+	}
 
 	for {
 		select {
@@ -174,20 +200,70 @@ func (s *Service) Run() {
 			logger.Info("service", "Run", "", "context cancelled - shutting down")
 			s.Stop()
 			return
-		case <-s.jobTicker.C:
-			s.oooRouterService.ProcessPendingJobQueue("ticker")
-		case <-jobNudge:
-			s.oooRouterService.ProcessPendingJobQueue("event")
 		case <-s.updatePairsTicker.C:
 			go s.refreshPairs()
 		case t := <-s.analyticsTasks:
 			t.Resp <- s.ProcessAnalyticsTask(t)
 		case t := <-s.adminTasks:
-			// At any time we can process a request to add a new admin task
-			// such as changing fees etc.
-			t.Resp <- s.oooRouterService.ProcessAdminTask(t)
+			// At any time we can process a request to add a new admin task such as changing fees.
+			// It is routed to the worker for its target chain, which serialises the send with that
+			// chain's fulfilments and replies on t.Resp.
+			s.dispatchAdminTask(t)
 		}
 	}
+}
+
+// dispatchAdminTask routes an admin task to the worker for its target chain (t.Network) and returns at
+// once; the worker serialises it with that chain's fulfilment transactions and replies on t.Resp.
+func (s *Service) dispatchAdminTask(t go_ooo_types.AdminTask) {
+	worker := s.workerForTask(t)
+	if worker == nil {
+		msg := fmt.Sprintf("no chain worker for network %d", t.Network)
+		if t.Network == 0 {
+			msg = "several chains are running - specify --chain <name|network_id>"
+		}
+		t.Resp <- go_ooo_types.AdminTaskResponse{AdminTask: t, Success: false, Error: msg}
+		return
+	}
+	go worker.SubmitAdminTask(t)
+}
+
+// workerForTask resolves the worker for an admin task's target network, or nil if none applies (the
+// caller turns that into an "ask for --chain" error). The routing decision itself lives in the pure
+// routeWorkerIndex so it can be unit-tested without dialling a chain.
+func (s *Service) workerForTask(t go_ooo_types.AdminTask) *chain.OoORouterService {
+	if idx := routeWorkerIndex(s.workerNetworkIds(), t.Network); idx >= 0 {
+		return s.workers[idx]
+	}
+	return nil
+}
+
+// workerNetworkIds is the network id of each running worker, in worker order - shared by the admin-task
+// routing and the per-chain metrics warm-start.
+func (s *Service) workerNetworkIds() []int64 {
+	ids := make([]int64, len(s.workers))
+	for i, w := range s.workers {
+		ids[i] = w.NetworkId()
+	}
+	return ids
+}
+
+// routeWorkerIndex picks the worker (by index into networkIds) that should handle a task for the target
+// network, or -1 if none applies. Target 0 (unspecified) routes to the sole worker when exactly one
+// chain runs; with several it is ambiguous (-1). A set target matches a worker by network id.
+func routeWorkerIndex(networkIds []int64, target int64) int {
+	if target == 0 {
+		if len(networkIds) == 1 {
+			return 0
+		}
+		return -1
+	}
+	for i, id := range networkIds {
+		if id == target {
+			return i
+		}
+	}
+	return -1
 }
 
 // refreshPairs refreshes the DEX source catalogue + pair set. Shared by the initial refresh + the
@@ -198,14 +274,17 @@ func (s *Service) refreshPairs() {
 
 func (s *Service) Stop() {
 	// clean up and shut down
-	logger.Info("service", "Stop", "", "shutting down jobTicker")
-	s.jobTicker.Stop()
-
 	logger.Info("service", "Stop", "", "shutting down updatePairsTicker")
 	s.updatePairsTicker.Stop()
 
-	logger.Info("service", "Stop", "", "shutting down oooRouterService")
-	s.oooRouterService.Shutdown()
+	// Each worker's own job loop stops itself on the shared context cancellation; Shutdown
+	// unsubscribes its event watchers and saves its resume block.
+	for _, w := range s.workers {
+		logger.InfoWithFields("service", "Stop", "", "shutting down chain worker", logger.Fields{
+			"network_id": w.NetworkId(),
+		})
+		w.Shutdown()
+	}
 
 	logger.Info("service", "Stop", "", "shutting down echo")
 	// s.ctx is already cancelled here, so use a fresh bounded context to let echo

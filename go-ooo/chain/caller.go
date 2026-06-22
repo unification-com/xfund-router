@@ -66,21 +66,21 @@ const (
 // support probe fails, fall back to legacy pricing - legacy txs are valid on every chain, so an
 // uncertain probe (or a pre-London chain) never blocks startup and never produces a tx the chain
 // will reject.
-func determineEip1559(ctx context.Context, client *ethclient.Client, enabled bool) bool {
+func determineEip1559(ctx context.Context, client *ethclient.Client, enabled bool, log *logger.Scoped) bool {
 	if !enabled {
-		logger.Info("chain", "determineEip1559", "", "eip1559 disabled in config - using legacy gas pricing")
+		log.Info("chain", "determineEip1559", "", "eip1559 disabled in config - using legacy gas pricing")
 		return false
 	}
 	head, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		logger.Error("chain", "determineEip1559", "probe chain for base fee", err.Error())
+		log.Error("chain", "determineEip1559", "probe chain for base fee", err.Error())
 		return false
 	}
 	if head.BaseFee == nil {
-		logger.Warn("chain", "determineEip1559", "", "eip1559 enabled but chain has no base fee (pre-London) - using legacy gas pricing")
+		log.Warn("chain", "determineEip1559", "", "eip1559 enabled but chain has no base fee (pre-London) - using legacy gas pricing")
 		return false
 	}
-	logger.Info("chain", "determineEip1559", "", "using EIP-1559 dynamic-fee gas pricing")
+	log.Info("chain", "determineEip1559", "", "using EIP-1559 dynamic-fee gas pricing")
 	return true
 }
 
@@ -97,7 +97,7 @@ func (o *OoORouterService) suggestGasFees() (gasFees, error) {
 	return gasFees{gasPrice: gasPrice}, nil
 }
 
-// suggestGasPrice asks the node for a legacy gas price, capped at cfg.Chain.MaxGasPrice.
+// suggestGasPrice asks the node for a legacy gas price, capped at the chain's max_gas_price.
 func (o *OoORouterService) suggestGasPrice() (*big.Int, error) {
 	gasPrice, err := o.client.SuggestGasPrice(o.context)
 	if err != nil {
@@ -123,12 +123,12 @@ func (o *OoORouterService) suggestDynamicFees() (gasFees, error) {
 	}
 	feeCap := new(big.Int).Mul(head.BaseFee, big.NewInt(feeCapBaseFeeMultiplier))
 	feeCap.Add(feeCap, tip)
-	return cappedDynamicFees(tip, feeCap, o.cfg.Chain.MaxGasPrice), nil
+	return cappedDynamicFees(tip, feeCap, o.chainCfg.MaxGasPrice), nil
 }
 
-// capGasPrice limits gasPrice to cfg.Chain.MaxGasPrice (in gwei) when that is set.
+// capGasPrice limits gasPrice to the chain's max_gas_price (in gwei) when that is set.
 func (o *OoORouterService) capGasPrice(gasPrice *big.Int) *big.Int {
-	return capToMaxGwei(gasPrice, o.cfg.Chain.MaxGasPrice)
+	return capToMaxGwei(gasPrice, o.chainCfg.MaxGasPrice)
 }
 
 // capToMaxGwei limits gasPrice (in wei) to maxGwei. maxGwei <= 0 means uncapped.
@@ -154,7 +154,7 @@ func cappedDynamicFees(tip, feeCap *big.Int, maxGwei int64) gasFees {
 
 // gasBumpPercent returns the configured replacement bump, enforcing the network floor.
 func (o *OoORouterService) gasBumpPercent() uint64 {
-	if p := o.cfg.Chain.GasBumpPercent; p >= minGasBumpPercent {
+	if p := o.chainCfg.GasBumpPercent; p >= minGasBumpPercent {
 		return p
 	}
 	return defaultGasBumpPercent
@@ -175,7 +175,7 @@ func (o *OoORouterService) buildReplacementTransactOpts(nonce, stuckGasPrice, st
 		if err != nil {
 			return nil, err
 		}
-		computeReplacementDynamicFees(stuckGasPrice, stuckTip, suggested, bump, o.cfg.Chain.MaxGasPrice).apply(&opts)
+		computeReplacementDynamicFees(stuckGasPrice, stuckTip, suggested, bump, o.chainCfg.MaxGasPrice).apply(&opts)
 		return &opts, nil
 	}
 
@@ -183,7 +183,7 @@ func (o *OoORouterService) buildReplacementTransactOpts(nonce, stuckGasPrice, st
 	if err != nil {
 		return nil, err
 	}
-	opts.GasPrice = computeReplacementGasPrice(stuckGasPrice, suggested, bump, o.cfg.Chain.MaxGasPrice)
+	opts.GasPrice = computeReplacementGasPrice(stuckGasPrice, suggested, bump, o.chainCfg.MaxGasPrice)
 	return &opts, nil
 }
 

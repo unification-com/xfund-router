@@ -5,6 +5,8 @@ import (
 	"fmt"
 	oooapidextypes "go-ooo/ooo_api/dex/types"
 	"os"
+	"strconv"
+	"strings"
 )
 
 type JobsConfig struct {
@@ -26,6 +28,11 @@ type DexExportConfig struct {
 	PollIntervalSec uint64 `mapstructure:"poll_interval_sec"`
 }
 
+// DefaultDexExportBaseUrl is the canonical Unification dex-pair-verify export API. init seeds it for
+// the real networks (the provider authenticates with its on-chain-registered wallet), so a fresh
+// deployment pulls the live pair manifest out of the box. The dev net leaves it blank (local dpv).
+const DefaultDexExportBaseUrl = "https://ooo-dex.unification.io/api/ooo/v1"
+
 type ServeConfig struct {
 	Host string `mapstructure:"host"`
 	Port string `mapstructure:"port"`
@@ -36,7 +43,20 @@ type KeystoreConfig struct {
 	Account string `mapstructure:"account"`
 }
 
+// DefaultEventPollIntervalSec is the HTTP event-poll cadence used when event_poll_interval_sec is
+// unset. A few seconds' detection latency is immaterial - a fulfilment already waits for
+// wait_confirmations and the job sweep before going out.
+const DefaultEventPollIntervalSec uint64 = 6
+
+// DefaultEventScanBatchBlocks is the eth_getLogs block-range batch size used when
+// event_scan_batch_blocks is unset. A wide range can be rejected (or throttled) by limited RPCs, so
+// the catch-up is split into batches of at most this many blocks.
+const DefaultEventScanBatchBlocks uint64 = 2000
+
 type ChainConfig struct {
+	// Name is a human label for the chain (e.g. "sepolia"), used by the --chain CLI selector to pick
+	// this chain among several. Optional; the selector also accepts the network_id.
+	Name            string `mapstructure:"name"`
 	GasLimit        uint64 `mapstructure:"gas_limit"`
 	MaxGasPrice     int64  `mapstructure:"max_gas_price"`
 	GasBumpPercent  uint64 `mapstructure:"gas_bump_percent"`
@@ -46,6 +66,12 @@ type ChainConfig struct {
 	EthWsHost       string `mapstructure:"eth_ws_host"`
 	NetworkId       int64  `mapstructure:"network_id"`
 	FirstBlock      uint64 `mapstructure:"first_block"`
+	// EventPollIntervalSec is how often (seconds) the worker scans eth_getLogs for events when it is
+	// running in HTTP-poll mode (no eth_ws_host, or the websocket dropped). 0 → DefaultEventPollIntervalSec.
+	EventPollIntervalSec uint64 `mapstructure:"event_poll_interval_sec"`
+	// EventScanBatchBlocks caps the eth_getLogs block range per request. Lower it for RPCs that reject
+	// or throttle wide ranges (e.g. block-explorer eth-rpc proxies). 0 → DefaultEventScanBatchBlocks.
+	EventScanBatchBlocks uint64 `mapstructure:"event_scan_batch_blocks"`
 }
 
 type DatabaseConfig struct {
@@ -119,10 +145,14 @@ type PriceQualityConfig struct {
 }
 
 type Config struct {
-	Jobs         JobsConfig         `mapstructure:"jobs"`
-	Serve        ServeConfig        `mapstructure:"serve"`
-	Keystore     KeystoreConfig     `mapstructure:"keystorage"`
+	Jobs     JobsConfig     `mapstructure:"jobs"`
+	Serve    ServeConfig    `mapstructure:"serve"`
+	Keystore KeystoreConfig `mapstructure:"keystorage"`
+	// Chain is the legacy single-network block ([chain]). Chains is the multi-network form
+	// ([[chains]]); when set it takes precedence (see ChainList). One go-ooo process runs every chain
+	// in ChainList, each as an independent worker sharing the keystore, DB and pricing engine.
 	Chain        ChainConfig        `mapstructure:"chain"`
+	Chains       []ChainConfig      `mapstructure:"chains"`
 	Database     DatabaseConfig     `mapstructure:"database"`
 	Prometheus   PrometheusConfig   `mapstructure:"prometheus"`
 	Log          LogConfig          `mapstructure:"log"`
@@ -140,7 +170,7 @@ func DefaultConfig() *Config {
 			WaitConfirmations: 1,
 			MaxJobAge:         3600,
 			DexExport: DexExportConfig{
-				BaseUrl:         "",
+				BaseUrl:         DefaultDexExportBaseUrl,
 				ApiToken:        "",
 				PollIntervalSec: 3600,
 			},
@@ -159,12 +189,14 @@ func DefaultConfig() *Config {
 			GasBumpPercent: 13,
 			// Modern default: send EIP-1559 dynamic-fee txs. Auto-falls-back to legacy on a
 			// pre-London chain (one with no base fee), so this is safe even on a migrated config.
-			Eip1559:         true,
-			ContractAddress: "",
-			EthHttpHost:     "",
-			EthWsHost:       "",
-			NetworkId:       0,
-			FirstBlock:      0,
+			Eip1559:              true,
+			ContractAddress:      "",
+			EthHttpHost:          "",
+			EthWsHost:            "",
+			NetworkId:            0,
+			FirstBlock:           0,
+			EventPollIntervalSec: DefaultEventPollIntervalSec,
+			EventScanBatchBlocks: DefaultEventScanBatchBlocks,
 		},
 		Database: DatabaseConfig{
 			Dialect:  "sqlite",
@@ -187,7 +219,7 @@ func DefaultConfig() *Config {
 			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
 			XdaiHttpRpc:      "https://rpc.gnosischain.com",
 			FantomHttpRpc:    "https://finchains.io/api",
-			ShibariumHttpRpc: "https://rpc.shibrpc.com",
+			ShibariumHttpRpc: "https://shibariumscan.io/api/eth-rpc",
 		},
 		ApiKeys: ApiKeysConfig{
 			GraphNetwork: "",
@@ -263,15 +295,18 @@ func (c *Config) InitForNet(network string) error {
 		c.InitForShibarium()
 	case "puppynet":
 		c.InitForShibariumPuppynet()
+	case "qom", "ql1":
+		c.InitForQom()
 	default:
 		// Don't silently configure DevNet (127.0.0.1) for a typo'd network - the
 		// operator would get a config quietly pointing at localhost.
-		return fmt.Errorf("unknown network %q (expected one of: dev, sepolia, mainnet, polygon, shibarium, puppynet)", network)
+		return fmt.Errorf("unknown network %q (expected one of: dev, sepolia, mainnet, polygon, shibarium, puppynet, qom)", network)
 	}
 	return nil
 }
 
 func (c *Config) InitForDevNet() {
+	c.Chain.Name = "dev"
 	c.Chain.ContractAddress = "0x5b1869D9A4C187F2EAa108f3062412ecf0526b24"
 	c.Chain.EthHttpHost = "http://127.0.0.1:8545"
 	c.Chain.EthWsHost = "ws://127.0.0.1:8545"
@@ -280,9 +315,13 @@ func (c *Config) InitForDevNet() {
 	// The dev env runs anvil, a London+ chain, so it exercises the EIP-1559 path like the prod
 	// networks. (Kept explicit rather than relying on the default, to document the dev intent.)
 	c.Chain.Eip1559 = true
+	// Dev points at a local dpv (or none), not the production export API - leave base_url blank so the
+	// dev provider (unregistered on any real chain) doesn't fail wallet-auth against prod dpv.
+	c.Jobs.DexExport.BaseUrl = ""
 }
 
 func (c *Config) InitForSepolia() {
+	c.Chain.Name = "sepolia"
 	c.Chain.ContractAddress = "0xf6b5d6eafE402d22609e685DE3394c8b359CaD31"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -291,6 +330,7 @@ func (c *Config) InitForSepolia() {
 }
 
 func (c *Config) InitForMainnet() {
+	c.Chain.Name = "mainnet"
 	c.Chain.ContractAddress = "0x9ac9AE20a17779c17b069b48A8788e3455fC6121"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -299,6 +339,7 @@ func (c *Config) InitForMainnet() {
 }
 
 func (c *Config) InitForPolygon() {
+	c.Chain.Name = "polygon"
 	c.Chain.ContractAddress = "0x5E9405888255C142207Ab692C72A8cd6fc85C3A2"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
@@ -307,19 +348,36 @@ func (c *Config) InitForPolygon() {
 }
 
 func (c *Config) InitForShibarium() {
+	c.Chain.Name = "shibarium"
 	c.Chain.ContractAddress = "0x2E9ade949900e19735689686E61BF6338a65B881"
-	c.Chain.EthHttpHost = ""
+	// Shibarium has no Infura/Alchemy, so ship a working public RPC default (the block-explorer eth-rpc
+	// proxy). eth_ws_host stays blank - it has no public WSS, so the worker HTTP-polls for events. The
+	// proxy throttles wide getLogs, so lower event_scan_batch_blocks if a catch-up scan lags.
+	c.Chain.EthHttpHost = "https://shibariumscan.io/api/eth-rpc"
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 109
 	c.Chain.FirstBlock = 591096
 }
 
 func (c *Config) InitForShibariumPuppynet() {
+	c.Chain.Name = "puppynet"
 	c.Chain.ContractAddress = "0x7a99f98EfC7C1313E3a8FA4Be36aE2b100a1622F"
 	c.Chain.EthHttpHost = ""
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 157
 	c.Chain.FirstBlock = 4764990
+}
+
+func (c *Config) InitForQom() {
+	c.Chain.Name = "qom"
+	c.Chain.ContractAddress = "0x2E9ade949900e19735689686E61BF6338a65B881"
+	// QL1 (QoM) has no Infura/Alchemy, so unlike the other real networks we ship a working public RPC
+	// as the default rather than leaving it blank. eth_ws_host stays blank - QL1 has no public WSS, so
+	// the worker detects events via HTTP polling.
+	c.Chain.EthHttpHost = "https://evm-rpc-ql1.foxxone.one"
+	c.Chain.EthWsHost = ""
+	c.Chain.NetworkId = 766
+	c.Chain.FirstBlock = 3793641
 }
 
 func (c *Config) SetKeystore(path, account string) {
@@ -331,30 +389,125 @@ func (c *Config) SetSqliteDb(path string) {
 	c.Database.Storage = path
 }
 
+// ChainList returns the effective set of chains to run: the multi-network [[chains]] when present,
+// otherwise the single legacy [chain] wrapped as a one-element list. Every consumer iterates this, so
+// single- and multi-network configs share one path.
+func (c Config) ChainList() []ChainConfig {
+	if len(c.Chains) > 0 {
+		return c.Chains
+	}
+	return []ChainConfig{c.Chain}
+}
+
+// AddChain appends ch as an additional network, converting a legacy single [chain] into the [[chains]]
+// list first so the config ends up uniformly multi-network. It rejects a duplicate network id (the same
+// guard ValidateBasic applies). Used by 'init <network> --add'.
+func (c *Config) AddChain(ch ChainConfig) error {
+	chains := c.ChainList()
+	for _, existing := range chains {
+		if existing.NetworkId == ch.NetworkId {
+			return fmt.Errorf("network %d is already configured", ch.NetworkId)
+		}
+	}
+	// ChainList may alias c.Chains; copy so the append can't mutate the source slice in place.
+	c.Chains = append(append([]ChainConfig{}, chains...), ch)
+	c.Chain = ChainConfig{} // the [[chains]] list is now authoritative - clear the legacy single block
+	return nil
+}
+
+// BackfillNetworkId is the chain id used to stamp legacy (pre-chain_id) rows during the DB migration.
+// It is the legacy [chain].network_id, or - for a single [[chains]] entry - that chain's id. With
+// several [[chains]] it is 0 (an already-v5 DB has nothing to backfill; a populated pre-v5 DB must be
+// migrated single-chain first, or keep [chain] set to the legacy network).
+func (c Config) BackfillNetworkId() int64 {
+	if c.Chain.NetworkId != 0 {
+		return c.Chain.NetworkId
+	}
+	if len(c.Chains) == 1 {
+		return c.Chains[0].NetworkId
+	}
+	return 0
+}
+
+// ResolveChain picks one chain from the configured list by the --chain selector: a name (case-
+// insensitive, matching ChainConfig.Name) or a numeric network id. An empty selector returns the sole
+// chain when only one is configured. Errors if the selector is empty with several chains, or matches
+// nothing.
+func (c Config) ResolveChain(selector string) (ChainConfig, error) {
+	chains := c.ChainList()
+	if selector == "" {
+		if len(chains) == 1 {
+			return chains[0], nil
+		}
+		return ChainConfig{}, fmt.Errorf("several chains configured - specify --chain <name|network_id> (one of: %s)", chainNames(chains))
+	}
+	if id, err := strconv.ParseInt(selector, 10, 64); err == nil {
+		for _, ch := range chains {
+			if ch.NetworkId == id {
+				return ch, nil
+			}
+		}
+	}
+	for _, ch := range chains {
+		if ch.Name != "" && strings.EqualFold(ch.Name, selector) {
+			return ch, nil
+		}
+	}
+	return ChainConfig{}, fmt.Errorf("no chain matches --chain %q (configured: %s)", selector, chainNames(chains))
+}
+
+// chainNames is a short comma list of the configured chains, for error messages and CLI help.
+func chainNames(chains []ChainConfig) string {
+	parts := make([]string, len(chains))
+	for i, ch := range chains {
+		if ch.Name != "" {
+			parts[i] = fmt.Sprintf("%s(%d)", ch.Name, ch.NetworkId)
+		} else {
+			parts[i] = strconv.FormatInt(ch.NetworkId, 10)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// validateChain checks one chain block; label scopes the error message (e.g. "chain", "chains[1]").
+func validateChain(ch ChainConfig, label string) error {
+	if ch.ContractAddress == "" {
+		return fmt.Errorf("%s.contract_address not set in config.toml", label)
+	}
+	// eth_ws_host is OPTIONAL: when blank (or the websocket later drops), the worker detects events by
+	// polling eth_getLogs over the HTTP endpoint. eth_http_host is the foundation and stays required.
+	if ch.EthHttpHost == "" {
+		return fmt.Errorf("%s.eth_http_host not set in config.toml", label)
+	}
+	if ch.NetworkId == 0 {
+		return fmt.Errorf("%s.network_id not set in config.toml", label)
+	}
+	if ch.GasLimit == 0 {
+		return fmt.Errorf("%s.gas_limit not set in config.toml", label)
+	}
+	if ch.MaxGasPrice == 0 {
+		return fmt.Errorf("%s.max_gas_price not set in config.toml", label)
+	}
+	return nil
+}
+
 func (c Config) ValidateBasic() error {
 
-	if c.Chain.ContractAddress == "" {
-		return errors.New("chain.contract_address not set in config.toml")
-	}
-
-	if c.Chain.EthWsHost == "" {
-		return errors.New("chain.eth_ws_host not set in config.toml")
-	}
-
-	if c.Chain.EthHttpHost == "" {
-		return errors.New("chain.eth_http_host not set in config.toml")
-	}
-
-	if c.Chain.NetworkId == 0 {
-		return errors.New("chain.network_id not set in config.toml")
-	}
-
-	if c.Chain.GasLimit == 0 {
-		return errors.New("chain.gas_limit not set in config.toml")
-	}
-
-	if c.Chain.MaxGasPrice == 0 {
-		return errors.New("chain.max_gas_price not set in config.toml")
+	// Validate every configured chain and reject duplicate network ids (each worker is keyed by its id).
+	usingList := len(c.Chains) > 0
+	seen := map[int64]bool{}
+	for i, ch := range c.ChainList() {
+		label := "chain"
+		if usingList {
+			label = fmt.Sprintf("chains[%d]", i)
+		}
+		if err := validateChain(ch, label); err != nil {
+			return err
+		}
+		if seen[ch.NetworkId] {
+			return fmt.Errorf("duplicate network_id %d in config.toml - each chain must be distinct", ch.NetworkId)
+		}
+		seen[ch.NetworkId] = true
 	}
 
 	if c.Database.Dialect == "sqlite" {

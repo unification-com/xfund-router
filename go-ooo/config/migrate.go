@@ -47,6 +47,35 @@ type MigrateResult struct {
 	BackupPath string   // where the previous file was backed up (empty if unchanged or dry-run)
 }
 
+// readConfigFile reads path and decodes it onto a defaults-seeded Config, also returning the raw viper
+// (for legacy-key migrations) and the original bytes (for change detection). Shared by LoadConfigFile
+// and MigrateConfigFile so the viper read/decode lives in one place.
+func readConfigFile(path string) (*Config, *viper.Viper, []byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(bytes.NewReader(raw)); err != nil {
+		return nil, nil, nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	// Start from defaults so removed keys vanish and brand-new sections get their defaults, then
+	// overlay the file's current-schema values (merge - absent keys keep their default).
+	cfg := DefaultConfig()
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, nil, nil, fmt.Errorf("decode config %s: %w", path, err)
+	}
+	return cfg, v, raw, nil
+}
+
+// LoadConfigFile reads an existing config.toml into a Config (defaults overlaid with the file's
+// values). Used by maintenance commands that operate on the raw file (e.g. 'init <network> --add').
+func LoadConfigFile(path string) (*Config, error) {
+	cfg, _, _, err := readConfigFile(path)
+	return cfg, err
+}
+
 // MigrateConfigFile brings an existing config.toml up to the current schema. It preserves the
 // operator's customised values, carries any renamed/moved keys to their new homes (the
 // configMigrations registry), adds any new sections with their defaults, and drops settings that
@@ -57,22 +86,9 @@ type MigrateResult struct {
 func MigrateConfigFile(path string, dryRun bool) (MigrateResult, error) {
 	var res MigrateResult
 
-	current, err := os.ReadFile(path)
+	cfg, v, current, err := readConfigFile(path)
 	if err != nil {
-		return res, fmt.Errorf("read config %s: %w", path, err)
-	}
-
-	v := viper.New()
-	v.SetConfigType("toml")
-	if err := v.ReadConfig(bytes.NewReader(current)); err != nil {
-		return res, fmt.Errorf("parse config %s: %w", path, err)
-	}
-
-	// Start from defaults so removed keys vanish and brand-new sections get their defaults, then
-	// overlay the file's current-schema values (merge - absent keys keep their default).
-	cfg := DefaultConfig()
-	if err := v.Unmarshal(cfg); err != nil {
-		return res, fmt.Errorf("decode config %s: %w", path, err)
+		return res, err
 	}
 
 	for _, m := range configMigrations {

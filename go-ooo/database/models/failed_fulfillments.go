@@ -4,11 +4,16 @@ import "gorm.io/gorm"
 
 type FailedFulfilment struct {
 	gorm.Model
+	ChainId    int64  `gorm:"index"`
 	RequestId  string `gorm:"index"`
 	TxHash     string `gorm:"index"`
 	GasUsed    uint64
 	GasPrice   uint64
 	FailReason string
+}
+
+func (f FailedFulfilment) GetChainId() int64 {
+	return f.ChainId
 }
 
 func (FailedFulfilment) TableName() string {

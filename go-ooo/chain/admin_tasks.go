@@ -57,7 +57,7 @@ func (o *OoORouterService) runAdminTx(
 ) go_ooo_types.AdminTaskResponse {
 	opts, err := o.buildTransactOpts()
 	if err != nil {
-		logger.Error("chain", "runAdminTx", "build transact opts", err.Error())
+		o.log.Error("chain", "runAdminTx", "build transact opts", err.Error())
 		return go_ooo_types.AdminTaskResponse{
 			AdminTask: task,
 			Success:   false,
@@ -73,18 +73,18 @@ func (o *OoORouterService) registerAsProvider(task go_ooo_types.AdminTask, opts 
 	resp.AdminTask = task
 
 	fee := task.FeeOrAmount
-	logger.Debug("chain", "registerAsProvider", "", "begin", logger.Fields{
+	o.log.Debug("chain", "registerAsProvider", "", "begin", logger.Fields{
 		"address": o.oracleAddress.Hex(),
 		"fee":     fee,
 	})
 
 	tx, err := o.contractInstance.RegisterAsProvider(opts, big.NewInt(int64(fee)))
 	if err != nil {
-		logger.Error("chain", "registerAsProvider", "register", err.Error())
+		o.log.Error("chain", "registerAsProvider", "register", err.Error())
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		logger.InfoWithFields("chain", "registerAsProvider", "", "tx sent", logger.Fields{
+		o.log.InfoWithFields("chain", "registerAsProvider", "", "tx sent", logger.Fields{
 			"address": o.oracleAddress.Hex(),
 			"tx":      tx.Hash(),
 		})
@@ -103,14 +103,14 @@ func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask, opts *bind.
 
 	fee := task.FeeOrAmount
 
-	logger.Debug("chain", "setGlobalFee", "", "begin", logger.Fields{
+	o.log.Debug("chain", "setGlobalFee", "", "begin", logger.Fields{
 		"address": o.oracleAddress.Hex(),
 		"fee":     fee,
 	})
 
 	tx, err := o.contractInstance.SetProviderMinFee(opts, big.NewInt(int64(fee)))
 	if err != nil {
-		logger.ErrorWithFields("chain", "setGlobalFee", "register", err.Error(), logger.Fields{
+		o.log.ErrorWithFields("chain", "setGlobalFee", "register", err.Error(), logger.Fields{
 			"address": o.oracleAddress.Hex(),
 			"fee":     fee,
 		})
@@ -118,7 +118,7 @@ func (o *OoORouterService) setGlobalFee(task go_ooo_types.AdminTask, opts *bind.
 		resp.Success = false
 		resp.Error = err.Error()
 	} else {
-		logger.InfoWithFields("chain", "setGlobalFee", "", "tx sent", logger.Fields{
+		o.log.InfoWithFields("chain", "setGlobalFee", "", "tx sent", logger.Fields{
 			"address": o.oracleAddress.Hex(),
 			"fee":     fee,
 			"tx":      tx.Hash(),
@@ -138,7 +138,7 @@ func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask, opts *bin
 
 	fee := task.FeeOrAmount
 	consumer := task.ToOrConsumer
-	logger.Debug("chain", "setGranularFee", "", "begin", logger.Fields{
+	o.log.Debug("chain", "setGranularFee", "", "begin", logger.Fields{
 		"address":  o.oracleAddress.Hex(),
 		"fee":      fee,
 		"consumer": consumer,
@@ -146,7 +146,7 @@ func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask, opts *bin
 
 	tx, err := o.contractInstance.SetProviderGranularFee(opts, common.HexToAddress(consumer), big.NewInt(int64(fee)))
 	if err != nil {
-		logger.ErrorWithFields("chain", "setGranularFee", "set in contract", err.Error(), logger.Fields{
+		o.log.ErrorWithFields("chain", "setGranularFee", "set in contract", err.Error(), logger.Fields{
 			"address":  o.oracleAddress.Hex(),
 			"fee":      fee,
 			"consumer": consumer,
@@ -154,7 +154,7 @@ func (o *OoORouterService) setGranularFee(task go_ooo_types.AdminTask, opts *bin
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		logger.InfoWithFields("chain", "setGranularFee", "", "tx sent", logger.Fields{
+		o.log.InfoWithFields("chain", "setGranularFee", "", "tx sent", logger.Fields{
 			"address":  o.oracleAddress.Hex(),
 			"fee":      fee,
 			"consumer": consumer,
@@ -176,7 +176,7 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask, opts *bind.Tran
 	amountBig = amountBig.SetUint64(task.FeeOrAmount)
 	recipient := task.ToOrConsumer
 
-	logger.Debug("chain", "withdraw", "", "begin", logger.Fields{
+	o.log.Debug("chain", "withdraw", "", "begin", logger.Fields{
 		"recipient": recipient,
 		"amount":    task.FeeOrAmount,
 	})
@@ -184,7 +184,7 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask, opts *bind.Tran
 	available, err := o.contractInstance.GetWithdrawableTokens(o.callOpts, o.oracleAddress)
 
 	if err != nil {
-		logger.ErrorWithFields("chain", "withdraw", "get withdrawable tokens", err.Error(), logger.Fields{
+		o.log.ErrorWithFields("chain", "withdraw", "get withdrawable tokens", err.Error(), logger.Fields{
 			"oracle_Wallet": o.oracleAddress,
 		})
 
@@ -201,7 +201,7 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask, opts *bind.Tran
 
 	tx, err := o.contractInstance.Withdraw(opts, common.HexToAddress(recipient), amountBig)
 	if err != nil {
-		logger.ErrorWithFields("chain", "withdraw", "send tx to contract", err.Error(), logger.Fields{
+		o.log.ErrorWithFields("chain", "withdraw", "send tx to contract", err.Error(), logger.Fields{
 			"recipient": recipient,
 			"amount":    task.FeeOrAmount,
 		})
@@ -209,7 +209,7 @@ func (o *OoORouterService) withdraw(task go_ooo_types.AdminTask, opts *bind.Tran
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {
-		logger.InfoWithFields("chain", "withdraw", "", "tx sent", logger.Fields{
+		o.log.InfoWithFields("chain", "withdraw", "", "tx sent", logger.Fields{
 			"address":   o.oracleAddress.Hex(),
 			"recipient": recipient,
 			"amount":    task.FeeOrAmount,
@@ -230,7 +230,7 @@ func (o *OoORouterService) queryWithdrawable(task go_ooo_types.AdminTask) go_ooo
 	available, err := o.contractInstance.GetWithdrawableTokens(o.callOpts, o.oracleAddress)
 
 	if err != nil {
-		logger.Error("chain", "queryWithdrawable", "send query", err.Error())
+		o.log.Error("chain", "queryWithdrawable", "send query", err.Error())
 
 		resp.Error = err.Error()
 		resp.Success = false
@@ -254,7 +254,7 @@ func (o *OoORouterService) queryFees(task go_ooo_types.AdminTask) go_ooo_types.A
 	fee, err := o.contractInstance.GetProviderMinFee(o.callOpts, o.oracleAddress)
 
 	if err != nil {
-		logger.Error("chain", "queryFees", "send query", err.Error())
+		o.log.Error("chain", "queryFees", "send query", err.Error())
 
 		resp.Error = err.Error()
 		resp.Success = false
@@ -273,7 +273,7 @@ func (o *OoORouterService) queryGranularFees(task go_ooo_types.AdminTask) go_ooo
 	fee, err := o.contractInstance.GetProviderGranularFee(o.callOpts, o.oracleAddress, common.HexToAddress(task.ToOrConsumer))
 
 	if err != nil {
-		logger.Error("chain", "queryGranularFees", "send query", err.Error())
+		o.log.Error("chain", "queryGranularFees", "send query", err.Error())
 		resp.Error = err.Error()
 		resp.Success = false
 	} else {

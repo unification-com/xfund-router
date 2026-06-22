@@ -16,6 +16,9 @@ import (
 
 type DB struct {
 	*gorm.DB
+	// networkId is the configured chain id, used to backfill chain_id onto pre-existing rows during the
+	// schema migration (legacy single-chain data predates the column).
+	networkId int64
 }
 
 func NewDb(cfg *config.Config) (*DB, error) {
@@ -59,7 +62,7 @@ func NewSqliteDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{db}, nil
+	return &DB{DB: db, networkId: cfg.BackfillNetworkId()}, nil
 }
 
 func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
@@ -85,7 +88,7 @@ func NewPostgresDb(cfg *config.Config, logger logger.Interface) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{db}, nil
+	return &DB{DB: db, networkId: cfg.BackfillNetworkId()}, nil
 }
 
 func (d *DB) Migrate() error {
@@ -105,5 +108,5 @@ func (d *DB) Migrate() error {
 	}
 
 	// 2. Apply ordered, transactional, version-guarded data migrations.
-	return d.runSchemaMigrations(schemaMigrations)
+	return d.runSchemaMigrations(d.buildSchemaMigrations())
 }
