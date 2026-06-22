@@ -350,7 +350,10 @@ func (c *Config) InitForPolygon() {
 func (c *Config) InitForShibarium() {
 	c.Chain.Name = "shibarium"
 	c.Chain.ContractAddress = "0x2E9ade949900e19735689686E61BF6338a65B881"
-	c.Chain.EthHttpHost = ""
+	// Shibarium has no Infura/Alchemy, so ship a working public RPC default (the block-explorer eth-rpc
+	// proxy). eth_ws_host stays blank - it has no public WSS, so the worker HTTP-polls for events. The
+	// proxy throttles wide getLogs, so lower event_scan_batch_blocks if a catch-up scan lags.
+	c.Chain.EthHttpHost = "https://shibariumscan.io/api/eth-rpc"
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 109
 	c.Chain.FirstBlock = 591096

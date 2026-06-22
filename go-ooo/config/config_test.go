@@ -25,6 +25,12 @@ func TestInitForNet(t *testing.T) {
 	// Dev uses a local dpv (or none), so it leaves the export base blank.
 	require.Empty(t, dev.Jobs.DexExport.BaseUrl)
 
+	// Shibarium also ships a working public RPC default (no Infura, and UNoDE is gone).
+	shib := DefaultConfig()
+	require.NoError(t, shib.InitForNet("shibarium"))
+	require.EqualValues(t, 109, shib.Chain.NetworkId)
+	require.NotEmpty(t, shib.Chain.EthHttpHost, "Shibarium ships a default RPC (no Infura/UNoDE)")
+
 	// QL1 (QoM) inits with its network id + a working public RPC default (QL1 has no Infura), and
 	// accepts the "ql1" alias.
 	qom := DefaultConfig()
