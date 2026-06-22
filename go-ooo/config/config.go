@@ -295,10 +295,12 @@ func (c *Config) InitForNet(network string) error {
 		c.InitForShibarium()
 	case "puppynet":
 		c.InitForShibariumPuppynet()
+	case "qom", "ql1":
+		c.InitForQom()
 	default:
 		// Don't silently configure DevNet (127.0.0.1) for a typo'd network - the
 		// operator would get a config quietly pointing at localhost.
-		return fmt.Errorf("unknown network %q (expected one of: dev, sepolia, mainnet, polygon, shibarium, puppynet)", network)
+		return fmt.Errorf("unknown network %q (expected one of: dev, sepolia, mainnet, polygon, shibarium, puppynet, qom)", network)
 	}
 	return nil
 }
@@ -361,6 +363,18 @@ func (c *Config) InitForShibariumPuppynet() {
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 157
 	c.Chain.FirstBlock = 4764990
+}
+
+func (c *Config) InitForQom() {
+	c.Chain.Name = "qom"
+	c.Chain.ContractAddress = "0x2E9ade949900e19735689686E61BF6338a65B881"
+	// QL1 (QoM) has no Infura/Alchemy, so unlike the other real networks we ship a working public RPC
+	// as the default rather than leaving it blank. eth_ws_host stays blank - QL1 has no public WSS, so
+	// the worker detects events via HTTP polling.
+	c.Chain.EthHttpHost = "https://evm-rpc-ql1.foxxone.one"
+	c.Chain.EthWsHost = ""
+	c.Chain.NetworkId = 766
+	c.Chain.FirstBlock = 3793641
 }
 
 func (c *Config) SetKeystore(path, account string) {

@@ -25,6 +25,14 @@ func TestInitForNet(t *testing.T) {
 	// Dev uses a local dpv (or none), so it leaves the export base blank.
 	require.Empty(t, dev.Jobs.DexExport.BaseUrl)
 
+	// QL1 (QoM) inits with its network id + a working public RPC default (QL1 has no Infura), and
+	// accepts the "ql1" alias.
+	qom := DefaultConfig()
+	require.NoError(t, qom.InitForNet("qom"))
+	require.EqualValues(t, 766, qom.Chain.NetworkId)
+	require.NotEmpty(t, qom.Chain.EthHttpHost, "QL1 ships a default RPC since it has no Infura")
+	require.NoError(t, DefaultConfig().InitForNet("ql1"), "the ql1 alias resolves to qom")
+
 	// A typo must error, not silently configure DevNet (127.0.0.1).
 	typo := DefaultConfig()
 	require.Error(t, typo.InitForNet("mainet"))

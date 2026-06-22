@@ -38,6 +38,7 @@ Current network options are:
   polygon
   shibarium
   puppynet
+  qom
 
 Examples:
 
