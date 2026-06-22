@@ -154,8 +154,9 @@ func (d *DB) InsertNewToBlock(chainId int64, toBlock uint64) error {
   FailedFulfillments table
 */
 
-func (d *DB) InsertNewFailedFulfilment(requestId string, txHash string, gasUsed uint64, gasPrice uint64, reason string) (err error) {
+func (d *DB) InsertNewFailedFulfilment(chainId int64, requestId string, txHash string, gasUsed uint64, gasPrice uint64, reason string) (err error) {
 	err = d.Create(&models.FailedFulfilment{
+		ChainId:    chainId,
 		RequestId:  requestId,
 		TxHash:     txHash,
 		GasUsed:    gasUsed,

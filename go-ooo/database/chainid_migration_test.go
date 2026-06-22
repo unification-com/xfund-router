@@ -73,6 +73,51 @@ func TestMigrateAddChainIdPostgres(t *testing.T) {
 	runChainIdMigrationAssertions(t, d)
 }
 
+// runFailedFulfilmentChainIdAssertions exercises the v6 failed_fulfilments.chain_id backfill on both
+// dialects: a legacy row (no chain_id) is stamped with the configured network id, the backfill is
+// idempotent, and it never clobbers a row that already carries a different chain id.
+func runFailedFulfilmentChainIdAssertions(t *testing.T, d *DB) {
+	t.Helper()
+	const netId int64 = 137
+
+	require.NoError(t, d.AutoMigrate(&models.FailedFulfilment{}))
+	// A legacy row predating the column - AutoMigrate defaulted chain_id to 0.
+	require.NoError(t, d.Exec("INSERT INTO failed_fulfilments (request_id, tx_hash, chain_id) VALUES ('0xabc', '0xtx', 0)").Error)
+
+	require.NoError(t, migrateAddFailedFulfilmentChainId(d.DB, netId))
+
+	// 1. backfill - the legacy row now carries the configured network id.
+	var backfilled models.FailedFulfilment
+	require.NoError(t, d.Where("request_id = ?", "0xabc").First(&backfilled).Error)
+	require.EqualValues(t, netId, backfilled.ChainId)
+
+	// 2. a row already stamped for a different chain is left alone by a re-run.
+	require.NoError(t, d.Create(&models.FailedFulfilment{ChainId: 999, RequestId: "0xdef"}).Error)
+	require.NoError(t, migrateAddFailedFulfilmentChainId(d.DB, netId))
+	var untouched models.FailedFulfilment
+	require.NoError(t, d.Where("request_id = ?", "0xdef").First(&untouched).Error)
+	require.EqualValues(t, 999, untouched.ChainId, "an existing chain id is never clobbered")
+}
+
+// TestMigrateAddFailedFulfilmentChainId runs the v6 backfill assertions on sqlite (always).
+func TestMigrateAddFailedFulfilmentChainId(t *testing.T) {
+	runFailedFulfilmentChainIdAssertions(t, newTestDB(t))
+}
+
+// TestMigrateAddFailedFulfilmentChainIdPostgres runs the same on Postgres. Skipped unless
+// GOOOO_TEST_PG_DSN is set; it drops the touched table first for a clean slate.
+func TestMigrateAddFailedFulfilmentChainIdPostgres(t *testing.T) {
+	dsn := os.Getenv("GOOOO_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("set GOOOO_TEST_PG_DSN to run the Postgres failed_fulfilments chain_id migration test")
+	}
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: glog.Default.LogMode(glog.Silent)})
+	require.NoError(t, err)
+	d := &DB{DB: gdb}
+	require.NoError(t, d.Migrator().DropTable(&models.FailedFulfilment{}))
+	runFailedFulfilmentChainIdAssertions(t, d)
+}
+
 // TestPerChainCursorIsolation confirms the resume cursor is independent per chain after the migration:
 // advancing chain A's cursor never moves chain B's, and each reads back its own block.
 func TestPerChainCursorIsolation(t *testing.T) {

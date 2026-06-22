@@ -26,7 +26,7 @@ import (
 
 // latestSchemaVersion is the version a fully-migrated database ends on. It MUST equal
 // the highest migrationStep.to in the steps built by buildSchemaMigrations.
-const latestSchemaVersion uint64 = 5
+const latestSchemaVersion uint64 = 6
 
 // migrationStep transforms the database from schema version (to-1) to version `to`.
 type migrationStep struct {
@@ -42,17 +42,24 @@ var schemaMigrations = []migrationStep{
 	{to: 4, name: "drop the Finchains supported_pairs table and the is_adhoc column", run: migrateDropFinchainsRemnants},
 }
 
-// buildSchemaMigrations returns the ordered migration steps. The chain_id step (v5) needs the
-// configured network id (to backfill legacy single-chain rows), so it is built here as a closure over
+// buildSchemaMigrations returns the ordered migration steps. The chain_id steps (v5, v6) need the
+// configured network id (to backfill legacy single-chain rows), so they are built here as closures over
 // the DB rather than living in the static schemaMigrations slice.
 func (d *DB) buildSchemaMigrations() []migrationStep {
-	steps := make([]migrationStep, len(schemaMigrations), len(schemaMigrations)+1)
+	steps := make([]migrationStep, len(schemaMigrations), len(schemaMigrations)+2)
 	copy(steps, schemaMigrations)
-	return append(steps, migrationStep{
-		to:   5,
-		name: "add chain_id to data_requests + to_blocks and backfill",
-		run:  func(tx *gorm.DB) error { return migrateAddChainId(tx, d.networkId) },
-	})
+	return append(steps,
+		migrationStep{
+			to:   5,
+			name: "add chain_id to data_requests + to_blocks and backfill",
+			run:  func(tx *gorm.DB) error { return migrateAddChainId(tx, d.networkId) },
+		},
+		migrationStep{
+			to:   6,
+			name: "add chain_id to failed_fulfilments and backfill",
+			run:  func(tx *gorm.DB) error { return migrateAddFailedFulfilmentChainId(tx, d.networkId) },
+		},
+	)
 }
 
 // runSchemaMigrations applies, in order, every step whose target version is ahead of
@@ -179,6 +186,19 @@ func migrateAddChainId(tx *gorm.DB, networkId int64) error {
 		if err := m.DropIndex(&models.DataRequests{}, oldRequestIdIndex); err != nil {
 			return fmt.Errorf("drop old request_id unique index: %w", err)
 		}
+	}
+	return nil
+}
+
+// migrateAddFailedFulfilmentChainId backfills the new chain_id column on failed_fulfilments with the
+// deployment's configured network id (legacy single-chain rows predate the column, so AutoMigrate
+// defaulted them to 0). It mirrors migrateAddChainId for the fulfilment-history table, so the per-chain
+// "reverted" warm-start counter seeds correctly after a restart. Idempotent: only the chain_id = 0
+// sentinel is touched (a valid network_id is never 0), so a fresh multi-chain DB (no legacy rows) is a
+// no-op.
+func migrateAddFailedFulfilmentChainId(tx *gorm.DB, networkId int64) error {
+	if err := tx.Exec("UPDATE failed_fulfilments SET chain_id = ? WHERE chain_id = 0", networkId).Error; err != nil {
+		return fmt.Errorf("backfill failed_fulfilments.chain_id: %w", err)
 	}
 	return nil
 }

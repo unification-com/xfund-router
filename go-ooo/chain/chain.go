@@ -684,12 +684,12 @@ func (o *OoORouterService) processIncomingFulfilments(event *ooo_router.OooRoute
 				})
 		}
 
-		fulfilmentResultTotal.WithLabelValues("success").Inc()
+		fulfilmentResultTotal.WithLabelValues(o.chainLabel(), "success").Inc()
 		if gasUsed > 0 {
-			fulfilmentGasUsed.Observe(float64(gasUsed))
+			fulfilmentGasUsed.WithLabelValues(o.chainLabel()).Observe(float64(gasUsed))
 		}
 		if request.RequestBlockNumber > 0 && event.Raw.BlockNumber >= request.RequestBlockNumber {
-			fulfilmentBlocks.Observe(float64(event.Raw.BlockNumber - request.RequestBlockNumber))
+			fulfilmentBlocks.WithLabelValues(o.chainLabel()).Observe(float64(event.Raw.BlockNumber - request.RequestBlockNumber))
 		}
 	}
 

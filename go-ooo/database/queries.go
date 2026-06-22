@@ -45,23 +45,23 @@ func (d *DB) GetPendingJobs(chainId int64) ([]models.DataRequests, error) {
 
 // CountFulfilmentsSent counts requests that have been broadcast at least once (have a fulfil tx
 // hash). Used to warm-start the fulfilment metrics from history.
-func (d *DB) CountFulfilmentsSent() (int64, error) {
+func (d *DB) CountFulfilmentsSent(chainId int64) (int64, error) {
 	var n int64
-	err := d.Model(&models.DataRequests{}).Where("fulfill_tx_hash <> ''").Count(&n).Error
+	err := d.Model(&models.DataRequests{}).Where("chain_id = ? AND fulfill_tx_hash <> ''", chainId).Count(&n).Error
 	return n, err
 }
 
-// CountRequestsByStatus counts requests in a given RequestStatus.
-func (d *DB) CountRequestsByStatus(status int) (int64, error) {
+// CountRequestsByStatus counts a chain's requests in a given RequestStatus.
+func (d *DB) CountRequestsByStatus(chainId int64, status int) (int64, error) {
 	var n int64
-	err := d.Model(&models.DataRequests{}).Where("request_status = ?", status).Count(&n).Error
+	err := d.Model(&models.DataRequests{}).Where("chain_id = ? AND request_status = ?", chainId, status).Count(&n).Error
 	return n, err
 }
 
-// CountFailedFulfilments counts failed (reverted) fulfilment-tx attempts recorded in history.
-func (d *DB) CountFailedFulfilments() (int64, error) {
+// CountFailedFulfilments counts a chain's failed (reverted) fulfilment-tx attempts recorded in history.
+func (d *DB) CountFailedFulfilments(chainId int64) (int64, error) {
 	var n int64
-	err := d.Model(&models.FailedFulfilment{}).Count(&n).Error
+	err := d.Model(&models.FailedFulfilment{}).Where("chain_id = ?", chainId).Count(&n).Error
 	return n, err
 }
 

@@ -175,9 +175,9 @@ func (s *Service) Run() {
 		s.initEcho()
 	}(s)
 
-	// Seed the cumulative fulfilment counters from DB history BEFORE /metrics starts serving,
-	// so the all-time totals (and forward rates) are correct from the first scrape.
-	chain.WarmStartFulfilmentMetrics(s.db)
+	// Seed each chain's cumulative fulfilment counters from DB history BEFORE /metrics starts
+	// serving, so the all-time totals (and forward rates) are correct per chain from the first scrape.
+	chain.WarmStartFulfilmentMetrics(s.db, s.workerNetworkIds())
 
 	go func(s *Service) {
 		s.initPrometheus()
@@ -232,14 +232,20 @@ func (s *Service) dispatchAdminTask(t go_ooo_types.AdminTask) {
 // caller turns that into an "ask for --chain" error). The routing decision itself lives in the pure
 // routeWorkerIndex so it can be unit-tested without dialling a chain.
 func (s *Service) workerForTask(t go_ooo_types.AdminTask) *chain.OoORouterService {
+	if idx := routeWorkerIndex(s.workerNetworkIds(), t.Network); idx >= 0 {
+		return s.workers[idx]
+	}
+	return nil
+}
+
+// workerNetworkIds is the network id of each running worker, in worker order - shared by the admin-task
+// routing and the per-chain metrics warm-start.
+func (s *Service) workerNetworkIds() []int64 {
 	ids := make([]int64, len(s.workers))
 	for i, w := range s.workers {
 		ids[i] = w.NetworkId()
 	}
-	if idx := routeWorkerIndex(ids, t.Network); idx >= 0 {
-		return s.workers[idx]
-	}
-	return nil
+	return ids
 }
 
 // routeWorkerIndex picks the worker (by index into networkIds) that should handle a task for the target

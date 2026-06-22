@@ -19,7 +19,7 @@ import (
 // service's single select loop, so fulfilment stays serialised - never call it concurrently.
 func (o *OoORouterService) ProcessPendingJobQueue(trigger string) {
 
-	jobQueueRunTotal.WithLabelValues(trigger).Inc()
+	jobQueueRunTotal.WithLabelValues(o.chainLabel(), trigger).Inc()
 
 	logger.Info("chain", "ProcessPendingJobQueue", "check job queue", "")
 
@@ -207,7 +207,7 @@ func (o *OoORouterService) sendFulfillmentTx(job models.DataRequests, currentBlo
 	// Initial send: a fresh, chain-anchored nonce + current gas price.
 	opts, err := o.buildTransactOpts()
 	if err != nil {
-		fulfilmentErrorTotal.WithLabelValues("build_opts").Inc()
+		fulfilmentErrorTotal.WithLabelValues(o.chainLabel(), "build_opts").Inc()
 		logger.ErrorWithFields("chain", "sendFulfillmentTx", "build transact opts",
 			err.Error(),
 			logger.Fields{
@@ -258,7 +258,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 	signatureBytes, err := crypto.Sign(msgHash.Bytes(), o.oraclePrivateKey)
 
 	if err != nil {
-		fulfilmentErrorTotal.WithLabelValues("sign").Inc()
+		fulfilmentErrorTotal.WithLabelValues(o.chainLabel(), "sign").Inc()
 		logger.ErrorWithFields("chain", "submitFulfilment", "sign message",
 			err.Error(),
 			logger.Fields{
@@ -275,7 +275,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 	tx, err := o.contractInstance.FulfillRequest(opts, reqIdBytes32, priceBigInt, signatureBytes)
 
 	if err != nil {
-		fulfilmentErrorTotal.WithLabelValues("send").Inc()
+		fulfilmentErrorTotal.WithLabelValues(o.chainLabel(), "send").Inc()
 		logger.ErrorWithFields("chain", "submitFulfilment", "send tx",
 			err.Error(),
 			logger.Fields{
@@ -286,10 +286,10 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 		return
 	}
 
-	fulfilmentSentTotal.Inc()
+	fulfilmentSentTotal.WithLabelValues(o.chainLabel()).Inc()
 	// tx.GasPrice() is the effective max price per gas - the gas price for a legacy tx, the fee
 	// cap for an EIP-1559 tx - so the histogram records the ceiling we committed to either way.
-	fulfilmentGasPriceGwei.Observe(weiToGwei(tx.GasPrice().Uint64()))
+	fulfilmentGasPriceGwei.WithLabelValues(o.chainLabel()).Observe(weiToGwei(tx.GasPrice().Uint64()))
 
 	logger.InfoWithFields("chain", "submitFulfilment", "send tx",
 		"fulfill tx sent",
@@ -378,7 +378,7 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 		})
 
 	// Add fail info to failed Tx history table
-	_ = o.db.InsertNewFailedFulfilment(requestId, "", 0, 0, job.GetStatusReason())
+	_ = o.db.InsertNewFailedFulfilment(o.networkId, requestId, "", 0, 0, job.GetStatusReason())
 
 	// at some point, we just have to stop trying...
 	if giveUp, reason := o.shouldGiveUp(job); giveUp {
@@ -499,13 +499,13 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	failedGasPrice := job.GetFulfillGasPrice()
 	failReason := "tx reverted" // todo - try to get revert reason from receipt
 
-	fulfilmentResultTotal.WithLabelValues("reverted").Inc()
+	fulfilmentResultTotal.WithLabelValues(o.chainLabel(), "reverted").Inc()
 	if failedGasUsed > 0 {
-		fulfilmentGasUsed.Observe(float64(failedGasUsed))
+		fulfilmentGasUsed.WithLabelValues(o.chainLabel()).Observe(float64(failedGasUsed))
 	}
 
 	// Add fail info to failed Tx history table
-	_ = o.db.InsertNewFailedFulfilment(requestId, fulfilTxHash.Hex(), failedGasUsed, failedGasPrice, failReason)
+	_ = o.db.InsertNewFailedFulfilment(o.networkId, requestId, fulfilTxHash.Hex(), failedGasUsed, failedGasPrice, failReason)
 
 	// at some point, we just have to stop trying...
 	if giveUp, reason := o.shouldGiveUp(job); giveUp {
