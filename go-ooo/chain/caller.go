@@ -66,21 +66,21 @@ const (
 // support probe fails, fall back to legacy pricing - legacy txs are valid on every chain, so an
 // uncertain probe (or a pre-London chain) never blocks startup and never produces a tx the chain
 // will reject.
-func determineEip1559(ctx context.Context, client *ethclient.Client, enabled bool) bool {
+func determineEip1559(ctx context.Context, client *ethclient.Client, enabled bool, log *logger.Scoped) bool {
 	if !enabled {
-		logger.Info("chain", "determineEip1559", "", "eip1559 disabled in config - using legacy gas pricing")
+		log.Info("chain", "determineEip1559", "", "eip1559 disabled in config - using legacy gas pricing")
 		return false
 	}
 	head, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		logger.Error("chain", "determineEip1559", "probe chain for base fee", err.Error())
+		log.Error("chain", "determineEip1559", "probe chain for base fee", err.Error())
 		return false
 	}
 	if head.BaseFee == nil {
-		logger.Warn("chain", "determineEip1559", "", "eip1559 enabled but chain has no base fee (pre-London) - using legacy gas pricing")
+		log.Warn("chain", "determineEip1559", "", "eip1559 enabled but chain has no base fee (pre-London) - using legacy gas pricing")
 		return false
 	}
-	logger.Info("chain", "determineEip1559", "", "using EIP-1559 dynamic-fee gas pricing")
+	log.Info("chain", "determineEip1559", "", "using EIP-1559 dynamic-fee gas pricing")
 	return true
 }
 

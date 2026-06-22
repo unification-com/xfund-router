@@ -37,7 +37,7 @@ func (o *OoORouterService) jobPollInterval() time.Duration {
 // subscriptions (and saving the resume block) is owned by Shutdown(), which the supervisor calls
 // on the same cancellation.
 func (o *OoORouterService) Run() {
-	logger.InfoWithFields("chain", "Run", "", "starting chain worker", logger.Fields{
+	o.log.InfoWithFields("chain", "Run", "", "starting chain worker", logger.Fields{
 		"network_id": o.networkId,
 		"provider":   o.oracleAddress.Hex(),
 	})
@@ -57,7 +57,7 @@ func (o *OoORouterService) Run() {
 	for {
 		select {
 		case <-o.context.Done():
-			logger.InfoWithFields("chain", "Run", "", "context cancelled - stopping chain worker", logger.Fields{
+			o.log.InfoWithFields("chain", "Run", "", "context cancelled - stopping chain worker", logger.Fields{
 				"network_id": o.networkId,
 			})
 			return
