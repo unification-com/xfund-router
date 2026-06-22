@@ -121,8 +121,9 @@ max_job_age = {{ .Jobs.MaxJobAge }}
 # verified-pair feeds go-ooo polls to know which DEXs + pairs it can price. The fetched manifest is
 # persisted, so the oracle keeps pricing from the last sync if the API is briefly unreachable.
 [jobs.dex_export]
-# Export API base, e.g. https://dex-pair-verify.example.io/api/ooo/v1
-# Empty = skip the sync and price from the catalogue already persisted in the database.
+# Export API base. Defaults to the Unification dpv (https://ooo-dex.unification.io/api/ooo/v1) for the
+# real networks; the provider authenticates with its on-chain-registered wallet. Point at your own dpv,
+# or leave EMPTY to skip the sync and price from the catalogue already persisted in the database.
 base_url = "{{ .Jobs.DexExport.BaseUrl }}"
 # Export bearer token for the API (interim; the wallet challenge-response replaces it).
 api_token = "{{ .Jobs.DexExport.ApiToken }}"

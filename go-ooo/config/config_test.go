@@ -15,11 +15,15 @@ func TestInitForNet(t *testing.T) {
 	require.EqualValues(t, 1, c.Chain.NetworkId)
 	// Post-London chains default to EIP-1559 pricing.
 	require.True(t, c.Chain.Eip1559)
+	// Real networks seed the canonical dpv export base so a fresh deployment pulls the live manifest.
+	require.Equal(t, DefaultDexExportBaseUrl, c.Jobs.DexExport.BaseUrl)
 
 	// The dev env runs anvil (London+), so it also uses EIP-1559 pricing.
 	dev := DefaultConfig()
 	require.NoError(t, dev.InitForNet("dev"))
 	require.True(t, dev.Chain.Eip1559)
+	// Dev uses a local dpv (or none), so it leaves the export base blank.
+	require.Empty(t, dev.Jobs.DexExport.BaseUrl)
 
 	// A typo must error, not silently configure DevNet (127.0.0.1).
 	typo := DefaultConfig()

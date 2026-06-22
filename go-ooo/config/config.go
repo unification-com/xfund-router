@@ -26,6 +26,11 @@ type DexExportConfig struct {
 	PollIntervalSec uint64 `mapstructure:"poll_interval_sec"`
 }
 
+// DefaultDexExportBaseUrl is the canonical Unification dex-pair-verify export API. init seeds it for
+// the real networks (the provider authenticates with its on-chain-registered wallet), so a fresh
+// deployment pulls the live pair manifest out of the box. The dev net leaves it blank (local dpv).
+const DefaultDexExportBaseUrl = "https://ooo-dex.unification.io/api/ooo/v1"
+
 type ServeConfig struct {
 	Host string `mapstructure:"host"`
 	Port string `mapstructure:"port"`
@@ -160,7 +165,7 @@ func DefaultConfig() *Config {
 			WaitConfirmations: 1,
 			MaxJobAge:         3600,
 			DexExport: DexExportConfig{
-				BaseUrl:         "",
+				BaseUrl:         DefaultDexExportBaseUrl,
 				ApiToken:        "",
 				PollIntervalSec: 3600,
 			},
@@ -302,6 +307,9 @@ func (c *Config) InitForDevNet() {
 	// The dev env runs anvil, a London+ chain, so it exercises the EIP-1559 path like the prod
 	// networks. (Kept explicit rather than relying on the default, to document the dev intent.)
 	c.Chain.Eip1559 = true
+	// Dev points at a local dpv (or none), not the production export API - leave base_url blank so the
+	// dev provider (unregistered on any real chain) doesn't fail wallet-auth against prod dpv.
+	c.Jobs.DexExport.BaseUrl = ""
 }
 
 func (c *Config) InitForSepolia() {
