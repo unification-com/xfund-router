@@ -30,12 +30,9 @@ Examples:
   go-ooo start --first-block=15114000 --chain=puppynet
 `,
 	PreRunE: func(cmd *cobra.Command, _ []string) error {
-		serverCtx := server.GetServerContextFromCmd(cmd)
-
-		// Bind flags to the Context's Viper
-		serverCtx.Viper.BindPFlags(cmd.Flags())
-
-		return serverCtx.Config.ValidateBasic()
+		// The config is already loaded + flags bound by the root PersistentPreRunE
+		// (InterceptConfigsPreRunHandler); just validate it before starting.
+		return server.GetServerContextFromCmd(cmd).Config.ValidateBasic()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		serverCtx := server.GetServerContextFromCmd(cmd)

@@ -14,6 +14,23 @@ import (
 	"strings"
 )
 
+// configKeyCollidingFlags lists CLI flag names that must NOT be bound into the config viper because
+// they share a name with a config section: binding a string pflag named "chain" injects a string under
+// the "chain" key, which then fails to decode into Config.Chain (a table) - "expected a map, got
+// 'string'". The --chain selector (admin/query/start) is read directly as a Go variable, never from
+// the config, so excluding it from the bind is safe.
+var configKeyCollidingFlags = map[string]bool{"chain": true}
+
+// bindPFlagsExcept binds every flag in fs into v, skipping any whose name collides with a config key.
+func bindPFlagsExcept(v *viper.Viper, fs *pflag.FlagSet) {
+	fs.VisitAll(func(f *pflag.Flag) {
+		if configKeyCollidingFlags[f.Name] {
+			return
+		}
+		_ = v.BindPFlag(f.Name, f)
+	})
+}
+
 func InterceptConfigsPreRunHandler(cmd *cobra.Command) error {
 	serverCtx := NewDefaultContext()
 
@@ -23,9 +40,11 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command) error {
 	}
 
 	basename := path.Base(executableName)
-	// Configure the viper instance
-	serverCtx.Viper.BindPFlags(cmd.Flags())
-	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+	// Configure the viper instance. Flags whose name collides with a config section (e.g. --chain vs
+	// the [chain]/[[chains]] tables) are excluded - binding them would shadow the table and break the
+	// config decode.
+	bindPFlagsExcept(serverCtx.Viper, cmd.Flags())
+	bindPFlagsExcept(serverCtx.Viper, cmd.PersistentFlags())
 	serverCtx.Viper.SetEnvPrefix(basename)
 	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	serverCtx.Viper.AutomaticEnv()
@@ -83,6 +102,12 @@ func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) 
 	}()
 
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		// Skip flags that collide with a config section name (see configKeyCollidingFlags): binding
+		// or setting them back from viper would corrupt the corresponding config table.
+		if configKeyCollidingFlags[f.Name] {
+			return
+		}
+
 		// Environment variables can't have dashes in them, so bind them to their equivalent
 		// keys with underscores, e.g. --favorite-color to STING_FAVORITE_COLOR
 		err = v.BindEnv(f.Name, fmt.Sprintf("%s_%s", basename, strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))))
