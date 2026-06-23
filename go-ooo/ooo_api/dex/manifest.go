@@ -70,6 +70,14 @@ func BuildModulesFromManifest(cfg *config.Config, m *export.Manifest) []FamilyMo
 	modules := make([]FamilyModule, 0, len(m.SupportedSources))
 
 	for _, src := range m.SupportedSources {
+		// Cosmos REST sources (rest-sqs / rest-astroport) are priced by buildCosmosSources as their own
+		// PriceSource, not as subgraph FamilyModules - skip them here silently. Without this they'd trip
+		// the "unrecognised subgraph schema family" warning below (their family is "custom"), wrongly
+		// implying they go unpriced when ApplyManifest in fact builds them.
+		if isCosmosSourceType(src.SourceType) {
+			continue
+		}
+
 		family, ok := schemaFamilyFor(src.SubgraphSchemaFamily, src.Chain)
 		if !ok {
 			logger.WarnWithFields("dex", "BuildModulesFromManifest", "skip source",
