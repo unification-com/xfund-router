@@ -219,7 +219,7 @@ func DefaultConfig() *Config {
 			BcsHttpRpc:       "https://bsc-dataseed.binance.org",
 			XdaiHttpRpc:      "https://rpc.gnosischain.com",
 			FantomHttpRpc:    "https://finchains.io/api",
-			ShibariumHttpRpc: "https://shibariumscan.io/api/eth-rpc",
+			ShibariumHttpRpc: "https://rpc.shibarium.shib.io",
 		},
 		ApiKeys: ApiKeysConfig{
 			GraphNetwork: "",
@@ -350,10 +350,12 @@ func (c *Config) InitForPolygon() {
 func (c *Config) InitForShibarium() {
 	c.Chain.Name = "shibarium"
 	c.Chain.ContractAddress = "0x2E9ade949900e19735689686E61BF6338a65B881"
-	// Shibarium has no Infura/Alchemy, so ship a working public RPC default (the block-explorer eth-rpc
-	// proxy). eth_ws_host stays blank - it has no public WSS, so the worker HTTP-polls for events. The
-	// proxy throttles wide getLogs, so lower event_scan_batch_blocks if a catch-up scan lags.
-	c.Chain.EthHttpHost = "https://shibariumscan.io/api/eth-rpc"
+	// Shibarium has no Infura/Alchemy. Use the official Shib node, which serves eth_getLogs over wide
+	// ranges in go-ethereum's wire format. (The block-explorer eth-rpc proxy rejects the array-form
+	// `address` that getLogs sends, returning a malformed string error go-ethereum can't parse, so it
+	// can't drive event detection.) eth_ws_host stays blank - Shibarium has no public WSS, so the worker
+	// HTTP-polls for events.
+	c.Chain.EthHttpHost = "https://rpc.shibarium.shib.io"
 	c.Chain.EthWsHost = ""
 	c.Chain.NetworkId = 109
 	c.Chain.FirstBlock = 591096
