@@ -41,7 +41,9 @@ event_scan_batch_blocks = {{ .EventScanBatchBlocks }}
 # Defaults to the block the Router contract was deployed
 first_block = {{ .FirstBlock }}
 
-# Gas limit for fulfilling requests
+# Gas limit for fulfilling requests. The Router needs 400,000 gas left when it calls the
+# consumer, after ~100,000 spent on its own checks, so keep this at 600,000 or more.
+# Unused gas is refunded.
 gas_limit = {{ .GasLimit }}
 
 # Max gas price you are willing to pay to fulfil a request
