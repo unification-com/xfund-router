@@ -516,6 +516,9 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 		return
 	}
 
-	// finally, try to send a new fulfillment
+	// finally, try to send a new fulfillment. Count it as an attempt: a revert is often
+	// deterministic (e.g. the Router's "not enough gas" when gas_limit is too low), and an
+	// uncounted resend would re-send and re-revert every cycle until the job ages out.
+	_ = o.db.IncrementFulfillmentAttempts(o.networkId, requestId)
 	o.sendFulfillmentTx(job, currentBlockNum)
 }

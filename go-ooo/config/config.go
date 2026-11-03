@@ -184,7 +184,10 @@ func DefaultConfig() *Config {
 			Account: "",
 		},
 		Chain: ChainConfig{
-			GasLimit:       500000,
+			// The Router requires 400,000 gas left when it calls the consumer (after ~100,000 spent
+			// on its own checks), so 500,000 reverted "not enough gas" whenever a large price grew
+			// the calldata. Unused gas is refunded, so the headroom costs nothing.
+			GasLimit:       600000,
 			MaxGasPrice:    150,
 			GasBumpPercent: 13,
 			// Modern default: send EIP-1559 dynamic-fee txs. Auto-falls-back to legacy on a
