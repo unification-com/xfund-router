@@ -1,9 +1,12 @@
 package chain
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,4 +38,19 @@ func TestDecideGiveUp(t *testing.T) {
 	// age check disabled (maxAge 0) -> only attempts matter
 	give, _ = decideGiveUp(0, 999*time.Hour, 0)
 	require.False(t, give)
+}
+
+func TestIsDroppedTx(t *testing.T) {
+	// unknown to the node long after sending -> dropped
+	require.True(t, isDroppedTx(ethereum.NotFound, droppedTxBlocks))
+	require.True(t, isDroppedTx(fmt.Errorf("lookup: %w", ethereum.NotFound), droppedTxBlocks+100))
+
+	// unknown but recently sent -> may just not have reached this node yet
+	require.False(t, isDroppedTx(ethereum.NotFound, droppedTxBlocks-1))
+
+	// any other lookup error is transient (RPC down, rate limited), however old the tx
+	require.False(t, isDroppedTx(errors.New("429 Too Many Requests"), droppedTxBlocks*10))
+
+	// found (no error) -> not dropped
+	require.False(t, isDroppedTx(nil, droppedTxBlocks*10))
 }

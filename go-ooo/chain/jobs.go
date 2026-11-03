@@ -312,8 +312,7 @@ func (o *OoORouterService) submitFulfilment(job models.DataRequests, opts *bind.
 func (o *OoORouterService) replaceStuckFulfilmentTx(job models.DataRequests, currentBlockNum uint64) {
 	requestId := job.GetRequestId()
 
-	if giveUp, reason := o.shouldGiveUp(job); giveUp {
-		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+	if o.giveUpIfDue(job, "replaceStuckFulfilmentTx") {
 		return
 	}
 
@@ -341,14 +340,7 @@ func (o *OoORouterService) processPossiblyStuckDataFetch(job models.DataRequests
 		})
 
 	// at some point, we just have to stop trying...
-	if giveUp, reason := o.shouldGiveUp(job); giveUp {
-		o.log.WarnWithFields("chain", "processPossiblyStuckDataFetch", "give up", reason,
-			logger.Fields{
-				"request_id":   requestId,
-				"num_attempts": job.GetFulfillmentAttempts(),
-			})
-
-		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+	if o.giveUpIfDue(job, "processPossiblyStuckDataFetch") {
 		return
 	}
 
@@ -377,24 +369,22 @@ func (o *OoORouterService) processSendFailedJob(job models.DataRequests, current
 			"request_id": requestId,
 		})
 
-	// Add fail info to failed Tx history table
-	_ = o.db.InsertNewFailedFulfilment(o.networkId, requestId, "", 0, 0, job.GetStatusReason())
+	o.refetchAfterFailure(job, currentBlockNum, "processSendFailedJob", "", 0, job.GetStatusReason())
+}
+
+// refetchAfterFailure records a failed fulfilment in the failed Tx history table, then gives the
+// job up (too many attempts or too old) or re-fetches its data for a fresh fulfilment. Shared by a
+// fulfilment that never sent and one whose sent tx was dropped.
+func (o *OoORouterService) refetchAfterFailure(job models.DataRequests, currentBlockNum uint64, fn, txHash string, gasPrice uint64, failReason string) {
+	_ = o.db.InsertNewFailedFulfilment(o.networkId, job.GetRequestId(), txHash, 0, gasPrice, failReason)
 
 	// at some point, we just have to stop trying...
-	if giveUp, reason := o.shouldGiveUp(job); giveUp {
-		o.log.WarnWithFields("chain", "processSendFailedJob", "give up", reason,
-			logger.Fields{
-				"request_id":   requestId,
-				"num_attempts": job.GetFulfillmentAttempts(),
-			})
-
-		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+	if o.giveUpIfDue(job, fn) {
 		return
 	}
 
 	// finally, try to re-fetch data for fulfillment
 	o.processFulfillmentFetchData(job, currentBlockNum)
-
 }
 
 func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, currentBlockNum uint64) {
@@ -421,6 +411,20 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	fulfilTxHash := common.HexToHash(job.GetFulfillTxHash())
 	// check if it's pending
 	_, isPending, err := o.client.TransactionByHash(o.context, fulfilTxHash)
+
+	// Long after sending, the node knows nothing of the tx: it was dropped, so nothing will ever
+	// land for it and waiting would retry the lookup forever. Re-fetch and send afresh (or give up).
+	if isDroppedTx(err, lastFulfillSentBlockDiff) {
+		o.log.WarnWithFields("chain", "processPossiblyStuckSentTx", "get fulfill tx",
+			"fulfill tx dropped - neither mined nor pending",
+			logger.Fields{
+				"request_id": requestId,
+				"tx_hash":    job.GetFulfillTxHash(),
+				"block_diff": lastFulfillSentBlockDiff,
+			})
+		o.refetchAfterFailure(job, currentBlockNum, "processPossiblyStuckSentTx", job.GetFulfillTxHash(), job.GetFulfillGasPrice(), "tx dropped")
+		return
+	}
 
 	if err != nil {
 		// possibly not in Tx pool yet
@@ -508,14 +512,7 @@ func (o *OoORouterService) processPossiblyStuckSentTx(job models.DataRequests, c
 	_ = o.db.InsertNewFailedFulfilment(o.networkId, requestId, fulfilTxHash.Hex(), failedGasUsed, failedGasPrice, failReason)
 
 	// at some point, we just have to stop trying...
-	if giveUp, reason := o.shouldGiveUp(job); giveUp {
-		o.log.WarnWithFields("chain", "processPossiblyStuckSentTx", "give up", reason,
-			logger.Fields{
-				"request_id":   requestId,
-				"num_attempts": job.GetFulfillmentAttempts(),
-			})
-
-		_ = o.db.UpdateRequestStatus(o.networkId, requestId, models.REQUEST_STATUS_FULFILMENT_FAILED, reason)
+	if o.giveUpIfDue(job, "processPossiblyStuckSentTx") {
 		return
 	}
 
