@@ -38,12 +38,13 @@ func TestBuildModulesFromManifest(t *testing.T) {
 		mfSource("eth", "uniswap_v2", "univ2", paidEp("https://gw/{API_KEY}/v2")),
 		mfSource("eth", "uniswap_v3", "univ3", paidEp("https://gw/{API_KEY}/v3")),
 		mfSource("arbitrum", "sushiswap", "messari", paidEp("https://gw/{API_KEY}/messari")),
+		mfSource("avax", "pharaoh_v3", "univ3sqrt", paidEp("https://gw/{API_KEY}/sqrt")),
 		mfSource("eth", "mystery", "custom", paidEp("https://gw/{API_KEY}/x")), // unknown family -> skip
 		mfSource("eth", "paidonly", "univ2"),                                   // no endpoints -> skip
 	}}
 
 	mods := BuildModulesFromManifest(cfg, m)
-	require.Len(t, mods, 3) // the "custom" + endpoint-less sources are skipped
+	require.Len(t, mods, 4) // the "custom" + endpoint-less sources are skipped
 
 	v2, ok := moduleByName(mods, "eth_uniswap_v2")
 	require.True(t, ok)
@@ -60,6 +61,12 @@ func TestBuildModulesFromManifest(t *testing.T) {
 
 	_, ok = moduleByName(mods, "arbitrum_sushiswap")
 	require.True(t, ok) // messari family recognised + built
+
+	sqrt, ok := moduleByName(mods, "avax_pharaoh_v3")
+	require.True(t, ok)
+	pairs, err := sqrt.FetchPairsMetadata("0xabc")
+	require.NoError(t, err)
+	require.Nil(t, pairs) // univ3sqrt has no liquidity to refresh: no query, the feed's reserves stand
 
 	_, ok = moduleByName(mods, "eth_mystery")
 	require.False(t, ok) // unknown "custom" family skipped

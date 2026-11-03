@@ -27,6 +27,8 @@ func schemaFamilyFor(schemaFamily, chain string) (SchemaFamily, bool) {
 		return uniswap.New(uniswap.V2), true
 	case "univ3":
 		return uniswap.New(uniswap.V3), true
+	case "univ3sqrt":
+		return uniswap.New(uniswap.V3Sqrt), true
 	case "univ4":
 		return univ4.New(chain), true
 	case "messari":
