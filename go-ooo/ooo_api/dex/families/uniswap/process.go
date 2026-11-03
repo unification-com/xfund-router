@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"strconv"
 
 	"go-ooo/ooo_api/dex/types"
 	"go-ooo/utils"
@@ -75,7 +77,7 @@ func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, r
 	var order []string // preserve first-seen pool order for deterministic output
 	for i := uint64(0); i < numQueries; i++ {
 		for _, pair := range decoded.Data[fmt.Sprintf("p%d", i)] {
-			price, err := priceFor(base, target, pair)
+			price, err := f.priceFor(base, target, pair)
 			if err != nil {
 				return nil, err
 			}
@@ -97,10 +99,16 @@ func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, r
 }
 
 // priceFor picks token1Price when (base,target) matches (token0,token1) and token0Price
-// otherwise - the same convention as the hand-written modules.
-func priceFor(base, target string, pair pricePair) (float64, error) {
+// otherwise - the same convention as the hand-written modules. A sqrtPrice schema has neither
+// field, so the same choice is made on prices derived from sqrtPrice.
+func (f Family) priceFor(base, target string, pair pricePair) (float64, error) {
+	forward := base == pair.Token0.Symbol && target == pair.Token1.Symbol
+	if f.params.SqrtPrice {
+		return sqrtPriceFor(pair, forward)
+	}
+
 	raw := pair.Token0Price
-	if base == pair.Token0.Symbol && target == pair.Token1.Symbol {
+	if forward {
 		raw = pair.Token1Price
 	}
 
@@ -111,4 +119,59 @@ func priceFor(base, target string, pair pricePair) (float64, error) {
 
 	price, _ := bf.Float64()
 	return price, nil
+}
+
+// q96 is 2^96, the fixed-point scale of a Uniswap-v3-style sqrtPriceX96.
+var q96 = new(big.Float).SetInt(new(big.Int).Lsh(big.NewInt(1), 96))
+
+// sqrtPriceFor derives token1Price (forward) or token0Price from a pool's sqrtPrice, which is
+// sqrt(token1/token0) in raw token units as a Q64.96 fixed-point number:
+//
+//	token1 per token0 = (sqrtPrice / 2^96)^2 x 10^(decimals0 - decimals1)
+//
+// A pool with no price yet (sqrtPrice 0) yields 0, which the caller drops.
+func sqrtPriceFor(pair pricePair, forward bool) (float64, error) {
+	sqrtPrice, err := utils.ParseBigFloat(pair.SqrtPrice)
+	if err != nil {
+		return 0, err
+	}
+	dec0, err := tokenDecimals(pair.Token0)
+	if err != nil {
+		return 0, err
+	}
+	dec1, err := tokenDecimals(pair.Token1)
+	if err != nil {
+		return 0, err
+	}
+	if sqrtPrice.Sign() <= 0 {
+		return 0, nil
+	}
+
+	ratio := new(big.Float).Quo(sqrtPrice, q96)
+	price := new(big.Float).Mul(ratio, ratio)
+	shift := dec0 - dec1
+	if shift < 0 {
+		shift = -shift
+	}
+	scale := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(shift)), nil))
+	if dec0 >= dec1 {
+		price.Mul(price, scale)
+	} else {
+		price.Quo(price, scale)
+	}
+	if !forward {
+		price.Quo(new(big.Float).SetInt64(1), price)
+	}
+
+	p, _ := price.Float64()
+	return p, nil
+}
+
+// tokenDecimals parses a token's ERC-20 decimals, which fit a uint8.
+func tokenDecimals(t priceToken) (int, error) {
+	d, err := strconv.ParseUint(t.Decimals, 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("token %s decimals %q: %w", t.Symbol, t.Decimals, err)
+	}
+	return int(d), nil
 }

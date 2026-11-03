@@ -9,8 +9,13 @@ import (
 // GeneratePairsQuery builds the metadata query for a batch of pair/pool contract
 // addresses. The entity name and liquidity field are taken from the family's Params so the
 // one query template serves both the v2 (pairs/reserveUSD) and v3 (pools/totalValueLockedUSD)
-// schemas.
+// schemas. A schema with no liquidity field (V3Sqrt) has nothing to refresh, so it returns a nil
+// query and the source keeps the reserves from the dex-pair-verify feed.
 func (f Family) GeneratePairsQuery(contractAddresses string) ([]byte, error) {
+	if f.params.LiquidityField == "" {
+		return nil, nil
+	}
+
 	c := strings.ToLower(contractAddresses)
 
 	jsonData := map[string]string{
@@ -40,12 +45,17 @@ func (f Family) GeneratePairsQuery(contractAddresses string) ([]byte, error) {
 func (f Family) GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error) {
 	c := strings.ToLower(pairContractAddress)
 
-	baseQuery := `
+	// A sqrtPrice schema has no token0Price/token1Price; it is priced from sqrtPrice and the
+	// token decimals instead.
+	tokenFields, priceFields := "id name symbol", "token0Price token1Price"
+	if f.params.SqrtPrice {
+		tokenFields, priceFields = "id name symbol decimals", "sqrtPrice"
+	}
+	baseQuery := fmt.Sprintf(`
                 id
-                token0 { id name symbol }
-                token1 { id name symbol }
-                token0Price
-                token1Price`
+                token0 { %[1]s }
+                token1 { %[1]s }
+                %[2]s`, tokenFields, priceFields)
 
 	queries := make(map[string]string)
 

@@ -2,6 +2,7 @@ package uniswap
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 )
@@ -219,5 +220,98 @@ func TestProcessDexPricesResult_MalformedDoesNotPanic(t *testing.T) {
 	_, err := New(V2).ProcessDexPricesResult("WETH", "USDC", 1, fixture)
 	if err == nil {
 		t.Fatal("expected an error for the empty price string, got nil")
+	}
+}
+
+func TestGeneratePairsQuery_SqrtHasNoMetadataQuery(t *testing.T) {
+	// No liquidity field to refresh: the source keeps the dex-pair-verify feed's reserves.
+	q, err := New(V3Sqrt).GeneratePairsQuery(`"0xabc"`)
+	if err != nil || q != nil {
+		t.Fatalf("V3Sqrt GeneratePairsQuery = %q, %v; want nil, nil", q, err)
+	}
+}
+
+func TestGenerateDexPricesQuery_SqrtFields(t *testing.T) {
+	raw, _, err := New(V3Sqrt).GenerateDexPricesQuery(`"0xabc"`, 1, 1000, 10)
+	if err != nil {
+		t.Fatalf("GenerateDexPricesQuery: %v", err)
+	}
+	q := queryText(t, raw)
+	for _, want := range []string{"pools(", "sqrtPrice", "decimals"} {
+		if !strings.Contains(q, want) {
+			t.Errorf("sqrtPrice query should contain %q, got: %s", want, q)
+		}
+	}
+	if strings.Contains(q, "token0Price") {
+		t.Errorf("sqrtPrice query should not request token0Price, got: %s", q)
+	}
+}
+
+// within reports whether got is within a relative tolerance of want.
+func within(got, want float64) bool {
+	return math.Abs(got-want) <= 1e-12*math.Abs(want)
+}
+
+func TestProcessDexPricesResult_SqrtPrice(t *testing.T) {
+	// A live Pharaoh v3 (Avalanche) WAVAX/USDC pool, 3 Nov 2026: 8.5250 USDC per WAVAX derived
+	// from sqrtPrice, against GeckoTerminal's 8.5194 for the same pool.
+	fixture := []byte(`{"data":{"p0":[{
+		"id":"0xf01449c0ba930b6e2caca3def3ccbd7a3e589534",
+		"token0":{"symbol":"WAVAX","decimals":"18"},"token1":{"symbol":"USDC","decimals":"6"},
+		"sqrtPrice":"231326762176403495006056"
+	}]}}`)
+
+	cases := []struct {
+		base, target string
+		want         float64
+	}{
+		{"WAVAX", "USDC", 8.524964729717242},
+		{"USDC", "WAVAX", 0.11730253809896622},
+	}
+	for _, c := range cases {
+		got, err := New(V3Sqrt).ProcessDexPricesResult(c.base, c.target, 1, fixture)
+		if err != nil {
+			t.Fatalf("%s/%s ProcessDexPricesResult: %v", c.base, c.target, err)
+		}
+		if len(got) != 1 || len(got[0].Prices) != 1 || !within(got[0].Prices[0], c.want) {
+			t.Errorf("%s/%s = %+v, want [%v]", c.base, c.target, got, c.want)
+		}
+	}
+}
+
+func TestSqrtPriceFor(t *testing.T) {
+	// sqrtPrice 2^96 is a raw price of 1, so token1 per token0 is 10^(decimals0 - decimals1).
+	const one = "79228162514264337593543950336"
+	pair := func(dec0, dec1, sqrtPrice string) pricePair {
+		return pricePair{
+			Token0:    priceToken{Symbol: "A", Decimals: dec0},
+			Token1:    priceToken{Symbol: "B", Decimals: dec1},
+			SqrtPrice: sqrtPrice,
+		}
+	}
+
+	for _, c := range []struct {
+		name       string
+		dec0, dec1 string
+		forward    bool
+		want       float64
+	}{
+		{"token0 has more decimals", "18", "6", true, 1e12},
+		{"token1 has more decimals", "6", "18", true, 1e-12},
+		{"inverse", "6", "18", false, 1e12},
+	} {
+		got, err := sqrtPriceFor(pair(c.dec0, c.dec1, one), c.forward)
+		if err != nil || !within(got, c.want) {
+			t.Errorf("%s: got %v, %v; want %v", c.name, got, err, c.want)
+		}
+	}
+
+	if got, err := sqrtPriceFor(pair("18", "18", "0"), true); err != nil || got != 0 {
+		t.Errorf("unpriced pool: got %v, %v; want 0, nil", got, err)
+	}
+	for _, dec := range []string{"", "256", "-1"} {
+		if _, err := sqrtPriceFor(pair(dec, "18", one), true); err == nil {
+			t.Errorf("decimals %q: expected an error", dec)
+		}
 	}
 }

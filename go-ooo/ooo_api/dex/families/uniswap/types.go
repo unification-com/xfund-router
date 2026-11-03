@@ -45,7 +45,8 @@ type pairsResponse struct {
 // typed structs (rather than map[string]any + type assertions) removes the class of
 // unchecked-assertion panics that previously crashed the price goroutine on a partial reply.
 type priceToken struct {
-	Symbol string `json:"symbol"`
+	Symbol   string `json:"symbol"`
+	Decimals string `json:"decimals"` // sqrtPrice schemas only
 }
 
 type pricePair struct {
@@ -54,6 +55,7 @@ type pricePair struct {
 	Token1      priceToken `json:"token1"`
 	Token0Price string     `json:"token0Price"`
 	Token1Price string     `json:"token1Price"`
+	SqrtPrice   string     `json:"sqrtPrice"` // sqrtPrice schemas only
 }
 
 type pricesResponse struct {

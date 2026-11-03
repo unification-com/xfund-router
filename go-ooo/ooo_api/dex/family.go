@@ -18,6 +18,8 @@ import (
 // the manifest builder is required. This is the pluggability seam the modular-dispatch work
 // exists to provide.
 type SchemaFamily interface {
+	// GeneratePairsQuery returns a nil query when the schema reports no pool liquidity; the
+	// source then keeps the reserves from the dex-pair-verify feed, as a Cosmos source does.
 	GeneratePairsQuery(contractAddresses string) ([]byte, error)
 	ProcessPairsQueryResult(result []byte) ([]types.DexPair, error)
 	GenerateDexPricesQuery(pairContractAddress string, minutes, currentBlock, blocksPerMin uint64) ([]byte, uint64, error)
@@ -104,10 +106,11 @@ func (m FamilyModule) FetchPoolPrices(base, target string, dexInfo DexInfo, minu
 
 // FetchPairsMetadata is the PriceSource transport seam for the metadata refresh: generate the pairs
 // query -> POST to the subgraph -> parse. A nil response is reported as an error so the caller skips
-// the source for this cycle, matching the previous inline behaviour.
+// the source for this cycle, matching the previous inline behaviour. A family with no metadata
+// query (see SchemaFamily) refreshes nothing.
 func (m FamilyModule) FetchPairsMetadata(contractAddresses string) ([]types.DexPair, error) {
 	query, err := m.GeneratePairsQuery(contractAddresses)
-	if err != nil {
+	if err != nil || query == nil {
 		return nil, err
 	}
 	raw, err := runQuery(query, m.subgraphUrl)
