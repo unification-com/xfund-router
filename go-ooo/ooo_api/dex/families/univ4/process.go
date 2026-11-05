@@ -23,9 +23,9 @@ func (f Family) ProcessPairsQueryResult(result []byte) ([]types.DexPair, error) 
 
 	var pairs []types.DexPair
 	for _, pool := range decoded.Data[entity] {
-		if isHooked(pool.Hooks) {
-			// A hooked pool's price may be non-canonical/manipulable - never store it as a
-			// priceable pair (oracle hooks-safety policy: no-hook pools only for now).
+		if actsOnSwaps(pool.Hooks) {
+			// A hook that acts on swaps can make the price non-canonical/manipulable - never store
+			// the pool as a priceable pair (oracle hooks-safety policy).
 			continue
 		}
 		pairs = append(pairs, types.DexPair{
@@ -71,7 +71,7 @@ func (f Family) ProcessDexPricesResult(base, target string, numQueries uint64, r
 	var order []string // preserve first-seen pool order for deterministic output
 	for i := uint64(0); i < numQueries; i++ {
 		for _, pool := range decoded.Data[fmt.Sprintf("p%d", i)] {
-			if isHooked(pool.Hooks) {
+			if actsOnSwaps(pool.Hooks) {
 				continue
 			}
 			price, err := f.priceFor(base, target, pool)
