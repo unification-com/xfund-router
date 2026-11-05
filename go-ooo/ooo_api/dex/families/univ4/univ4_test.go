@@ -99,20 +99,39 @@ func TestProcessPairsQueryResult_RealNoHookPool(t *testing.T) {
 	}
 }
 
-// A hooked pool must never be returned as a priceable pair (oracle hooks-safety policy). Real
-// captured response with one no-hook pool and one hooked pool (both genuine ETH/USDC v4 pools).
-func TestProcessPairsQueryResult_SkipsHooked(t *testing.T) {
+// A pool whose hook acts on swaps must never be returned as a priceable pair (oracle hooks-safety
+// policy); a no-hook pool and one whose hook has no swap permissions are. Real captured pools: a
+// no-hook and a beforeSwap-hooked ETH/USDC pool, plus a hook with only liquidity/init permissions.
+func TestProcessPairsQueryResult_SkipsSwapHooks(t *testing.T) {
 	fixture := []byte(`{"data":{"pools":[
 		{"id":"0xdce6","hooks":"0x0000000000000000000000000000000000000000","totalValueLockedUSD":"28210754","token0Price":"0.0006","token1Price":"1667.9","token0":{"id":"0x0000000000000000000000000000000000000000","symbol":"ETH"},"token1":{"id":"0xa0b8","symbol":"USDC"}},
-		{"id":"0x91438ef00ff5e0b85cd964aa4e9b28ed088943e0268df3ed762e54e60e5c3884","hooks":"0x13ba8523f62decaee6489464935fbd8c3f505080","totalValueLockedUSD":"270933","token0Price":"0.0006","token1Price":"1660.73","token0":{"id":"0x0000000000000000000000000000000000000000","symbol":"ETH"},"token1":{"id":"0xa0b8","symbol":"USDC"}}
+		{"id":"0x91438ef00ff5e0b85cd964aa4e9b28ed088943e0268df3ed762e54e60e5c3884","hooks":"0x13ba8523f62decaee6489464935fbd8c3f505080","totalValueLockedUSD":"270933","token0Price":"0.0006","token1Price":"1660.73","token0":{"id":"0x0000000000000000000000000000000000000000","symbol":"ETH"},"token1":{"id":"0xa0b8","symbol":"USDC"}},
+		{"id":"0x727b","hooks":"0x23ab2e6d4ab0c5f872567098671f1ffb46fd2500","totalValueLockedUSD":"48211","token0Price":"0.0006","token1Price":"1660.1","token0":{"id":"0x0000000000000000000000000000000000000000","symbol":"ETH"},"token1":{"id":"0xa0b8","symbol":"USDC"}}
 	]}}`)
 
 	pairs, err := New("eth").ProcessPairsQueryResult(fixture)
 	if err != nil {
 		t.Fatalf("ProcessPairsQueryResult: %v", err)
 	}
-	if len(pairs) != 1 || pairs[0].Id != "0xdce6" {
-		t.Errorf("expected only the no-hook pool, got %+v", pairs)
+	if len(pairs) != 2 || pairs[0].Id != "0xdce6" || pairs[1].Id != "0x727b" {
+		t.Errorf("expected the no-hook and the no-swap-permission pools, got %+v", pairs)
+	}
+}
+
+func TestActsOnSwaps(t *testing.T) {
+	for hooks, want := range map[string]bool{
+		"": false,
+		"0x0000000000000000000000000000000000000000": false,
+		"0x23ab2e6d4ab0c5f872567098671f1ffb46fd2500": false, // beforeInitialize, afterAdd/RemoveLiquidity only
+		"0xd53006d1e3110fd319a79aeec4c527a0d265e080": true,  // beforeSwap
+		"0x6b70fef40d3925881251c018164dbcec6bc94040": true,  // afterSwap
+		"0xbdf938149ac6a781f94faa0ed45e6a0e984c6544": true,  // afterSwap + afterSwapReturnDelta
+		"0x0000000000000000000000000000000000000008": true,  // beforeSwapReturnDelta alone
+		"0xnot-hex": true, // unreadable: unsafe
+	} {
+		if got := actsOnSwaps(hooks); got != want {
+			t.Errorf("actsOnSwaps(%q) = %v, want %v", hooks, got, want)
+		}
 	}
 }
 
